@@ -21,9 +21,10 @@ import { type CardAnchor, DOCK_PILL_SELECTOR, resolveCardAnchor } from "@/ui/car
 import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { computeCardPosition } from "@/ui/fader-position";
 import { createSpring } from "@/ui/spring";
-import type { Spring, SpringDeps, SpringMode } from "@/ui/spring";
+import type { Spring, SpringDeps } from "@/ui/spring";
 
 type FaderHost = "dock" | "bar";
+type Motion = "spring" | "instant";
 type GlyphKind = "mic" | "note";
 type GlyphLayerKind = GlyphKind | "busy";
 
@@ -123,6 +124,7 @@ function createGlyphStack(initialSize: number): GlyphStack {
 
 interface Track {
   track: HTMLDivElement;
+  clip: HTMLDivElement;
   fill: HTMLDivElement;
   thumb: HTMLDivElement;
 }
@@ -149,7 +151,7 @@ function createTrack(): Track {
   well.appendChild(clip);
   track.appendChild(well);
 
-  return { track, fill, thumb };
+  return { track, clip, fill, thumb };
 }
 
 // -- The control ---------------------------------------------------------------
@@ -178,7 +180,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   menu.setAttribute("role", "group");
   menu.setAttribute("aria-label", "Sing-along level");
 
-  const { track, fill, thumb } = createTrack();
+  const { track, clip, fill, thumb } = createTrack();
   const readout = document.createElement("div");
   readout.className = "blyrics-mix-readout";
 
@@ -284,9 +286,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   // -- Commit -----------------------------------------------------------------
 
-  function commit(mode: SpringMode, announce = true): void {
+  function commit(motion: Motion, announce = true): void {
     const frame = computeCommit(v);
-    paint.set(frame.effectiveValue, mode);
+    if (motion === "instant") paint.jump(frame.effectiveValue);
+    else paint.set(frame.effectiveValue);
     committedValue = frame.effectiveValue;
     syncActivePill();
     track.dataset.rest = String(frame.effectiveValue === 0);
@@ -396,7 +399,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     if (holdHandled) return;
     if (!isFaderInteractive(isMarkedDisabled())) return;
     v = v === 0 ? -1 : 0;
-    commit("settle");
+    commit("spring");
   });
   button.addEventListener("dblclick", () => {
     if (!isFaderInteractive(isMarkedDisabled())) return;
@@ -439,9 +442,9 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     track.setPointerCapture(event.pointerId);
 
     function apply(pointerEvent: PointerEvent): void {
-      const rect = track.getBoundingClientRect();
+      const rect = clip.getBoundingClientRect();
       v = valueFromPointerOffset(pointerEvent.clientY, rect.top, rect.height);
-      commit("drag");
+      commit("instant");
     }
     apply(event);
 
@@ -449,7 +452,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
       apply(pointerEvent);
     }
     function onPointerUp(): void {
-      commit("settle");
+      commit("spring");
       track.removeEventListener("pointermove", onPointerMove);
       track.removeEventListener("pointerup", onPointerUp);
     }
@@ -459,7 +462,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   track.addEventListener("dblclick", () => {
     v = 0;
-    commit("settle");
+    commit("spring");
   });
 
   track.addEventListener("keydown", event => {
@@ -469,10 +472,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     else if (event.key === "Home") v = 0;
     else return;
     event.preventDefault();
-    commit("settle");
+    commit("spring");
   });
 
-  commit("settle", false);
+  commit("spring", false);
   paint.jump(0);
 
   function setHost(next: FaderHost): void {
