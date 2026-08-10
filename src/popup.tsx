@@ -4,7 +4,12 @@ import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { formatBytes } from "@/settings/format-bytes";
 import { extensionVersion } from "@/shared/version";
 import { createSelect } from "@/settings/select";
-import { CACHE_BUDGET_PRESETS_BYTES, DEFAULT_SETTINGS, type FaderPlacement } from "@/settings/settings";
+import {
+  CACHE_BUDGET_PRESETS_BYTES,
+  CROSSFADE_PRESETS_SECONDS,
+  DEFAULT_SETTINGS,
+  type FaderPlacement,
+} from "@/settings/settings";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
 import {
   type ClearModelCacheCommand,
@@ -262,6 +267,38 @@ function createFaderPlacementRow(
   return { row, setValue: select.setValue };
 }
 
+// -- Crossfade length row ------------------------------------------------------
+
+function describeCrossfade(seconds: number): string {
+  return seconds === 0 ? "Off" : `${seconds}s`;
+}
+
+function createCrossfadeRow(
+  presets: readonly number[],
+  initialSeconds: number,
+  onChange: (next: number) => void
+): { row: HTMLElement; setValue(value: number): void } {
+  const row = createElement("div", "blk-row");
+  const { text, labelId } = createTextRow(
+    "Crossfade",
+    "Blend the end of one separated track into the start of the next. Takes effect immediately, except during a fade already under way."
+  );
+
+  const select = createSelect<string>(
+    presets.map(seconds =>
+      seconds === 0
+        ? { value: "0", label: "Off", note: "hard cut" }
+        : { value: String(seconds), label: describeCrossfade(seconds) }
+    ),
+    String(presets[closestPresetIndex(presets, initialSeconds)]),
+    value => onChange(Number(value)),
+    labelId
+  );
+
+  row.append(text, select.element);
+  return { row, setValue: value => select.setValue(String(value)) };
+}
+
 // -- Better Lyrics presence ----------------------------------------------------
 
 async function probeBetterLyrics(): Promise<boolean> {
@@ -382,6 +419,14 @@ async function main(): Promise<void> {
     faderPlacementRow.row.hidden = !present;
   });
 
+  const crossfadeRow = createCrossfadeRow(CROSSFADE_PRESETS_SECONDS, settings.crossfadeSeconds, next => {
+    saveSettingsFrom(chrome.storage.sync, { crossfadeSeconds: next }).catch(error => {
+      console.error(`${LOG_PREFIX} failed to save the crossfade length`, error);
+      showStatus("Could not save that change.");
+      crossfadeRow.setValue(settings.crossfadeSeconds);
+    });
+  });
+
   const budgetSlider = createBudgetSlider(CACHE_BUDGET_PRESETS_BYTES, settings.cacheBudgetBytes, bytes => {
     saveSettingsFrom(chrome.storage.sync, { cacheBudgetBytes: bytes })
       .then(() => refreshCacheStatus())
@@ -403,6 +448,7 @@ async function main(): Promise<void> {
     singAlongToggle.row,
     autoSeparateToggle.row,
     faderPlacementRow.row,
+    crossfadeRow.row,
     modelVariantRow.row,
     budgetSlider.row,
     stemRow.row,

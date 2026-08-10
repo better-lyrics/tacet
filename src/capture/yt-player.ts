@@ -21,6 +21,7 @@ interface YtPlayer {
   setAutonavState?: (state: number) => void;
   setLoopVideo?: (enabled: boolean) => void;
   clearQueue?: () => void;
+  nextVideo?: () => void;
 }
 
 // YT.PlayerState.PLAYING
@@ -77,7 +78,14 @@ function isPlaying(player: YtPlayer): boolean {
   }
 }
 
+function advanceToNextTrack(doc: Document): boolean {
+  const player = getYtPlayer(doc);
+  if (!player) return false;
+  return callSafely("nextVideo", player.nextVideo && (() => player.nextVideo?.()));
+}
+
 export {
+  advanceToNextTrack,
   getYtPlayer,
   suppressAutoAdvance,
   callSafely,

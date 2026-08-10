@@ -317,7 +317,72 @@ describe("failed", () => {
   });
 });
 
+describe("crossfaded", () => {
+  const engaged: KaraokeState = {
+    status: "engaged",
+    videoId: "video-1",
+    stage: null,
+    processed: 7,
+    total: 7,
+    reason: null,
+    downloadFraction: 0,
+    downloadSource: "listener-playback",
+  };
+
+  it("lands on the new track already engaged, since its stems are in the deck", () => {
+    const next = reduceKaraokeState(engaged, { type: "crossfaded", videoId: "video-2" });
+    expect(next.status).toBe("engaged");
+    expect(next.videoId).toBe("video-2");
+  });
+
+  it("clears the previous track's progress, stage and reason", () => {
+    const failed: KaraokeState = { ...engaged, status: "failed", stage: "separating", reason: "boom" };
+    const next = reduceKaraokeState(failed, { type: "crossfaded", videoId: "video-2" });
+    expect(next).toEqual({ ...initialKaraokeState("video-2"), status: "engaged" });
+  });
+
+  describe("edge cases", () => {
+    it("is accepted from any prior status, because the fade does not consult it", () => {
+      for (const status of ["waiting-for-capture", "ready-to-engage", "processing", "engaged", "failed"] as const) {
+        const next = reduceKaraokeState({ ...engaged, status }, { type: "crossfaded", videoId: "video-2" });
+        expect(next.status).toBe("engaged");
+      }
+    });
+
+    it("still engages when the videoId did not actually change", () => {
+      const next = reduceKaraokeState({ ...engaged, status: "failed" }, { type: "crossfaded", videoId: "video-1" });
+      expect(next.status).toBe("engaged");
+      expect(next.videoId).toBe("video-1");
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a crossfade never leaves the fader shimmering as if it were still working", () => {
+      const processing: KaraokeState = { ...engaged, status: "processing", stage: "separating" };
+      const next = reduceKaraokeState(processing, { type: "crossfaded", videoId: "video-2" });
+      expect(next.status).toBe("engaged");
+      expect(next.stage).toBeNull();
+    });
+  });
+});
+
 describe("invariants", () => {
+  it("a crossfade and a plain track change agree on everything but status", () => {
+    const engaged: KaraokeState = {
+      status: "engaged",
+      videoId: "video-1",
+      stage: "separating",
+      processed: 3,
+      total: 9,
+      reason: "old",
+      downloadFraction: 0.5,
+      downloadSource: "hidden-player",
+    };
+    const changed = reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" });
+    const crossfaded = reduceKaraokeState(engaged, { type: "crossfaded", videoId: "video-2" });
+    expect({ ...crossfaded, status: changed.status }).toEqual(changed);
+  });
+
   it("processed and total are always zero immediately after a track change", () => {
     const engaged: KaraokeState = {
       status: "engaged",

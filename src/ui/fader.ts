@@ -50,6 +50,7 @@ interface FaderControl {
   getHost(): FaderHost;
   setHost(next: FaderHost): void;
   setBusy(busy: boolean): void;
+  showCrossfade(durationSeconds: number): void;
   destroy(): void;
 }
 
@@ -476,6 +477,31 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   commit("settle", false);
   paint.jump(0);
 
+  // -- Crossfade wipe ---------------------------------------------------------
+
+  let wipe: HTMLSpanElement | null = null;
+  let wipeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearWipe(): void {
+    if (wipeTimer !== null) clearTimeout(wipeTimer);
+    wipeTimer = null;
+    wipe?.remove();
+    wipe = null;
+  }
+
+  function showCrossfade(durationSeconds: number): void {
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return;
+    clearWipe();
+
+    const band = document.createElement("i");
+    wipe = document.createElement("span");
+    wipe.className = "blyrics-sing__wipe";
+    wipe.style.setProperty("--fade-ms", `${Math.round(durationSeconds * 1000)}ms`);
+    wipe.appendChild(band);
+    button.appendChild(wipe);
+    wipeTimer = setTimeout(clearWipe, durationSeconds * 1000);
+  }
+
   function setHost(next: FaderHost): void {
     host = next;
     stack.setSize(glyphSizeFor(next));
@@ -493,12 +519,13 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     disabledObserver.disconnect();
     stopWatchingDockCollapse();
     clearHold();
+    clearWipe();
     if (hideTimer !== null) clearTimeout(hideTimer);
     menu.remove();
     button.remove();
   }
 
-  return { button, menu, getHost: () => host, setHost, setBusy, destroy };
+  return { button, menu, getHost: () => host, setHost, setBusy, showCrossfade, destroy };
 }
 
 export { createFaderControl };

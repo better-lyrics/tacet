@@ -57,6 +57,7 @@ interface PlaybackGraph {
   stopStems(): void;
   resumeStems(): void;
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
+  abortCrossfade(reason: string): boolean;
   isEngaged(): boolean;
   dispose(): void;
   // What actually reached Web Audio, not what the pipeline believes it sent.
@@ -76,12 +77,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     createDeck({ context, output: listenerVolumeNode }),
   ];
   let activeDeck: 0 | 1 = 0;
-  let crossfadeEndsAtContextTime = 0;
+  let crossfade: { outgoingDeck: 0 | 1; endsAtContextTime: number } | null = null;
   decks[1].setGain(0);
 
   const deck = (): Deck => decks[activeDeck];
   const idleDeck = (): Deck => decks[activeDeck === 0 ? 1 : 0];
-  const isCrossfading = (): boolean => context.currentTime < crossfadeEndsAtContextTime;
+  const isCrossfading = (): boolean => crossfade !== null && context.currentTime < crossfade.endsAtContextTime;
 
   const originalGainNode = context.createGain();
   originalGainNode.gain.value = 1;
@@ -134,6 +135,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function stopDeck(): void {
+    if (abortCrossfade("the listener paused mid fade")) return;
     deck().stop();
   }
 
@@ -191,6 +193,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function stopStems(): void {
+    if (abortCrossfade("the stems were released mid fade")) return;
     bypass.enterBypass();
   }
 
@@ -226,13 +229,32 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "in"), startsAt, request.durationSeconds);
     outgoing.stopAt(endsAt);
 
-    crossfadeEndsAtContextTime = endsAt;
+    crossfade = { outgoingDeck: activeDeck, endsAtContextTime: endsAt };
     activeDeck = activeDeck === 0 ? 1 : 0;
     logger.log(`crossfading over ${request.durationSeconds.toFixed(2)} s, deck ${activeDeck} takes over`);
     return { kind: "scheduled", startsAt, endsAt };
   }
 
+  // A fade that never completes leaves both decks holding a ramp and the
+  // wrong one active, so unwinding it is one operation rather than a recovery
+  // per caller.
+  function abortCrossfade(reason: string): boolean {
+    if (!isCrossfading() || crossfade === null) return false;
+    logger.warn(`crossfade aborted, ${reason}`);
+
+    activeDeck = crossfade.outgoingDeck;
+    crossfade = null;
+    for (const each of decks) {
+      each.gainParam().cancelScheduledValues(context.currentTime);
+      each.setGain(1);
+      each.stop();
+    }
+    bypass.enterBypass();
+    return true;
+  }
+
   function dispose(): void {
+    crossfade = null;
     for (const each of decks) each.dispose();
     element.removeEventListener("volumechange", syncListenerVolume);
 
@@ -281,6 +303,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     stopStems,
     resumeStems,
     crossfadeTo,
+    abortCrossfade,
     isEngaged: () => !bypass.isBypassed(),
     dispose,
     describe,

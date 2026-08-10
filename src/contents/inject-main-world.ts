@@ -1,5 +1,8 @@
 import type { PlasmoCSConfig } from "plasmo";
+import { DECODE_LEAD_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
+import type { StagedState } from "@/automix/transition-cue";
 import { isAdPlaying } from "@/capture/ad-state";
+import { advanceToNextTrack } from "@/capture/yt-player";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
@@ -7,7 +10,17 @@ import { startPlayerBridge } from "@/pageworld/player-bridge";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { currentPlayerSnapshot, playerVideoElement } from "@/pageworld/player-state";
-import { isLoadStemsMessage, isSetMixLevelMessage, isStopStemsMessage } from "@/pageworld/protocol";
+import {
+  type CrossfadeStartedMessage,
+  type RequestStagedDeckMessage,
+  isLoadStemsMessage,
+  isSetCrossfadeMessage,
+  isSetMixLevelMessage,
+  isStageDeckMessage,
+  isStagedReadyMessage,
+  isStopStemsMessage,
+} from "@/pageworld/protocol";
+import { DEFAULT_SETTINGS, isValidCrossfadeSeconds } from "@/settings/settings";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("page");
@@ -38,6 +51,15 @@ let pendingMixLevel = 1;
 let pendingStems: LoadedStems | null = null;
 let engagedStems: LoadedStems | null = null;
 let lastAction: EngagementAction = "idle";
+
+// Overwritten by blk-set-crossfade the moment the fader mounts, and again on
+// every settings change. Read at schedule time, so a change lands on the next
+// fade rather than distorting one already in flight.
+let crossfadeSeconds = DEFAULT_SETTINGS.crossfadeSeconds;
+
+let stagedVideoId: string | null = null;
+let stagedState: StagedState = "none";
+let stagedStems: Pick<LoadedStems, "vocals" | "instrumental" | "sampleRate"> | null = null;
 
 logger.log("karaoke page world ready");
 
@@ -182,6 +204,83 @@ window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
   };
 };
 
+// -- Transition into the staged track ----------------------------------------
+
+function clearStaging(): void {
+  stagedVideoId = null;
+  stagedState = "none";
+  stagedStems = null;
+}
+
+function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMessage): void {
+  window.postMessage(message, window.location.origin);
+}
+
+function startCrossfade(graph: PlaybackGraph): void {
+  const videoId = stagedVideoId;
+  const stems = stagedStems;
+  if (videoId === null || stems === null) return;
+
+  const durationSeconds = (stems.vocals[0]?.length ?? 0) / stems.sampleRate;
+  const result = graph.crossfadeTo({
+    vocals: stems.vocals,
+    instrumental: stems.instrumental,
+    sampleRate: stems.sampleRate,
+    durationSeconds: crossfadeSeconds,
+    incomingOffsetSeconds: 0,
+  });
+  clearStaging();
+
+  if (result.kind === "refused") {
+    logger.warn(`no transition into ${videoId}, ${result.reason}`);
+    return;
+  }
+
+  // The deck now carries the next track, so the engagement bookkeeping has to
+  // follow it across before the player is told to advance.
+  pendingStems = { videoId, ...stems, durationSeconds };
+  engagedStems = pendingStems;
+  awaitingReconfirmation = false;
+
+  postToIsolated({ type: "blk-crossfade-started", videoId, durationSeconds: crossfadeSeconds });
+  setTimeout(
+    () => {
+      if (!graph.describe().crossfading) return;
+      if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
+    },
+    (crossfadeSeconds / 2) * 1000
+  );
+}
+
+function runTransitionCue(graph: PlaybackGraph): boolean {
+  if (crossfadeSeconds <= 0) return false;
+  const state = graph.describe();
+  const active = state.decks[state.activeDeck];
+  const cue = decideTransitionCue({
+    remainingSeconds: active.durationSeconds - active.positionSeconds,
+    fadeSeconds: crossfadeSeconds,
+    decodeLeadSeconds: DECODE_LEAD_SECONDS,
+    staged: stagedState,
+    crossfading: state.crossfading,
+  });
+
+  if (cue.kind === "wait") return state.crossfading;
+  if (cue.kind === "skip") {
+    logger.warn(`no transition into ${stagedVideoId}, ${cue.reason}`);
+    clearStaging();
+    return false;
+  }
+  if (cue.kind === "decode") {
+    if (stagedVideoId === null) return false;
+    stagedState = "decoding";
+    postToIsolated({ type: "blk-request-staged-deck", videoId: stagedVideoId });
+    return false;
+  }
+
+  startCrossfade(graph);
+  return true;
+}
+
 function discardGraph(): void {
   if (!cachedGraph) return;
   cachedGraph.stopStems();
@@ -238,6 +337,10 @@ function targetPosition(stems: LoadedStems): TargetPosition {
 }
 
 function reconcile(): void {
+  // A fade owns both decks and the player clock still belongs to the outgoing
+  // track, so every engagement judgement below would misread it.
+  if (cachedGraph && runTransitionCue(cachedGraph)) return;
+
   const stems = pendingStems;
   if (!stems) return;
 
@@ -304,6 +407,9 @@ startPlayerBridge();
 document.addEventListener(
   "emptied",
   () => {
+    // Our own midpoint advance empties the element, and the deck it would send
+    // us back to reconfirm against is already playing the track that caused it.
+    if (cachedGraph?.describe().crossfading) return;
     awaitingReconfirmation = true;
     reconcile();
   },
@@ -339,7 +445,35 @@ window.addEventListener("message", event => {
     return;
   }
 
+  if (isSetCrossfadeMessage(data)) {
+    if (!isValidCrossfadeSeconds(data.seconds)) {
+      logger.warn(`ignoring an out-of-range crossfade length of ${data.seconds}`);
+      return;
+    }
+    crossfadeSeconds = data.seconds;
+    if (crossfadeSeconds === 0) clearStaging();
+    logger.log(`crossfade set to ${crossfadeSeconds === 0 ? "off" : `${crossfadeSeconds} s`}`);
+    return;
+  }
+
+  if (isStagedReadyMessage(data)) {
+    stagedVideoId = data.videoId;
+    stagedState = "encoded";
+    stagedStems = null;
+    logger.log(`${data.videoId} is staged, a transition into it is possible`);
+    return;
+  }
+
+  if (isStageDeckMessage(data)) {
+    if (data.videoId !== stagedVideoId) return;
+    stagedStems = { vocals: data.vocals, instrumental: data.instrumental, sampleRate: data.sampleRate };
+    stagedState = "ready";
+    logger.log(`${data.videoId} decoded into the idle deck, ready to fade`);
+    return;
+  }
+
   if (isStopStemsMessage(data)) {
+    clearStaging();
     pendingStems = null;
     engagedStems = null;
     cachedGraph?.stopStems();

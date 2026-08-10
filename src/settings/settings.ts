@@ -24,6 +24,16 @@ function isFaderPlacement(value: unknown): value is FaderPlacement {
   return typeof value === "string" && FADER_PLACEMENTS.includes(value as FaderPlacement);
 }
 
+// -- Crossfade length ------------------------------------------------------------
+
+// Zero is the off switch, so the listener can keep hard cuts.
+const CROSSFADE_PRESETS_SECONDS: readonly number[] = [0, 4, 6, 8, 12];
+const MAX_CROSSFADE_SECONDS = 20;
+
+function isValidCrossfadeSeconds(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_CROSSFADE_SECONDS;
+}
+
 // -- Settings shape -------------------------------------------------------------
 
 interface Settings {
@@ -32,6 +42,7 @@ interface Settings {
   cacheBudgetBytes: number;
   modelVariant: ModelVariant;
   faderPlacement: FaderPlacement;
+  crossfadeSeconds: number;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -40,6 +51,7 @@ const DEFAULT_SETTINGS: Settings = {
   cacheBudgetBytes: DEFAULT_BUDGET_BYTES,
   modelVariant: DEFAULT_MODEL_VARIANT,
   faderPlacement: "dock",
+  crossfadeSeconds: 8,
 };
 
 // -- Validation -----------------------------------------------------------------
@@ -68,6 +80,9 @@ function sanitizeSettings(raw: unknown): Settings {
       : DEFAULT_SETTINGS.cacheBudgetBytes,
     modelVariant: isModelVariant(record.modelVariant) ? record.modelVariant : DEFAULT_SETTINGS.modelVariant,
     faderPlacement: isFaderPlacement(record.faderPlacement) ? record.faderPlacement : DEFAULT_SETTINGS.faderPlacement,
+    crossfadeSeconds: isValidCrossfadeSeconds(record.crossfadeSeconds)
+      ? record.crossfadeSeconds
+      : DEFAULT_SETTINGS.crossfadeSeconds,
   };
 }
 
@@ -82,10 +97,13 @@ export {
   MIN_CACHE_BUDGET_BYTES,
   MAX_CACHE_BUDGET_BYTES,
   CACHE_BUDGET_PRESETS_BYTES,
+  CROSSFADE_PRESETS_SECONDS,
+  MAX_CROSSFADE_SECONDS,
   FADER_PLACEMENTS,
   DEFAULT_SETTINGS,
   isFaderPlacement,
   isValidCacheBudgetBytes,
+  isValidCrossfadeSeconds,
   sanitizeSettings,
   shouldEvictForNewBudget,
 };
