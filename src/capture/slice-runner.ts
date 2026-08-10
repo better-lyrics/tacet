@@ -3,9 +3,10 @@ import { isAdPlaying } from "@/capture/ad-state";
 import type { SliceCapturedMessage } from "@/capture/bridge-protocol";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { bufferedRangeEnd, bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
+import { frameTrackDuration } from "@/capture/frame-duration";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
-import { callSafely, getYtPlayer, suppressAutoAdvance } from "@/capture/yt-player";
+import { callSafely, getYtPlayer, readPlayerDuration, suppressAutoAdvance } from "@/capture/yt-player";
 import type { WorkerAssignment } from "@/capture/worker-frame";
 
 const POLL_MS = 300;
@@ -77,7 +78,9 @@ async function runSliceCapture(
   const player = getYtPlayer(document);
   if (player) suppressAutoAdvance(player);
 
-  let duration = video.duration;
+  const trackDuration = (): number => frameTrackDuration(readPlayerDuration(player), video.duration);
+
+  let duration = trackDuration();
   let sliceEnd = Math.min(assignment.toSeconds, duration);
   const seekTo = (seconds: number): void => {
     const target = Math.max(0, Math.min(seconds, duration - 0.1));
@@ -146,12 +149,13 @@ async function runSliceCapture(
       continue;
     }
 
-    if (Number.isFinite(video.duration) && Math.abs(video.duration - duration) > DURATION_CHANGE_S) {
+    const seen = trackDuration();
+    if (seen > 0 && Math.abs(seen - duration) > DURATION_CHANGE_S) {
       log(
-        `worker slice ${assignment.index} saw the duration change ${duration.toFixed(1)}s to ${video.duration.toFixed(1)}s, restarting`
+        `worker slice ${assignment.index} saw the duration change ${duration.toFixed(1)}s to ${seen.toFixed(1)}s, restarting`
       );
       accumulator.discardRetained();
-      duration = video.duration;
+      duration = seen;
       sliceEnd = Math.min(assignment.toSeconds, duration);
       cursor = assignment.fromSeconds;
       reached = assignment.fromSeconds;

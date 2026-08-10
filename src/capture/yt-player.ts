@@ -58,6 +58,16 @@ function readVideoData(player: YtPlayer | null): PlayerVideoData | null {
   }
 }
 
+function readPlayerDuration(player: YtPlayer | null): number {
+  if (!player || typeof player.getDuration !== "function") return 0;
+  try {
+    const duration = player.getDuration();
+    return Number.isFinite(duration) ? duration : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function isPlaying(player: YtPlayer): boolean {
   if (typeof player.getPlayerState !== "function") return false;
   try {
@@ -67,5 +77,13 @@ function isPlaying(player: YtPlayer): boolean {
   }
 }
 
-export { getYtPlayer, suppressAutoAdvance, callSafely, isPlaying, readVideoData, PLAYER_STATE_PLAYING };
+export {
+  getYtPlayer,
+  suppressAutoAdvance,
+  callSafely,
+  isPlaying,
+  readPlayerDuration,
+  readVideoData,
+  PLAYER_STATE_PLAYING,
+};
 export type { YtPlayer };

@@ -1,5 +1,5 @@
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
-import { readVideoData } from "@/capture/yt-player";
+import { readPlayerDuration, readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 import { chooseTrackDuration, readClockDuration } from "@/pageworld/track-duration";
@@ -9,16 +9,6 @@ interface PlayerSnapshot {
   durationSeconds: number;
 }
 
-function readDuration(player: YtPlayer): number {
-  if (typeof player.getDuration !== "function") return 0;
-  try {
-    const duration = player.getDuration();
-    return Number.isFinite(duration) ? duration : 0;
-  } catch {
-    return 0;
-  }
-}
-
 function readPlayerSnapshot(player: YtPlayer | null, clockDurationSeconds = Number.NaN): PlayerSnapshot | null {
   if (!player) return null;
 
@@ -26,7 +16,7 @@ function readPlayerSnapshot(player: YtPlayer | null, clockDurationSeconds = Numb
   if (!videoData || videoData.isAd === true) return null;
   if (typeof videoData.video_id !== "string" || !videoData.video_id) return null;
 
-  const durationSeconds = chooseTrackDuration(clockDurationSeconds, readDuration(player));
+  const durationSeconds = chooseTrackDuration(clockDurationSeconds, readPlayerDuration(player));
   if (durationSeconds <= 0) return null;
 
   return { videoId: videoData.video_id, durationSeconds };
