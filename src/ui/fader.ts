@@ -13,6 +13,7 @@ import {
   LABEL_HIDE_MS,
   computeCommit,
   computePaintFrame,
+  glyphSizeFor,
   stepValue,
   valueFromPointerOffset,
 } from "@/ui/fader-geometry";
@@ -57,9 +58,11 @@ interface FaderControl {
 interface GlyphStack {
   el: HTMLSpanElement;
   show(kind: GlyphLayerKind, fraction: number, busyKind?: GlyphKind): void;
+  setSize(next: number): void;
 }
 
-function createGlyphStack(size: number): GlyphStack {
+function createGlyphStack(initialSize: number): GlyphStack {
+  let size = initialSize;
   const el = document.createElement("span");
   el.style.position = "absolute";
   el.style.inset = "0";
@@ -103,7 +106,17 @@ function createGlyphStack(size: number): GlyphStack {
     }
   }
 
-  return { el, show };
+  function setSize(next: number): void {
+    if (next === size) return;
+    size = next;
+    for (const kind of ["mic", "note"] as const) {
+      const fraction = shownFraction[kind];
+      if (fraction === undefined) continue;
+      layers[kind].replaceChildren(createFilledGlyphSvg(kind, Number(fraction), size));
+    }
+  }
+
+  return { el, show, setSize };
 }
 
 // -- Track ---------------------------------------------------------------------
@@ -156,7 +169,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-label", "Sing-along");
 
-  const stack = createGlyphStack(host === "bar" ? 24 : 16);
+  const stack = createGlyphStack(glyphSizeFor(host));
   button.appendChild(stack.el);
 
   const menu = document.createElement("div");
@@ -464,6 +477,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   function setHost(next: FaderHost): void {
     host = next;
+    stack.setSize(glyphSizeFor(next));
     button.classList.toggle(DOCK_CONTROL_CLASS, next === "dock");
     button.classList.toggle(BAR_CONTROL_CLASS, next === "bar");
     menu.classList.toggle(DOCK_MENU_CLASS, next === "dock");

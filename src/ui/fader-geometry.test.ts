@@ -1,11 +1,14 @@
 import {
+  BAR_GLYPH_PX,
   CLIP_HEIGHT_PX,
+  DOCK_GLYPH_PX,
   DRAG_REST_SNAP,
   KARAOKE_THRESHOLD,
   THUMB_INSET_PERCENT,
   TRACK_HEIGHT_PX,
   computeCommit,
   computePaintFrame,
+  glyphSizeFor,
   labelForValue,
   mixLevelFromValue,
   stepValue,
@@ -19,6 +22,24 @@ describe("geometry constants", () => {
     expect(CLIP_HEIGHT_PX).toBe(136);
     // 9 / 136 * 100, the handle's half-height as a percentage of travel.
     expect(THUMB_INSET_PERCENT).toBeCloseTo(6.617647058823529, 9);
+  });
+});
+
+describe("glyphSizeFor", () => {
+  it("matches Better Lyrics' own dock icons in the dock", () => {
+    expect(glyphSizeFor("dock")).toBe(DOCK_GLYPH_PX);
+    expect(DOCK_GLYPH_PX).toBe(16);
+  });
+
+  it("matches the player bar's own controls in the bar", () => {
+    expect(glyphSizeFor("bar")).toBe(BAR_GLYPH_PX);
+    expect(BAR_GLYPH_PX).toBe(24);
+  });
+
+  describe("regressions", () => {
+    it("the two hosts never share a size, so a stale one is always visible", () => {
+      expect(glyphSizeFor("dock")).not.toBe(glyphSizeFor("bar"));
+    });
   });
 });
 

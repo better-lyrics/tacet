@@ -18,6 +18,13 @@ const HOLD_MS = 450;
 const VIEWPORT_EDGE_PX = 8;
 const CARD_GAP_PX = 8;
 
+const DOCK_GLYPH_PX = 16;
+const BAR_GLYPH_PX = 24;
+
+function glyphSizeFor(host: "dock" | "bar"): number {
+  return host === "bar" ? BAR_GLYPH_PX : DOCK_GLYPH_PX;
+}
+
 const LABEL_HIDE_MS = 900;
 const LABEL_EXIT_FALLBACK_MS = 400;
 
@@ -106,6 +113,9 @@ export {
   HOLD_MS,
   VIEWPORT_EDGE_PX,
   CARD_GAP_PX,
+  DOCK_GLYPH_PX,
+  BAR_GLYPH_PX,
+  glyphSizeFor,
   LABEL_HIDE_MS,
   LABEL_EXIT_FALLBACK_MS,
   computeCommit,
