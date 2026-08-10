@@ -1,5 +1,5 @@
-import { decideCrossfade } from "@/automix/crossfade-gate";
-import type { CrossfadeGateInput } from "@/automix/crossfade-gate";
+import { SILENCE_RMS, decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
+import type { CrossfadeGateInput, IncomingStems } from "@/automix/crossfade-gate";
 import { describe, expect, it } from "vitest";
 
 const ready: CrossfadeGateInput = {
@@ -67,6 +67,94 @@ describe("decideCrossfade", () => {
   describe("regressions", () => {
     it("regression: an infinite duration is refused, not passed to setValueCurveAtTime", () => {
       expect(decideCrossfade({ ...ready, durationSeconds: Number.POSITIVE_INFINITY }).kind).toBe("refuse");
+    });
+  });
+});
+
+// -- judgeIncomingStems -------------------------------------------------------
+
+const healthy: IncomingStems = {
+  durationSeconds: 214,
+  vocalsRms: 0.041,
+  instrumentalRms: 0.113,
+  fadeSeconds: 8,
+};
+
+describe("judgeIncomingStems", () => {
+  it("allows real separated stems", () => {
+    expect(judgeIncomingStems(healthy)).toEqual({ kind: "allow" });
+  });
+
+  describe("edge cases", () => {
+    it("refuses stems shorter than the fade, which render as a fade into silence", () => {
+      const gate = judgeIncomingStems({ ...healthy, durationSeconds: 3 });
+      expect(gate.kind).toBe("refuse");
+      expect(gate).toMatchObject({ reason: expect.stringContaining("shorter") });
+    });
+
+    it("allows stems exactly as long as the fade", () => {
+      expect(judgeIncomingStems({ ...healthy, durationSeconds: 8 }).kind).toBe("allow");
+    });
+
+    it.each([0, -1, Number.NaN])("refuses a duration of %s", durationSeconds => {
+      expect(judgeIncomingStems({ ...healthy, durationSeconds }).kind).toBe("refuse");
+    });
+
+    it("refuses stems that are silent in both halves", () => {
+      const gate = judgeIncomingStems({ ...healthy, vocalsRms: 0, instrumentalRms: 0 });
+      expect(gate).toMatchObject({ reason: expect.stringContaining("silent") });
+    });
+
+    it("allows a silent vocals stem, since a fully instrumental track is legitimate", () => {
+      expect(judgeIncomingStems({ ...healthy, vocalsRms: 0 }).kind).toBe("allow");
+    });
+
+    it("allows a silent instrumental stem, since an a cappella track is legitimate", () => {
+      expect(judgeIncomingStems({ ...healthy, instrumentalRms: 0 }).kind).toBe("allow");
+    });
+
+    it("treats anything under the silence floor as silence", () => {
+      const hair = SILENCE_RMS / 2;
+      expect(judgeIncomingStems({ ...healthy, vocalsRms: hair, instrumentalRms: hair }).kind).toBe("refuse");
+      expect(judgeIncomingStems({ ...healthy, vocalsRms: SILENCE_RMS, instrumentalRms: hair }).kind).toBe("allow");
+    });
+
+    it("refuses a NaN measurement rather than trusting it", () => {
+      expect(judgeIncomingStems({ ...healthy, vocalsRms: Number.NaN }).kind).toBe("refuse");
+      expect(judgeIncomingStems({ ...healthy, instrumentalRms: Number.NaN }).kind).toBe("refuse");
+    });
+  });
+
+  describe("invariants", () => {
+    it("always explains itself when it refuses", () => {
+      const refusals: IncomingStems[] = [
+        { ...healthy, durationSeconds: 1 },
+        { ...healthy, durationSeconds: 0 },
+        { ...healthy, vocalsRms: 0, instrumentalRms: 0 },
+        { ...healthy, vocalsRms: Number.NaN },
+      ];
+      for (const input of refusals) {
+        const gate = judgeIncomingStems(input);
+        if (gate.kind !== "refuse") throw new Error("expected a refusal");
+        expect(gate.reason.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("a longer fade only ever narrows what it allows", () => {
+      for (const fadeSeconds of [4, 8, 12, 20]) {
+        const gate = judgeIncomingStems({ ...healthy, durationSeconds: 10, fadeSeconds });
+        expect(gate.kind).toBe(fadeSeconds <= 10 ? "allow" : "refuse");
+      }
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: silent stems are refused rather than faded into, which measured as 6 s of silence", () => {
+      expect(judgeIncomingStems({ ...healthy, vocalsRms: 0, instrumentalRms: 0 }).kind).toBe("refuse");
+    });
+
+    it("regression: a 3 s stem against an 8 s fade is refused, which measured as a dip to 3 %", () => {
+      expect(judgeIncomingStems({ ...healthy, durationSeconds: 3, fadeSeconds: 8 }).kind).toBe("refuse");
     });
   });
 });

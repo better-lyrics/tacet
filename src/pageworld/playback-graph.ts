@@ -1,6 +1,6 @@
 // -- Playback graph ----------------------------------------------------------
 
-import { decideCrossfade } from "@/automix/crossfade-gate";
+import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
 import { CROSSFADE_CURVE_STEPS, equalPowerCurve } from "@/automix/transition";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
@@ -25,7 +25,7 @@ interface CrossfadeRequest {
   sampleRate: number;
   durationSeconds: number;
   incomingOffsetSeconds?: number;
-  startAtContextTime?: number;
+  startInSeconds?: number;
 }
 
 type CrossfadeResult = { kind: "scheduled"; startsAt: number; endsAt: number } | { kind: "refused"; reason: string };
@@ -38,7 +38,9 @@ interface GraphState {
   stemsLoaded: boolean;
   stemFrames: number;
   stemSampleRate: number;
+  vocalsRms: number;
   instrumentalRms: number;
+  combinedPeak: number;
   stemsPlaying: boolean;
   elementTime: number;
   playerTime: number;
@@ -58,6 +60,7 @@ interface PlaybackGraph {
   resumeStems(): void;
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
   abortCrossfade(reason: string): boolean;
+  recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }>;
   isEngaged(): boolean;
   dispose(): void;
   // What actually reached Web Audio, not what the pipeline believes it sent.
@@ -213,8 +216,17 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       return { kind: "refused", reason: "the incoming stems carried no channels" };
     }
 
+    const incomingState = incoming.describe();
+    const stems = judgeIncomingStems({
+      durationSeconds: incomingState.durationSeconds,
+      vocalsRms: incomingState.vocalsRms,
+      instrumentalRms: incomingState.instrumentalRms,
+      fadeSeconds: request.durationSeconds,
+    });
+    if (stems.kind === "refuse") return { kind: "refused", reason: stems.reason };
+
     const outgoing = deck();
-    const startsAt = Math.max(request.startAtContextTime ?? context.currentTime, context.currentTime);
+    const startsAt = context.currentTime + Math.max(0, request.startInSeconds ?? 0);
     const endsAt = startsAt + request.durationSeconds;
 
     incoming.setMixLevel(currentMixLevel);
@@ -253,6 +265,48 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     return true;
   }
 
+  // -- Diagnostic tap ---------------------------------------------------------
+
+  // A parallel branch into a silenced gain, so a late callback can only cost
+  // recorded frames, never audible ones. The count is returned so a short
+  // recording can be told from a stalled one.
+  const RECORD_BUFFER_FRAMES = 16384;
+
+  function recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }> {
+    const wanted = Math.max(1, Math.floor(context.sampleRate * seconds));
+    const collected = new Float32Array(wanted);
+    let written = 0;
+
+    const processor = context.createScriptProcessor(RECORD_BUFFER_FRAMES, 1, 1);
+    const silencer = context.createGain();
+    silencer.gain.value = 0;
+    listenerVolumeNode.connect(processor);
+    processor.connect(silencer);
+    silencer.connect(context.destination);
+
+    return new Promise(resolve => {
+      const finish = (): void => {
+        processor.onaudioprocess = null;
+        listenerVolumeNode.disconnect(processor);
+        processor.disconnect();
+        silencer.disconnect();
+        resolve({ samples: collected.subarray(0, written), sampleRate: context.sampleRate });
+      };
+
+      processor.onaudioprocess = event => {
+        const input = event.inputBuffer.getChannelData(0);
+        const room = Math.min(input.length, wanted - written);
+        if (room > 0) {
+          collected.set(input.subarray(0, room), written);
+          written += room;
+        }
+        if (written >= wanted) finish();
+      };
+
+      setTimeout(finish, (seconds + 2) * 1000);
+    });
+  }
+
   function dispose(): void {
     crossfade = null;
     for (const each of decks) each.dispose();
@@ -283,7 +337,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       stemsLoaded: deckState.stemsLoaded,
       stemFrames: deckState.stemFrames,
       stemSampleRate: deckState.stemSampleRate,
+      vocalsRms: deckState.vocalsRms,
       instrumentalRms: deckState.instrumentalRms,
+      combinedPeak: deckState.combinedPeak,
       stemsPlaying: deckState.playing,
       elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
       playerTime: playerCurrentTime(document),
@@ -304,6 +360,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     resumeStems,
     crossfadeTo,
     abortCrossfade,
+    recordOutput,
     isEngaged: () => !bypass.isBypassed(),
     dispose,
     describe,

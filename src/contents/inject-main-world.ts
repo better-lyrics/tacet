@@ -1,4 +1,5 @@
 import type { PlasmoCSConfig } from "plasmo";
+import { analyseOutput } from "@/automix/output-analysis";
 import { DECODE_LEAD_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
 import type { StagedState } from "@/automix/transition-cue";
 import { isAdPlaying } from "@/capture/ad-state";
@@ -102,8 +103,72 @@ declare global {
   interface Window {
     blkKaraokeProbe: () => unknown;
     blkCrossfadeSelfTest: (fadeSeconds?: number) => Promise<unknown>;
+    blkRecordOutput: (seconds?: number) => Promise<unknown>;
+    blkRecordEnvelope: (seconds?: number) => Promise<unknown>;
+    blkTransitionProbe: () => unknown;
   }
 }
+
+// -- Diagnostics --------------------------------------------------------------
+
+window.blkTransitionProbe = () => {
+  const state = cachedGraph?.describe() ?? null;
+  const active = state ? state.decks[state.activeDeck] : null;
+  return {
+    crossfadeSeconds,
+    stagedVideoId,
+    stagedState,
+    stagedFrames: stagedStems?.vocals[0]?.length ?? 0,
+    engagedVideoId: engagedStems?.videoId ?? null,
+    pendingVideoId: pendingStems?.videoId ?? null,
+    activeDeck: state?.activeDeck ?? null,
+    crossfading: state?.crossfading ?? null,
+    remainingSeconds: active ? +(active.durationSeconds - active.positionSeconds).toFixed(2) : null,
+    deckPeaks: state ? state.decks.map(deck => +deck.combinedPeak.toFixed(4)) : null,
+    deckRms: state ? state.decks.map(deck => [+deck.vocalsRms.toFixed(4), +deck.instrumentalRms.toFixed(4)]) : null,
+    deckDurations: state ? state.decks.map(deck => +deck.durationSeconds.toFixed(2)) : null,
+    listenerGain: state?.listenerGain ?? null,
+    originalGain: state?.originalGain ?? null,
+  };
+};
+
+window.blkRecordOutput = async (seconds = 12) => {
+  const graph = cachedGraph;
+  if (!graph) return { error: "no graph" };
+
+  const before = graph.describe();
+  const startedAt = performance.now();
+  const { samples, sampleRate } = await graph.recordOutput(seconds);
+  const after = graph.describe();
+  const analysis = analyseOutput(samples, sampleRate);
+
+  return {
+    ...analysis,
+    envelope: undefined,
+    envelopePeak: analysis.envelope.length ? Math.max(...analysis.envelope) : 0,
+    envelopeMin: analysis.envelope.length ? Math.min(...analysis.envelope) : 0,
+    envelopeWindows: analysis.envelope.length,
+    capturedSeconds: +(analysis.frames / sampleRate).toFixed(3),
+    wallClockSeconds: +((performance.now() - startedAt) / 1000).toFixed(3),
+    sampleRate,
+    crossfadingAtStart: before.crossfading,
+    crossfadingAtEnd: after.crossfading,
+    activeDeckBefore: before.activeDeck,
+    activeDeckAfter: after.activeDeck,
+    listenerGain: after.listenerGain,
+  };
+};
+
+window.blkRecordEnvelope = async (seconds = 12) => {
+  const graph = cachedGraph;
+  if (!graph) return { error: "no graph" };
+  const { samples, sampleRate } = await graph.recordOutput(seconds);
+  const analysis = analyseOutput(samples, sampleRate);
+  return {
+    windowSeconds: analysis.envelopeWindowSeconds,
+    envelope: analysis.envelope.map(value => +value.toFixed(5)),
+  };
+};
 
 window.blkKaraokeProbe = () => {
   const snapshot = currentPlayerSnapshot(document);
@@ -216,7 +281,7 @@ function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMess
   window.postMessage(message, window.location.origin);
 }
 
-function startCrossfade(graph: PlaybackGraph): void {
+function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSeconds: number): void {
   const videoId = stagedVideoId;
   const stems = stagedStems;
   if (videoId === null || stems === null) return;
@@ -226,8 +291,9 @@ function startCrossfade(graph: PlaybackGraph): void {
     vocals: stems.vocals,
     instrumental: stems.instrumental,
     sampleRate: stems.sampleRate,
-    durationSeconds: crossfadeSeconds,
+    durationSeconds: fadeSeconds,
     incomingOffsetSeconds: 0,
+    startInSeconds,
   });
   clearStaging();
 
@@ -242,13 +308,17 @@ function startCrossfade(graph: PlaybackGraph): void {
   engagedStems = pendingStems;
   awaitingReconfirmation = false;
 
-  postToIsolated({ type: "blk-crossfade-started", videoId, durationSeconds: crossfadeSeconds });
+  const startsInMs = startInSeconds * 1000;
+  setTimeout(() => {
+    if (!graph.describe().crossfading) return;
+    postToIsolated({ type: "blk-crossfade-started", videoId, durationSeconds: fadeSeconds });
+  }, startsInMs);
   setTimeout(
     () => {
       if (!graph.describe().crossfading) return;
       if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
     },
-    (crossfadeSeconds / 2) * 1000
+    startsInMs + (fadeSeconds / 2) * 1000
   );
 }
 
@@ -260,6 +330,7 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
     remainingSeconds: active.durationSeconds - active.positionSeconds,
     fadeSeconds: crossfadeSeconds,
     decodeLeadSeconds: DECODE_LEAD_SECONDS,
+    pollIntervalSeconds: RECONCILE_INTERVAL_MS / 1000,
     staged: stagedState,
     crossfading: state.crossfading,
   });
@@ -277,7 +348,7 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
     return false;
   }
 
-  startCrossfade(graph);
+  startCrossfade(graph, cue.startInSeconds, cue.durationSeconds);
   return true;
 }
 

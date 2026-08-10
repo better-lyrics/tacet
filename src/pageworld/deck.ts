@@ -11,7 +11,9 @@ interface DeckState {
   stemsLoaded: boolean;
   stemFrames: number;
   stemSampleRate: number;
+  vocalsRms: number;
   instrumentalRms: number;
+  combinedPeak: number;
   playing: boolean;
   vocalsGain: number;
   instrumentalGain: number;
@@ -42,13 +44,43 @@ interface LoadedStems {
   durationSeconds: number;
   // Measured once at load. Scanning the buffer per describe() call is millions
   // of operations, and describe() is on the probe path.
+  vocalsRms: number;
   instrumentalRms: number;
+  combinedPeak: number;
 }
 
-function channelRms(samples: Float32Array): number {
-  let sum = 0;
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
-  return Math.sqrt(sum / samples.length);
+interface Loudness {
+  vocalsRms: number;
+  instrumentalRms: number;
+  combinedPeak: number;
+}
+
+function measureLoudness(vocals: AudioBuffer, instrumental: AudioBuffer): Loudness {
+  let vocalsSum = 0;
+  let instrumentalSum = 0;
+  let peak = 0;
+  let counted = 0;
+
+  const channels = Math.min(vocals.numberOfChannels, instrumental.numberOfChannels);
+  for (let channel = 0; channel < channels; channel++) {
+    const v = vocals.getChannelData(channel);
+    const i = instrumental.getChannelData(channel);
+    const frames = Math.min(v.length, i.length);
+    for (let n = 0; n < frames; n++) {
+      vocalsSum += v[n] * v[n];
+      instrumentalSum += i[n] * i[n];
+      const combined = Math.abs(v[n] + i[n]);
+      if (combined > peak) peak = combined;
+    }
+    counted += frames;
+  }
+
+  const divisor = Math.max(1, counted);
+  return {
+    vocalsRms: Math.sqrt(vocalsSum / divisor),
+    instrumentalRms: Math.sqrt(instrumentalSum / divisor),
+    combinedPeak: peak,
+  };
 }
 
 function createStemBuffer(
@@ -129,7 +161,7 @@ function createDeck(deps: DeckDeps): Deck {
       vocals: vocalsBuffer,
       instrumental: instrumentalBuffer,
       durationSeconds: vocalsBuffer.duration,
-      instrumentalRms: channelRms(instrumentalBuffer.getChannelData(0)),
+      ...measureLoudness(vocalsBuffer, instrumentalBuffer),
     };
     return true;
   }
@@ -162,7 +194,9 @@ function createDeck(deps: DeckDeps): Deck {
       stemsLoaded: loaded !== null,
       stemFrames: loaded?.instrumental.length ?? 0,
       stemSampleRate: loaded?.instrumental.sampleRate ?? 0,
+      vocalsRms: loaded?.vocalsRms ?? 0,
       instrumentalRms: loaded?.instrumentalRms ?? 0,
+      combinedPeak: loaded?.combinedPeak ?? 0,
       playing: instrumentalSource !== null,
       vocalsGain: vocalsGainNode.gain.value,
       instrumentalGain: instrumentalGainNode.gain.value,
