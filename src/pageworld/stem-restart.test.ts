@@ -33,9 +33,9 @@ describe("shouldRestartStems", () => {
     });
 
     it("regression: stems that advanced with the track are not restarted", () => {
-      expect(shouldRestartStems({ hasActiveSources: true, stemPositionSeconds: 2.02, playerPositionSeconds: 2.03 })).toBe(
-        false
-      );
+      expect(
+        shouldRestartStems({ hasActiveSources: true, stemPositionSeconds: 2.02, playerPositionSeconds: 2.03 })
+      ).toBe(false);
     });
   });
 
@@ -79,9 +79,9 @@ describe("shouldRestartStems", () => {
 
     it("always starts when there are no sources, whatever the positions", () => {
       for (const player of [0, 10, 1000, Number.NaN]) {
-        expect(shouldRestartStems({ hasActiveSources: false, stemPositionSeconds: 10, playerPositionSeconds: player })).toBe(
-          true
-        );
+        expect(
+          shouldRestartStems({ hasActiveSources: false, stemPositionSeconds: 10, playerPositionSeconds: player })
+        ).toBe(true);
       }
     });
 
