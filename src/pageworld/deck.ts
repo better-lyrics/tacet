@@ -40,6 +40,15 @@ interface LoadedStems {
   vocals: AudioBuffer;
   instrumental: AudioBuffer;
   durationSeconds: number;
+  // Measured once at load. Scanning the buffer per describe() call is millions
+  // of operations, and describe() is on the probe path.
+  instrumentalRms: number;
+}
+
+function channelRms(samples: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / samples.length);
 }
 
 function createStemBuffer(
@@ -120,6 +129,7 @@ function createDeck(deps: DeckDeps): Deck {
       vocals: vocalsBuffer,
       instrumental: instrumentalBuffer,
       durationSeconds: vocalsBuffer.duration,
+      instrumentalRms: channelRms(instrumentalBuffer.getChannelData(0)),
     };
     return true;
   }
@@ -148,18 +158,11 @@ function createDeck(deps: DeckDeps): Deck {
   }
 
   function describe(): DeckState {
-    const samples = loaded?.instrumental.getChannelData(0) ?? null;
-    let instrumentalRms = 0;
-    if (samples) {
-      let sum = 0;
-      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
-      instrumentalRms = Math.sqrt(sum / samples.length);
-    }
     return {
       stemsLoaded: loaded !== null,
-      stemFrames: samples?.length ?? 0,
+      stemFrames: loaded?.instrumental.length ?? 0,
       stemSampleRate: loaded?.instrumental.sampleRate ?? 0,
-      instrumentalRms,
+      instrumentalRms: loaded?.instrumentalRms ?? 0,
       playing: instrumentalSource !== null,
       vocalsGain: vocalsGainNode.gain.value,
       instrumentalGain: instrumentalGainNode.gain.value,

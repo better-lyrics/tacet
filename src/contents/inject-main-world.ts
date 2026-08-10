@@ -79,6 +79,7 @@ function stemsAreStale(stems: LoadedStems): boolean {
 declare global {
   interface Window {
     blkKaraokeProbe: () => unknown;
+    blkCrossfadeSelfTest: (fadeSeconds?: number) => Promise<unknown>;
   }
 }
 
@@ -99,6 +100,85 @@ window.blkKaraokeProbe = () => {
     audibleElementDecodedBytes: cachedElement ? decodedBytes(cachedElement) : 0,
     boundToPlayerElement: cachedElement !== null && cachedElement === element,
     graph: cachedGraph?.describe() ?? null,
+  };
+};
+
+// -- Crossfade self test -----------------------------------------------------
+
+const SELF_TEST_SECONDS = 60;
+
+function selfTestStems(sampleRate: number, hz: number): Float32Array<ArrayBuffer>[] {
+  const frames = Math.floor(sampleRate * SELF_TEST_SECONDS);
+  const channels: Float32Array<ArrayBuffer>[] = [];
+  for (let c = 0; c < 2; c++) {
+    const data = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) data[i] = Math.sin(2 * Math.PI * hz * (i / sampleRate)) * 0.25;
+    channels.push(data);
+  }
+  return channels;
+}
+
+window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
+  const element = playerVideoElement(document);
+  if (!element) return { error: "no player element" };
+
+  const graph = cachedGraph ?? (await buildGraph(element));
+  if (!graph) return { error: "could not acquire the audio bus" };
+
+  const sampleRate = 44100;
+  // Crossfade out of whatever is genuinely playing when there is something,
+  // so the outgoing deck carries real separated stems rather than a tone.
+  const outgoingIsReal = graph.describe().stemsPlaying;
+  if (!outgoingIsReal) {
+    graph.loadStems(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate);
+    graph.setMixLevel(1);
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+
+  const before = graph.describe();
+  if (!before.stemsPlaying) return { error: "no deck is playing, nothing to fade out of", state: before };
+  const result = graph.crossfadeTo({
+    vocals: selfTestStems(sampleRate, 330),
+    instrumental: selfTestStems(sampleRate, 330),
+    sampleRate,
+    durationSeconds: fadeSeconds,
+    incomingOffsetSeconds: 0,
+  });
+
+  const samples: { t: number; gain0: number; gain1: number }[] = [];
+  const startedAt = performance.now();
+  await new Promise<void>(resolve => {
+    const timer = setInterval(() => {
+      const state = graph.describe();
+      samples.push({
+        t: +((performance.now() - startedAt) / 1000).toFixed(3),
+        gain0: state.decks[0].deckGain,
+        gain1: state.decks[1].deckGain,
+      });
+      if (performance.now() - startedAt > (fadeSeconds + 1) * 1000) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 40);
+  });
+
+  const after = graph.describe();
+  const inFade = samples.filter(s => s.t > 0.15 && s.t < fadeSeconds - 0.15);
+  const powerError = inFade.map(s => Math.abs(s.gain0 ** 2 + s.gain1 ** 2 - 1));
+  return {
+    crossfade: result,
+    outgoingWasRealSeparatedAudio: outgoingIsReal,
+    outgoingInstrumentalRms: before.decks[before.activeDeck].instrumentalRms,
+    beforeEngaged: before.engaged,
+    beforeStemsPlaying: before.stemsPlaying,
+    deckSwapped: before.activeDeck !== after.activeDeck,
+    gain0: { first: samples[0]?.gain0 ?? null, last: samples.at(-1)?.gain0 ?? null },
+    gain1: { first: samples[0]?.gain1 ?? null, last: samples.at(-1)?.gain1 ?? null },
+    worstPowerErrorPct: +((Math.max(...powerError) || 0) * 100).toFixed(2),
+    outgoingStillPlaying: after.decks[before.activeDeck].playing,
+    incomingPlaying: after.decks[after.activeDeck].playing,
+    originalGain: after.originalGain,
+    sampleCount: samples.length,
   };
 };
 
