@@ -42,6 +42,10 @@ Thumbs.db
 # Model weights, fetched at runtime and cached in IndexedDB
 *.onnx
 
+# Python side-venv for the fp16 conversion in CLAUDE.md. uv writes a .gitignore
+# inside it, but that only holds while uv is the tool that creates it.
+.venv-onnx/
+
 # Local model staging, and the wrangler state an upload from there leaves
 # behind: miniflare keeps a content-addressed copy of every object, so a
 # 170 MB blob lands here the moment a model is pushed to R2.
