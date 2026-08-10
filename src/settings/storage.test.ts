@@ -39,6 +39,7 @@ describe("loadSettingsFrom", () => {
       autoSeparateEnabled: false,
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: "fp16",
+      faderPlacement: DEFAULT_SETTINGS.faderPlacement,
     });
   });
 
@@ -66,6 +67,7 @@ describe("saveSettingsFrom", () => {
       autoSeparateEnabled: false,
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: DEFAULT_SETTINGS.modelVariant,
+      faderPlacement: DEFAULT_SETTINGS.faderPlacement,
     });
   });
 

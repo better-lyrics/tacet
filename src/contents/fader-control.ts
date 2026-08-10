@@ -4,6 +4,7 @@ import { describeBusy } from "@/orchestrator/busy-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
+import type { FaderPlacement } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import { createFaderControl } from "@/ui/fader";
@@ -13,6 +14,7 @@ import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
 import { createLogger } from "@/shared/logger";
 import { extensionVersion } from "@/shared/version";
+import { type BetterLyricsPresenceMessage, isHasBetterLyricsCommand } from "../../workers/protocol2";
 
 const logger = createLogger("orchestrator");
 
@@ -75,7 +77,7 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 
 // -- Master switch ---------------------------------------------------------
 
-function mountFader(): { destroy(): void } {
+function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(next: FaderPlacement): void } {
   injectStylesheet();
 
   let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
@@ -88,7 +90,7 @@ function mountFader(): { destroy(): void } {
   }
 
   const control = createFaderControl({
-    host: hasBetterLyrics() ? "dock" : "bar",
+    host: placement === "dock" && hasBetterLyrics() ? "dock" : "bar",
     onChange: mixLevel => {
       armed = mixLevel !== NEUTRAL_MIX_LEVEL;
       pipeline?.engage(mixLevel);
@@ -106,9 +108,10 @@ function mountFader(): { destroy(): void } {
     },
   });
 
-  const mount = attachFaderMount({ button: control.button, setHost: control.setHost });
+  const mount = attachFaderMount({ button: control.button, setHost: control.setHost }, { placement });
 
   return {
+    setPlacement: mount.setPlacement,
     destroy() {
       mount.disconnect();
       // First, since it is what hands the audio back to the original.
@@ -119,12 +122,15 @@ function mountFader(): { destroy(): void } {
   };
 }
 
-let mounted: { destroy(): void } | null = null;
+let mounted: { destroy(): void; setPlacement(next: FaderPlacement): void } | null = null;
 
-function applySingAlong(enabled: boolean): void {
-  if (enabled === (mounted !== null)) return;
+function applySettings(enabled: boolean, placement: FaderPlacement): void {
+  if (enabled === (mounted !== null)) {
+    mounted?.setPlacement(placement);
+    return;
+  }
   if (enabled) {
-    mounted = mountFader();
+    mounted = mountFader(placement);
     logger.log("sing-along on");
     return;
   }
@@ -134,12 +140,22 @@ function applySingAlong(enabled: boolean): void {
 }
 
 loadSettingsFrom(chrome.storage.sync)
-  .then(settings => applySingAlong(settings.singAlongEnabled))
+  .then(settings => applySettings(settings.singAlongEnabled, settings.faderPlacement))
   .catch(error => {
     logger.error("failed to check the sing-along setting", error);
   });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !(SETTINGS_STORAGE_KEY in changes)) return;
-  applySingAlong(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue).singAlongEnabled);
+  const settings = sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue);
+  applySettings(settings.singAlongEnabled, settings.faderPlacement);
+});
+
+// -- Better Lyrics probe, answered whether or not the fader is mounted ---------
+
+chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+  if (!isHasBetterLyricsCommand(message)) return undefined;
+  const reply: BetterLyricsPresenceMessage = { type: "blk-better-lyrics-presence", present: hasBetterLyrics() };
+  sendResponse(reply);
+  return undefined;
 });

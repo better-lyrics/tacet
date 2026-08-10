@@ -4,12 +4,14 @@ import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { formatBytes } from "@/settings/format-bytes";
 import { extensionVersion } from "@/shared/version";
 import { createSelect } from "@/settings/select";
-import { CACHE_BUDGET_PRESETS_BYTES, DEFAULT_SETTINGS } from "@/settings/settings";
+import { CACHE_BUDGET_PRESETS_BYTES, DEFAULT_SETTINGS, type FaderPlacement } from "@/settings/settings";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
 import {
   type ClearModelCacheCommand,
   type ClearStemCacheCommand,
   type GetCacheStatusCommand,
+  type HasBetterLyricsCommand,
+  isBetterLyricsPresenceMessage,
   isCacheStatusMessage,
   isClearCacheResultMessage,
 } from "../workers/protocol2";
@@ -234,6 +236,52 @@ function createModelVariantRow(
   return { row, setValue: select.setValue };
 }
 
+// -- Fader placement row -------------------------------------------------------
+
+function createFaderPlacementRow(
+  initial: FaderPlacement,
+  onChange: (next: FaderPlacement) => void
+): { row: HTMLElement; setValue(value: FaderPlacement): void } {
+  const row = createElement("div", "blk-row");
+  const { text, labelId } = createTextRow(
+    "Fader position",
+    "Where the sing-along button sits. The lyrics dock falls back to the player bar whenever it is not on screen."
+  );
+
+  const select = createSelect<FaderPlacement>(
+    [
+      { value: "dock", label: "Lyrics dock" },
+      { value: "bar", label: "Player bar" },
+    ],
+    initial,
+    onChange,
+    labelId
+  );
+
+  row.append(text, select.element);
+  return { row, setValue: select.setValue };
+}
+
+// -- Better Lyrics presence ----------------------------------------------------
+
+async function probeBetterLyrics(): Promise<boolean> {
+  const command: HasBetterLyricsCommand = { type: "blk-has-better-lyrics" };
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined) return true;
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, command);
+    if (!isBetterLyricsPresenceMessage(response)) {
+      console.error(`${LOG_PREFIX} unexpected Better Lyrics probe reply`, response);
+      return true;
+    }
+    return response.present;
+  } catch (error) {
+    console.debug(`${LOG_PREFIX} no YouTube Music tab answered the Better Lyrics probe`, error);
+    return true;
+  }
+}
+
 // -- Cache row (readout + clear button) ----------------------------------------
 
 interface CacheRow {
@@ -322,6 +370,18 @@ async function main(): Promise<void> {
       });
   });
 
+  const faderPlacementRow = createFaderPlacementRow(settings.faderPlacement, next => {
+    saveSettingsFrom(chrome.storage.sync, { faderPlacement: next }).catch(error => {
+      console.error(`${LOG_PREFIX} failed to save the fader position`, error);
+      showStatus("Could not save that change.");
+      faderPlacementRow.setValue(settings.faderPlacement);
+    });
+  });
+  faderPlacementRow.row.hidden = true;
+  probeBetterLyrics().then(present => {
+    faderPlacementRow.row.hidden = !present;
+  });
+
   const budgetSlider = createBudgetSlider(CACHE_BUDGET_PRESETS_BYTES, settings.cacheBudgetBytes, bytes => {
     saveSettingsFrom(chrome.storage.sync, { cacheBudgetBytes: bytes })
       .then(() => refreshCacheStatus())
@@ -342,6 +402,7 @@ async function main(): Promise<void> {
     header,
     singAlongToggle.row,
     autoSeparateToggle.row,
+    faderPlacementRow.row,
     modelVariantRow.row,
     budgetSlider.row,
     stemRow.row,

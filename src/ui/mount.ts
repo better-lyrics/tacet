@@ -1,3 +1,4 @@
+import type { FaderPlacement } from "@/settings/settings";
 import type { FaderControl } from "@/ui/fader";
 import { createMountResolver } from "@/ui/hysteresis";
 import type { MountTarget } from "@/ui/hysteresis";
@@ -19,6 +20,7 @@ function hasBetterLyrics(root: ParentNode = document): boolean {
 type FaderMountControl = Pick<FaderControl, "button" | "setHost">;
 
 interface AttachFaderMountOptions {
+  placement?: FaderPlacement;
   observeRoot?: Node;
   leaveDelayVisibleMs?: number;
   leaveDelayAbsentMs?: number;
@@ -26,12 +28,14 @@ interface AttachFaderMountOptions {
 }
 
 interface FaderMountHandle {
+  setPlacement(next: FaderPlacement): void;
   disconnect(): void;
 }
 
 function attachFaderMount(control: FaderMountControl, options: AttachFaderMountOptions = {}): FaderMountHandle {
   const requestFrame = options.requestAnimationFrame ?? (callback => window.requestAnimationFrame(callback));
   const observeRoot = options.observeRoot ?? document.body;
+  let placement: FaderPlacement = options.placement ?? "dock";
 
   function dockControlsElement(): HTMLElement | null {
     return document.querySelector<HTMLElement>(DOCK_CONTROLS_SELECTOR);
@@ -63,7 +67,7 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
   const resolver = createMountResolver({
     leaveDelayVisibleMs: options.leaveDelayVisibleMs,
     leaveDelayAbsentMs: options.leaveDelayAbsentMs,
-    isDockPresent: () => dockControlsElement() !== null,
+    isDockPresent: () => placement === "dock" && dockControlsElement() !== null,
     isControlMountedToDock: () => control.button.parentElement === dockControlsElement(),
     isControlMountedToBar: () => control.button.parentElement === (volumeButtonElement()?.parentElement ?? null),
     isControlVisible: () => control.button.isConnected,
@@ -84,6 +88,11 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
   resolver.resolve(true);
 
   return {
+    setPlacement(next) {
+      if (next === placement) return;
+      placement = next;
+      resolver.resolve(true);
+    },
     disconnect() {
       observer.disconnect();
       resolver.dispose();

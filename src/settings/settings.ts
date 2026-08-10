@@ -14,6 +14,16 @@ const CACHE_BUDGET_PRESETS_BYTES: readonly number[] = [100, 250, 500, 1000, 2000
   megabytes => megabytes * 1024 * 1024
 );
 
+// -- Fader placement -------------------------------------------------------------
+
+type FaderPlacement = "dock" | "bar";
+
+const FADER_PLACEMENTS: readonly FaderPlacement[] = ["dock", "bar"];
+
+function isFaderPlacement(value: unknown): value is FaderPlacement {
+  return typeof value === "string" && FADER_PLACEMENTS.includes(value as FaderPlacement);
+}
+
 // -- Settings shape -------------------------------------------------------------
 
 interface Settings {
@@ -21,6 +31,7 @@ interface Settings {
   autoSeparateEnabled: boolean;
   cacheBudgetBytes: number;
   modelVariant: ModelVariant;
+  faderPlacement: FaderPlacement;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +39,7 @@ const DEFAULT_SETTINGS: Settings = {
   autoSeparateEnabled: true,
   cacheBudgetBytes: DEFAULT_BUDGET_BYTES,
   modelVariant: DEFAULT_MODEL_VARIANT,
+  faderPlacement: "dock",
 };
 
 // -- Validation -----------------------------------------------------------------
@@ -55,6 +67,7 @@ function sanitizeSettings(raw: unknown): Settings {
       ? record.cacheBudgetBytes
       : DEFAULT_SETTINGS.cacheBudgetBytes,
     modelVariant: isModelVariant(record.modelVariant) ? record.modelVariant : DEFAULT_SETTINGS.modelVariant,
+    faderPlacement: isFaderPlacement(record.faderPlacement) ? record.faderPlacement : DEFAULT_SETTINGS.faderPlacement,
   };
 }
 
@@ -69,9 +82,11 @@ export {
   MIN_CACHE_BUDGET_BYTES,
   MAX_CACHE_BUDGET_BYTES,
   CACHE_BUDGET_PRESETS_BYTES,
+  FADER_PLACEMENTS,
   DEFAULT_SETTINGS,
+  isFaderPlacement,
   isValidCacheBudgetBytes,
   sanitizeSettings,
   shouldEvictForNewBudget,
 };
-export type { Settings };
+export type { Settings, FaderPlacement };

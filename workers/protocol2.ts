@@ -218,6 +218,30 @@ export function isClearCacheResultMessage(data: unknown): data is ClearCacheResu
   );
 }
 
+// -- Better Lyrics probe (popup -> the tab's fader control) --------------------
+
+export interface HasBetterLyricsCommand {
+  type: "blk-has-better-lyrics";
+}
+
+export interface BetterLyricsPresenceMessage {
+  type: "blk-better-lyrics-presence";
+  present: boolean;
+}
+
+export function isHasBetterLyricsCommand(data: unknown): data is HasBetterLyricsCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-has-better-lyrics";
+}
+
+export function isBetterLyricsPresenceMessage(data: unknown): data is BetterLyricsPresenceMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-better-lyrics-presence" &&
+    typeof (data as { present?: unknown }).present === "boolean"
+  );
+}
+
 // -- Settings relay (offscreen has no chrome.storage) --------------------------
 
 export interface GetSettingsCommand {

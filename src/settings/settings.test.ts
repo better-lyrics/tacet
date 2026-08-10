@@ -25,6 +25,10 @@ describe("DEFAULT_SETTINGS", () => {
     expect(DEFAULT_SETTINGS.cacheBudgetBytes).toBe(DEFAULT_BUDGET_BYTES);
     expect(DEFAULT_SETTINGS.cacheBudgetBytes).toBe(250 * 1024 * 1024);
   });
+
+  it("the fader starts in the dock, which falls back to the bar on its own", () => {
+    expect(DEFAULT_SETTINGS.faderPlacement).toBe("dock");
+  });
 });
 
 describe("CACHE_BUDGET_PRESETS_BYTES", () => {
@@ -119,6 +123,7 @@ describe("sanitizeSettings", () => {
       autoSeparateEnabled: false,
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: "fp16" as const,
+      faderPlacement: "bar" as const,
     };
     expect(sanitizeSettings(valid)).toEqual(valid);
   });
@@ -136,6 +141,17 @@ describe("sanitizeSettings", () => {
   it("falls back to full precision for an unknown model variant", () => {
     for (const value of ["fp8", "", null, 16, {}]) {
       expect(sanitizeSettings({ modelVariant: value }).modelVariant).toBe(DEFAULT_SETTINGS.modelVariant);
+    }
+  });
+
+  it("keeps a known fader placement", () => {
+    expect(sanitizeSettings({ faderPlacement: "dock" }).faderPlacement).toBe("dock");
+    expect(sanitizeSettings({ faderPlacement: "bar" }).faderPlacement).toBe("bar");
+  });
+
+  it("falls back to the dock for an unknown fader placement", () => {
+    for (const value of ["player-bar", "", null, 0, {}]) {
+      expect(sanitizeSettings({ faderPlacement: value }).faderPlacement).toBe(DEFAULT_SETTINGS.faderPlacement);
     }
   });
 
