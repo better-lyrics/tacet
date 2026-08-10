@@ -1,0 +1,24 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "..",
+    "baseUrl": ".."
+  },
+  "include": [
+    "../src/automix/transition.ts",
+    "../src/automix/crossfade-gate.ts",
+    "../src/pageworld/deck.ts",
+    "../src/pageworld/playback-graph.ts",
+    "../src/pageworld/bypass.ts",
+    "../src/pageworld/gain-law.ts",
+    "../src/pageworld/player-state.ts",
+    "../src/pageworld/stem-offset.ts",
+    "../src/pageworld/stem-restart.ts",
+    "../src/pageworld/track-duration.ts",
+    "../src/pageworld/select-media-element.ts",
+    "../src/shared/logger.ts"
+  ],
+  "exclude": ["./*.test.ts"]
+}

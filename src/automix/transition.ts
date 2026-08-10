@@ -12,6 +12,8 @@ function barsToSeconds(bars: number, bpm: number, beatsPerBar: number = BEATS_PE
 
 // -- Crossfade shape ---------------------------------------------------------
 
+const CROSSFADE_CURVE_STEPS = 256;
+
 type FadeDirection = "in" | "out";
 
 function equalPowerCurve(steps: number, direction: FadeDirection): Float32Array {
@@ -56,5 +58,5 @@ function planTransition(request: TransitionRequest): TransitionPlan {
   return { kind: "start", startSeconds, durationSeconds };
 }
 
-export { BEATS_PER_BAR, DEFAULT_BARS, barsToSeconds, equalPowerCurve, planTransition };
+export { BEATS_PER_BAR, CROSSFADE_CURVE_STEPS, DEFAULT_BARS, barsToSeconds, equalPowerCurve, planTransition };
 export type { FadeDirection, TransitionPlan, TransitionRequest };
