@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Tacet: automix crossfade preview</title>
+<style>
+  :root { color-scheme: dark; --ink: hsla(0,0%,100%,0.92); --dim: hsla(0,0%,100%,0.55); }
+  body {
+    margin: 0; padding: 32px; background: #0b0b0d; color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p.sub { color: var(--dim); margin: 0 0 24px; }
+  .row { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  button {
+    background: hsl(45,100%,56%); color: #111; border: 0; border-radius: 999px;
+    padding: 8px 18px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.ghost { background: hsla(0,0%,100%,0.1); color: var(--ink); }
+  canvas { display: block; background: #131318; border-radius: 10px; margin-bottom: 20px; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 4px 14px 4px 0; }
+  th { color: var(--dim); font-weight: 500; }
+  td.label, th.label { text-align: left; }
+  .ok { color: hsl(140,60%,60%); }
+  .bad { color: hsl(0,70%,65%); }
+</style>
+</head>
+<body>
+<h1>Automix crossfade</h1>
+<p class="sub">Equal power against linear, measured on an offline render. Deck A fades out, deck B fades in, over an 8 bar window.</p>
+
+<div class="row">
+  <button id="play-equal">Listen: equal power</button>
+  <button id="play-linear" class="ghost">Listen: linear</button>
+  <button id="stop" class="ghost">Stop</button>
+  <span id="status" style="color: var(--dim)"></span>
+</div>
+
+<canvas id="plot" width="880" height="260"></canvas>
+<div id="results"></div>
+
+<script type="module">
+import { equalPowerCurve, planTransition, barsToSeconds } from "./dist/transition.js";
+
+const SAMPLE_RATE = 44100;
+const DECK_SCALE = 0.2;
+const TRACK_SECONDS = 40;
+const BPM = 120;
+
+function linearCurve(steps, direction) {
+  const curve = new Float32Array(steps);
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    curve[i] = direction === "in" ? t : 1 - t;
+  }
+  return curve;
+}
+
+function fillNoise(buffer, seed) {
+  let state = seed;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      data[i] = ((state / 0xffffffff) * 2 - 1) * DECK_SCALE * Math.SQRT2 * 0.999;
+    }
+  }
+}
+
+function fillTone(buffer, rootHz) {
+  const partials = [1, 1.5, 2, 2.5];
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      const t = i / buffer.sampleRate;
+      let sample = 0;
+      for (const p of partials) sample += Math.sin(2 * Math.PI * rootHz * p * t) / partials.length;
+      const beat = 0.55 + 0.45 * Math.max(0, Math.sin(2 * Math.PI * (BPM / 60) * t));
+      data[i] = sample * DECK_SCALE * Math.SQRT2 * beat;
+    }
+  }
+}
+
+function makeDeck(ctx, kind, arg) {
+  const buffer = ctx.createBuffer(2, Math.floor(ctx.sampleRate * TRACK_SECONDS), ctx.sampleRate);
+  if (kind === "noise") fillNoise(buffer, arg);
+  else fillTone(buffer, arg);
+  return buffer;
+}
+
+// -- The thing under test ----------------------------------------------------
+
+function scheduleCrossfade(ctx, deckA, deckB, plan, curveFor, deckBOffsetSeconds = 0) {
+  const { startSeconds, durationSeconds } = plan;
+  const steps = 256;
+
+  const gainA = ctx.createGain();
+  const gainB = ctx.createGain();
+  gainA.connect(ctx.destination);
+  gainB.connect(ctx.destination);
+
+  gainA.gain.setValueAtTime(1, 0);
+  gainB.gain.setValueAtTime(0, 0);
+  gainA.gain.setValueCurveAtTime(curveFor(steps, "out"), startSeconds, durationSeconds);
+  gainB.gain.setValueCurveAtTime(curveFor(steps, "in"), startSeconds, durationSeconds);
+
+  const srcA = ctx.createBufferSource();
+  srcA.buffer = deckA;
+  srcA.connect(gainA);
+  srcA.start(0);
+
+  const srcB = ctx.createBufferSource();
+  srcB.buffer = deckB;
+  srcB.connect(gainB);
+  srcB.start(startSeconds, deckBOffsetSeconds);
+
+  return { srcA, srcB, gainA, gainB };
+}
+
+// -- Measurement -------------------------------------------------------------
+
+function windowedRms(buffer, windowSeconds) {
+  const data = buffer.getChannelData(0);
+  const size = Math.floor(buffer.sampleRate * windowSeconds);
+  const out = [];
+  for (let start = 0; start + size <= data.length; start += size) {
+    let sum = 0;
+    for (let i = start; i < start + size; i++) sum += data[i] * data[i];
+    out.push({ t: start / buffer.sampleRate, rms: Math.sqrt(sum / size) });
+  }
+  return out;
+}
+
+async function render(curveFor, correlated) {
+  const plan = planTransition({ outgoingDurationSeconds: TRACK_SECONDS, outgoingBpm: BPM, bars: 8 });
+  if (plan.kind !== "start") throw new Error(plan.reason);
+
+  const ctx = new OfflineAudioContext(2, Math.floor(SAMPLE_RATE * TRACK_SECONDS), SAMPLE_RATE);
+  const deckA = makeDeck(ctx, "noise", 12345);
+  const deckB = correlated ? deckA : makeDeck(ctx, "noise", 99999);
+  const offset = correlated ? plan.startSeconds : 0;
+  scheduleCrossfade(ctx, deckA, deckB, plan, curveFor, offset);
+  const rendered = await ctx.startRendering();
+  return { plan, rms: windowedRms(rendered, 0.25) };
+}
+
+async function measure() {
+  const equal = await render(equalPowerCurve, false);
+  const linear = await render(linearCurve, false);
+  const equalCorrelated = await render(equalPowerCurve, true);
+
+  const inWindow = series => series.rms.filter(s => s.t >= equal.plan.startSeconds && s.t < TRACK_SECONDS - 0.5);
+  const stat = series => {
+    const w = inWindow(series).map(s => s.rms);
+    return {
+      min: Math.min(...w),
+      max: Math.max(...w),
+      mean: w.reduce((a, b) => a + b, 0) / w.length,
+    };
+  };
+
+  const baseline = equal.rms.find(s => s.t > 1).rms;
+  return {
+    plan: equal.plan,
+    
+    baselineRms: baseline,
+    equalPower: stat(equal),
+    linear: stat(linear),
+    equalPowerCorrelated: stat(equalCorrelated),
+    series: { equal: equal.rms, linear: linear.rms },
+  };
+}
+
+// -- Presentation ------------------------------------------------------------
+
+function plot(result) {
+  const c = document.getElementById("plot");
+  const g = c.getContext("2d");
+  const W = c.width, H = c.height, pad = 34;
+  g.clearRect(0, 0, W, H);
+
+  const maxRms = 0.35;
+  const x = t => pad + (t / TRACK_SECONDS) * (W - pad * 2);
+  const y = r => H - pad - (r / maxRms) * (H - pad * 2);
+
+  g.strokeStyle = "hsla(0,0%,100%,0.14)";
+  g.lineWidth = 1;
+  for (const r of [0.1, 0.2, 0.3]) {
+    g.beginPath(); g.moveTo(pad, y(r)); g.lineTo(W - pad, y(r)); g.stroke();
+    g.fillStyle = "hsla(0,0%,100%,0.4)";
+    g.fillText(r.toFixed(1), 6, y(r) + 4);
+  }
+
+  g.fillStyle = "hsla(45,100%,56%,0.10)";
+  g.fillRect(x(result.plan.startSeconds), pad, x(TRACK_SECONDS) - x(result.plan.startSeconds), H - pad * 2);
+
+  const line = (series, colour) => {
+    g.strokeStyle = colour; g.lineWidth = 2; g.beginPath();
+    series.forEach((s, i) => (i ? g.lineTo(x(s.t), y(s.rms)) : g.moveTo(x(s.t), y(s.rms))));
+    g.stroke();
+  };
+  line(result.series.linear, "hsl(0,70%,65%)");
+  line(result.series.equal, "hsl(140,60%,60%)");
+
+  g.fillStyle = "hsla(0,0%,100%,0.6)";
+  g.fillText("output RMS, 0.25 s windows. green equal power, red linear. band is the transition.", pad, H - 10);
+}
+
+function table(result) {
+  const rows = [
+    ["baseline, one deck alone", result.baselineRms],
+    ["equal power, uncorrelated (worst)", result.equalPower.min],
+    ["linear, uncorrelated (worst)", result.linear.min],
+    ["equal power, correlated (peak)", result.equalPowerCorrelated.max],
+  ];
+  const table = document.createElement("table");
+  const header = table.insertRow();
+  for (const [text, className] of [["case", "label"], ["RMS", ""], ["deviation", ""], ["dB", ""]]) {
+    const th = document.createElement("th");
+    th.textContent = text;
+    th.className = className;
+    header.append(th);
+  }
+  for (const [label, value] of rows) {
+    const ratio = value / result.baselineRms;
+    const db = 20 * Math.log10(ratio);
+    const row = table.insertRow();
+    const isBaseline = label.startsWith("baseline");
+    const cells = [
+      [label, "label"],
+      [value.toFixed(4), ""],
+      [isBaseline ? "-" : `${((ratio - 1) * 100).toFixed(1)} %`, isBaseline ? "" : Math.abs(db) < 0.5 ? "ok" : "bad"],
+      [isBaseline ? "-" : `${db > 0 ? "+" : ""}${db.toFixed(2)}`, isBaseline ? "" : Math.abs(db) < 0.5 ? "ok" : "bad"],
+    ];
+    for (const [text, className] of cells) {
+      const cell = row.insertCell();
+      cell.textContent = text;
+      cell.className = className;
+    }
+  }
+  const results = document.getElementById("results");
+  results.textContent = "";
+  results.append(table);
+}
+
+// -- Live playback -----------------------------------------------------------
+
+let live = null;
+function stop() {
+  if (!live) return;
+  live.srcA.stop(); live.srcB.stop(); live.ctx.close();
+  live = null;
+  document.getElementById("status").textContent = "stopped";
+}
+
+function listen(curveFor, label) {
+  stop();
+  const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  const plan = planTransition({ outgoingDurationSeconds: TRACK_SECONDS, outgoingBpm: BPM, bars: 8 });
+  if (plan.kind !== "start") return;
+  const deckA = makeDeck(ctx, "tone", 220);
+  const deckB = makeDeck(ctx, "tone", 277.18);
+  const nodes = scheduleCrossfade(ctx, deckA, deckB, plan, curveFor);
+  live = { ctx, ...nodes };
+  document.getElementById("status").textContent =
+    `${label}: transition at ${plan.startSeconds.toFixed(1)} s for ${plan.durationSeconds.toFixed(1)} s`;
+}
+
+document.getElementById("play-equal").onclick = () => listen(equalPowerCurve, "equal power");
+document.getElementById("play-linear").onclick = () => listen(linearCurve, "linear");
+document.getElementById("stop").onclick = stop;
+
+window.blkAutomixMeasure = measure;
+
+measure().then(result => {
+  plot(result);
+  table(result);
+  window.__automixResult = result;
+});
+</script>
+</body>
+</html>
