@@ -106,6 +106,11 @@ release with the zip attached. Three digits for a release (`1.2.0`), four for a
 canary (`1.2.0.1`), which is published as a pre-release. The draft is left for
 you to look over and publish.
 
+## License
+
+[GNU AGPL v3](LICENSE). Running a modified version over a network obliges you to
+offer its source to the people using it.
+
 ## Acknowledgements
 
 [htdemucs](https://github.com/adefossez/demucs) by Alexandre Défossez and

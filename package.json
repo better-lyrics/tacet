@@ -4,6 +4,7 @@
   "version": "0.3.1",
   "description": "Vocal Separation for YouTube Music",
   "author": "Boidu",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "build:worker": "tsc -p workers/tsconfig.json && tsc-alias -p workers/tsconfig.json -f",
     "dev": "npm run build:worker && plasmo dev --verbose",
