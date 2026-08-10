@@ -21,10 +21,9 @@ import { type CardAnchor, DOCK_PILL_SELECTOR, resolveCardAnchor } from "@/ui/car
 import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { computeCardPosition } from "@/ui/fader-position";
 import { createSpring } from "@/ui/spring";
-import type { Spring, SpringDeps } from "@/ui/spring";
+import type { Spring, SpringDeps, SpringMode } from "@/ui/spring";
 
 type FaderHost = "dock" | "bar";
-type Motion = "spring" | "instant";
 type GlyphKind = "mic" | "note";
 type GlyphLayerKind = GlyphKind | "busy";
 
@@ -286,10 +285,9 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   // -- Commit -----------------------------------------------------------------
 
-  function commit(motion: Motion, announce = true): void {
+  function commit(mode: SpringMode, announce = true): void {
     const frame = computeCommit(v);
-    if (motion === "instant") paint.jump(frame.effectiveValue);
-    else paint.set(frame.effectiveValue);
+    paint.set(frame.effectiveValue, mode);
     committedValue = frame.effectiveValue;
     syncActivePill();
     track.dataset.rest = String(frame.effectiveValue === 0);
@@ -399,7 +397,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     if (holdHandled) return;
     if (!isFaderInteractive(isMarkedDisabled())) return;
     v = v === 0 ? -1 : 0;
-    commit("spring");
+    commit("settle");
   });
   button.addEventListener("dblclick", () => {
     if (!isFaderInteractive(isMarkedDisabled())) return;
@@ -444,7 +442,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     function apply(pointerEvent: PointerEvent): void {
       const rect = clip.getBoundingClientRect();
       v = valueFromPointerOffset(pointerEvent.clientY, rect.top, rect.height);
-      commit("instant");
+      commit("drag");
     }
     apply(event);
 
@@ -452,7 +450,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
       apply(pointerEvent);
     }
     function onPointerUp(): void {
-      commit("spring");
+      commit("settle");
       track.removeEventListener("pointermove", onPointerMove);
       track.removeEventListener("pointerup", onPointerUp);
     }
@@ -462,7 +460,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   track.addEventListener("dblclick", () => {
     v = 0;
-    commit("spring");
+    commit("settle");
   });
 
   track.addEventListener("keydown", event => {
@@ -472,10 +470,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     else if (event.key === "Home") v = 0;
     else return;
     event.preventDefault();
-    commit("spring");
+    commit("settle");
   });
 
-  commit("spring", false);
+  commit("settle", false);
   paint.jump(0);
 
   function setHost(next: FaderHost): void {

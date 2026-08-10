@@ -1,11 +1,17 @@
+type SpringMode = "drag" | "settle";
+
 interface SpringProfile {
   stiffness: number;
   damping: number;
 }
 
 // -- Stiffness is bounded by MAX_STEP_SECONDS, not by taste: semi-implicit
-// -- Euler diverges past roughly 2/sqrt(stiffness), capping this near 950 -----
-const SPRING: SpringProfile = { stiffness: 200, damping: 17 };
+// -- Euler diverges past roughly 2/sqrt(stiffness), capping drag near 950.
+// -- Every profile here is held against that limit by a test. ----------------
+const SPRING_PROFILES: Record<SpringMode, SpringProfile> = {
+  drag: { stiffness: 600, damping: 49 },
+  settle: { stiffness: 200, damping: 17 },
+};
 
 const MAX_STEP_SECONDS = 0.032;
 
@@ -41,17 +47,18 @@ interface SpringDeps {
 }
 
 interface Spring {
-  set(next: number): void;
+  set(next: number, mode?: SpringMode): void;
   jump(next: number): void;
 }
 
 function createSpring(onFrame: (x: number) => void, deps: SpringDeps): Spring {
   let state: SpringState = { x: 0, vel: 0 };
   let target = 0;
+  let mode: SpringMode = "settle";
   let frameHandle = 0;
 
   function tick(now: number, prev: number): void {
-    const stepped = stepSpring(state, target, SPRING, (now - prev) / 1000);
+    const stepped = stepSpring(state, target, SPRING_PROFILES[mode], (now - prev) / 1000);
     state = { x: stepped.x, vel: stepped.vel };
 
     if (stepped.settled) {
@@ -64,8 +71,9 @@ function createSpring(onFrame: (x: number) => void, deps: SpringDeps): Spring {
   }
 
   return {
-    set(next) {
+    set(next, nextMode = "settle") {
       target = next;
+      mode = nextMode;
       if (deps.prefersReducedMotion()) {
         state = { x: target, vel: 0 };
         onFrame(state.x);
@@ -83,5 +91,5 @@ function createSpring(onFrame: (x: number) => void, deps: SpringDeps): Spring {
   };
 }
 
-export { SPRING, MAX_STEP_SECONDS, stepSpring, createSpring };
-export type { SpringProfile, SpringState, SteppedSpringState, SpringDeps, Spring };
+export { SPRING_PROFILES, MAX_STEP_SECONDS, stepSpring, createSpring };
+export type { SpringMode, SpringProfile, SpringState, SteppedSpringState, SpringDeps, Spring };
