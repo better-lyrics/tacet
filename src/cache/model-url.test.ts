@@ -57,6 +57,20 @@ describe("getModelUrl", () => {
       expect(getModelUrl()).toBe(`${DEFAULT_MODEL_BASE_URL}/${FP32_FILENAME}`);
     });
   });
+
+  describe("regressions", () => {
+    it("regression: resolves where process does not exist, as in the offscreen document", () => {
+      const globals = globalThis as { process?: NodeJS.Process };
+      const saved = globals.process;
+      globals.process = undefined;
+      try {
+        expect(getModelUrl()).toBe(`${DEFAULT_MODEL_BASE_URL}/${FP32_FILENAME}`);
+        expect(getModelUrl("fp16")).toBe(`${DEFAULT_MODEL_BASE_URL}/${FP16_FILENAME}`);
+      } finally {
+        globals.process = saved;
+      }
+    });
+  });
 });
 
 describe("model registry", () => {

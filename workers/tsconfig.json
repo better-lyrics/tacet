@@ -23,6 +23,7 @@
     "../src/separation/resume.ts",
     "../src/cache/idb.ts",
     "../src/cache/model-cache.ts",
+    "../src/cache/model-url.ts",
     "../src/cache/keys.ts",
     "../src/cache/stem-store.ts",
     "../src/cache/opus-codec.ts",

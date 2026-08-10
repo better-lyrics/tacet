@@ -2,33 +2,21 @@ import type { Settings } from "../src/settings/settings.js";
 
 // -- Separation control messages ------------------------------------------------------
 
-export interface GetModelUrlCommand {
-  type: "blk-get-model-url";
-}
-
-export interface ModelUrlMessage {
-  type: "blk-model-url";
-  modelUrl: string | null;
-  modelSha256: string | null;
+export interface ModelChoice {
+  modelUrl: string;
+  modelSha256: string;
 }
 
 export interface CancelSeparationCommand {
   type: "blk-cancel-separation";
 }
 
-export function isGetModelUrlCommand(data: unknown): data is GetModelUrlCommand {
-  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-model-url";
-}
-
-export function isModelUrlMessage(data: unknown): data is ModelUrlMessage {
+export function isModelChoice(data: unknown): data is ModelChoice {
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === "blk-model-url" &&
-    (typeof (data as { modelUrl?: unknown }).modelUrl === "string" ||
-      (data as { modelUrl?: unknown }).modelUrl === null) &&
-    (typeof (data as { modelSha256?: unknown }).modelSha256 === "string" ||
-      (data as { modelSha256?: unknown }).modelSha256 === null)
+    typeof (data as { modelUrl?: unknown }).modelUrl === "string" &&
+    typeof (data as { modelSha256?: unknown }).modelSha256 === "string"
   );
 }
 
@@ -239,11 +227,13 @@ export interface GetSettingsCommand {
 export interface SettingsMessage {
   type: "blk-settings";
   settings: Settings;
+  model: ModelChoice;
 }
 
 export interface SettingsChangedMessage {
   type: "blk-settings-changed";
   settings: Settings;
+  model: ModelChoice;
 }
 
 export function isGetSettingsCommand(data: unknown): data is GetSettingsCommand {
@@ -255,7 +245,8 @@ export function isSettingsMessage(data: unknown): data is SettingsMessage {
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-settings" &&
-    typeof (data as { settings?: unknown }).settings === "object"
+    typeof (data as { settings?: unknown }).settings === "object" &&
+    isModelChoice((data as { model?: unknown }).model)
   );
 }
 
@@ -264,7 +255,8 @@ export function isSettingsChangedMessage(data: unknown): data is SettingsChanged
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-settings-changed" &&
-    typeof (data as { settings?: unknown }).settings === "object"
+    typeof (data as { settings?: unknown }).settings === "object" &&
+    isModelChoice((data as { model?: unknown }).model)
   );
 }
 

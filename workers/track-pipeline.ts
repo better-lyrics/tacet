@@ -19,11 +19,11 @@ function stageRms(channel: Float32Array | undefined): string {
 }
 import {
   type CaptureChunkMessage,
+  type ModelChoice,
   type StemChunkMessage,
   type StemName,
   type TrackPipelineOutboundMessage,
   type TrackStage,
-  isModelUrlMessage,
 } from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
 import { createLogger } from "../src/shared/logger.js";
@@ -46,13 +46,6 @@ function post(message: TrackPipelineOutboundMessage): void {
   chrome.runtime.sendMessage(message).catch(error => {
     logger.error("failed to send", message.type, error);
   });
-}
-
-async function fetchModelUrl(): Promise<{ modelUrl: string; modelSha256: string } | null> {
-  const response: unknown = await chrome.runtime.sendMessage({ type: "blk-get-model-url" });
-  if (!isModelUrlMessage(response)) return null;
-  if (response.modelUrl === null || response.modelSha256 === null) return null;
-  return { modelUrl: response.modelUrl, modelSha256: response.modelSha256 };
 }
 
 async function sendStemChunks(videoId: string, stem: StemName, blob: Blob): Promise<void> {
@@ -101,7 +94,8 @@ class TrackPipeline {
 
   constructor(
     private separationHost: SeparationHost,
-    private getCacheBudgetBytes: () => number
+    private getCacheBudgetBytes: () => number,
+    private getModelChoice: () => ModelChoice
   ) {}
 
   private isStale(videoId: string): boolean {
@@ -249,14 +243,9 @@ class TrackPipeline {
   }
 
   private async separate(videoId: string, contentKey: string, decoded: DecodedTrack): Promise<void> {
-    const model = await fetchModelUrl();
-    if (this.isStale(videoId)) return;
-    if (!model) {
-      this.sendError(videoId, "no-base-url", "No separation model URL is configured.");
-      return;
-    }
-
+    const model = this.getModelChoice();
     this.sendStage(videoId, (await hasCachedModel(model.modelUrl)) ? "loading-model" : "downloading-model");
+    if (this.isStale(videoId)) return;
 
     await this.separationHost.init(model);
     if (this.isStale(videoId)) return;
@@ -326,4 +315,4 @@ class TrackPipeline {
   }
 }
 
-export { TrackPipeline, fetchModelUrl };
+export { TrackPipeline };

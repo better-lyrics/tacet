@@ -1,5 +1,6 @@
 import { SEPARATION_VERSION, clearAllAliases } from "../src/cache/keys.js";
 import { clearCachedModel, getCachedModelSize } from "../src/cache/model-cache.js";
+import { getModelSha256, getModelUrl } from "../src/cache/model-url.js";
 import { clearAllStemRecords, evictUntilWithinBudget, getTotalStemBytes } from "../src/cache/stem-store.js";
 import { DEFAULT_SETTINGS, shouldEvictForNewBudget } from "../src/settings/settings.js";
 import type { Settings } from "../src/settings/settings.js";
@@ -7,6 +8,7 @@ import {
   type CacheStatusMessage,
   type ClearCacheResultMessage,
   type GetSettingsCommand,
+  type ModelChoice,
   isCancelSeparationCommand,
   isCaptureChunkMessage,
   isClearModelCacheCommand,
@@ -18,7 +20,7 @@ import {
   isSettingsMessage,
 } from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
-import { TrackPipeline, fetchModelUrl } from "./track-pipeline.js";
+import { TrackPipeline } from "./track-pipeline.js";
 import { createLogger } from "../src/shared/logger.js";
 
 const logger = createLogger("offscreen");
@@ -47,12 +49,21 @@ function purgeStaleSeparations(): void {
 
 purgeStaleSeparations();
 
-// -- Settings-driven cache budget --------------------------------------------
+// -- Settings-driven cache budget and model choice -----------------------------
+
+const SETTINGS_RETRY_DELAYS_MS = [250, 1000, 4000];
 
 let currentCacheBudgetBytes = DEFAULT_SETTINGS.cacheBudgetBytes;
+let currentModelChoice: ModelChoice = {
+  modelUrl: getModelUrl(DEFAULT_SETTINGS.modelVariant),
+  modelSha256: getModelSha256(DEFAULT_SETTINGS.modelVariant),
+};
+let modelChoiceReceived = false;
 
-function applySettings(settings: Settings): void {
+function applySettings(settings: Settings, model: ModelChoice): void {
   currentCacheBudgetBytes = settings.cacheBudgetBytes;
+  currentModelChoice = model;
+  modelChoiceReceived = true;
 }
 
 async function reactToBudgetChange(newBudgetBytes: number): Promise<void> {
@@ -62,24 +73,50 @@ async function reactToBudgetChange(newBudgetBytes: number): Promise<void> {
   }
 }
 
-const getSettingsCommand: GetSettingsCommand = { type: "blk-get-settings" };
-chrome.runtime
-  .sendMessage(getSettingsCommand)
-  .then(response => {
-    if (isSettingsMessage(response)) applySettings(response.settings);
-  })
-  .catch(error => {
-    logger.error("failed to load settings", error);
-  });
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function loadSettingsOverRelay(): Promise<void> {
+  const getSettingsCommand: GetSettingsCommand = { type: "blk-get-settings" };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response: unknown = await chrome.runtime.sendMessage(getSettingsCommand);
+      if (isSettingsMessage(response)) {
+        applySettings(response.settings, response.model);
+        return;
+      }
+      logger.warn(`settings request ${attempt + 1} came back as ${JSON.stringify(response)}`);
+    } catch (error) {
+      logger.warn(`settings request ${attempt + 1} failed`, error);
+    }
+    if (attempt >= SETTINGS_RETRY_DELAYS_MS.length) {
+      logger.error("giving up on the settings relay, staying on the defaults");
+      return;
+    }
+    await delay(SETTINGS_RETRY_DELAYS_MS[attempt]);
+  }
+}
+
+loadSettingsOverRelay().catch(error => {
+  logger.error("failed to load settings", error);
+});
 
 function getCacheBudgetBytes(): number {
   return currentCacheBudgetBytes;
 }
 
+function getModelChoice(): ModelChoice {
+  if (!modelChoiceReceived) {
+    logger.error(`no model choice has arrived, falling back to ${currentModelChoice.modelUrl}`);
+  }
+  return currentModelChoice;
+}
+
 // -- Real separation host -----------------------------------------------
 
 const separationHost = new SeparationHost();
-const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes);
+const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes, getModelChoice);
 
 chrome.runtime.onMessage.addListener(message => {
   if (isCaptureChunkMessage(message)) {
@@ -93,7 +130,7 @@ chrome.runtime.onMessage.addListener(message => {
   }
 
   if (isSettingsChangedMessage(message)) {
-    applySettings(message.settings);
+    applySettings(message.settings, message.model);
     reactToBudgetChange(message.settings.cacheBudgetBytes).catch(error => {
       logger.error("failed to react to a settings change", error);
     });
@@ -104,8 +141,7 @@ chrome.runtime.onMessage.addListener(message => {
 
 async function fetchCacheStatus(): Promise<CacheStatusMessage> {
   const stemCacheBytes = await getTotalStemBytes();
-  const model = await fetchModelUrl();
-  const modelCacheBytes = model ? await getCachedModelSize(model.modelUrl) : null;
+  const modelCacheBytes = await getCachedModelSize(getModelChoice().modelUrl);
   return {
     type: "blk-cache-status",
     stemCacheBytes,
@@ -123,11 +159,7 @@ async function clearStemCache(): Promise<ClearCacheResultMessage> {
 
 async function clearModelCache(): Promise<ClearCacheResultMessage> {
   trackPipeline.cancelActive();
-  const model = await fetchModelUrl();
-  if (!model) {
-    return { type: "blk-clear-cache-result", target: "model", ok: false, reason: "No model URL is configured." };
-  }
-  await clearCachedModel(model.modelUrl);
+  await clearCachedModel(getModelChoice().modelUrl);
   return { type: "blk-clear-cache-result", target: "model", ok: true };
 }
 
@@ -271,9 +303,7 @@ chrome.runtime.onMessage.addListener(message => {
 
 async function runSelfTest(forceWasm = false): Promise<unknown> {
   const { runPipelineSelfTest } = await import("./pipeline-selftest.js");
-  const model = await fetchModelUrl();
-  if (!model) return { verdict: "FAILED: no separation model URL is configured" };
-  return runPipelineSelfTest(separationHost, model, forceWasm);
+  return runPipelineSelfTest(separationHost, getModelChoice(), forceWasm);
 }
 
 (self as unknown as Record<string, unknown>).blkRunPipelineSelfTest = runSelfTest;

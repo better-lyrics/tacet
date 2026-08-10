@@ -35,7 +35,7 @@ function isModelVariant(value: unknown): value is ModelVariant {
 }
 
 function getModelBaseUrl(): string {
-  const raw = process.env.PLASMO_PUBLIC_MODEL_BASE_URL;
+  const raw = typeof process === "undefined" ? undefined : process.env.PLASMO_PUBLIC_MODEL_BASE_URL;
   const trimmed = typeof raw === "string" ? raw.trim().replace(/\/$/, "") : "";
   return trimmed.length > 0 ? trimmed : DEFAULT_MODEL_BASE_URL;
 }

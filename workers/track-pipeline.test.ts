@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 import { bytesToBase64 } from "../src/relay/base64.js";
-import type { CaptureChunkMessage, TrackPipelineOutboundMessage } from "./protocol2.js";
+import type { CaptureChunkMessage, ModelChoice, TrackPipelineOutboundMessage } from "./protocol2.js";
 import type { SeparationHost } from "./separation-host.js";
 import { TrackPipeline } from "./track-pipeline.js";
 import { getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
@@ -10,6 +10,8 @@ import { getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
 
 const posted: TrackPipelineOutboundMessage[] = [];
 let cancelCount = 0;
+
+const TEST_MODEL: ModelChoice = { modelUrl: "https://models.example.com/htdemucs.onnx", modelSha256: "a".repeat(64) };
 
 function fakeSeparationHost(): SeparationHost {
   return {
@@ -55,7 +57,11 @@ beforeEach(() => {
 
 describe("TrackPipeline separation gating", () => {
   it("starts a separation for a completed capture", async () => {
-    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    const pipeline = new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    );
     pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
     await Promise.resolve();
 
@@ -64,7 +70,11 @@ describe("TrackPipeline separation gating", () => {
 
   describe("regressions", () => {
     it("regression: ignores a second capture for the track already separating", async () => {
-      const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+      const pipeline = new TrackPipeline(
+        fakeSeparationHost(),
+        () => 250 * 1024 * 1024,
+        () => TEST_MODEL
+      );
       pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
       pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
       await Promise.resolve();
@@ -74,7 +84,11 @@ describe("TrackPipeline separation gating", () => {
   });
 
   it("supersedes a run the listener has moved off", async () => {
-    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    const pipeline = new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    );
     pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
     pipeline.handleCaptureChunk(captureChunk("lYBUbBu4W08"));
     await Promise.resolve();
@@ -84,7 +98,11 @@ describe("TrackPipeline separation gating", () => {
   });
 
   it("takes a new capture once the previous run has settled", async () => {
-    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    const pipeline = new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    );
     pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
     await new Promise(resolve => setTimeout(resolve, 50));
     pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
@@ -95,7 +113,11 @@ describe("TrackPipeline separation gating", () => {
 
   describe("invariants", () => {
     it("never runs two separations at once, however many captures arrive", async () => {
-      const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+      const pipeline = new TrackPipeline(
+        fakeSeparationHost(),
+        () => 250 * 1024 * 1024,
+        () => TEST_MODEL
+      );
       for (let index = 0; index < 5; index++) pipeline.handleCaptureChunk(captureChunk("DJCB1ZlseJ8"));
       await Promise.resolve();
 
@@ -127,7 +149,11 @@ describe("TrackPipeline forgetTrack", () => {
     expect(await getContentKeyForVideoId(VIDEO_ID)).toBe(CONTENT_KEY);
     expect(await getStemRecord(CONTENT_KEY)).not.toBeNull();
 
-    await new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024).forgetTrack(VIDEO_ID);
+    await new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    ).forgetTrack(VIDEO_ID);
 
     expect(await getContentKeyForVideoId(VIDEO_ID)).toBeNull();
     expect(await getStemRecord(CONTENT_KEY)).toBeNull();
@@ -135,7 +161,11 @@ describe("TrackPipeline forgetTrack", () => {
 
   it("leaves the next probe missing, so the track is acquired again", async () => {
     await seedCachedStems();
-    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    const pipeline = new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    );
 
     expect(await pipeline.probeCache(VIDEO_ID)).toBe(true);
     posted.length = 0;
@@ -148,7 +178,11 @@ describe("TrackPipeline forgetTrack", () => {
 
   describe("edge cases", () => {
     it("is safe for a track that was never cached", async () => {
-      const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+      const pipeline = new TrackPipeline(
+        fakeSeparationHost(),
+        () => 250 * 1024 * 1024,
+        () => TEST_MODEL
+      );
       await expect(pipeline.forgetTrack("lYBUbBu4W08")).resolves.toBeUndefined();
     });
 
@@ -156,7 +190,11 @@ describe("TrackPipeline forgetTrack", () => {
       await seedCachedStems();
       await setVideoIdAlias("lYBUbBu4W08", "someOtherKey");
 
-      await new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024).forgetTrack(VIDEO_ID);
+      await new TrackPipeline(
+        fakeSeparationHost(),
+        () => 250 * 1024 * 1024,
+        () => TEST_MODEL
+      ).forgetTrack(VIDEO_ID);
 
       expect(await getContentKeyForVideoId("lYBUbBu4W08")).toBe("someOtherKey");
     });
@@ -173,7 +211,11 @@ describe("TrackPipeline answering a duplicate capture", () => {
   }
 
   it("regression: tells a second asker where the running separation has got to", async () => {
-    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    const pipeline = new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    );
     pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
     await new Promise(resolve => setTimeout(resolve, 20));
 
@@ -189,7 +231,11 @@ describe("TrackPipeline answering a duplicate capture", () => {
   });
 
   it("does not start a second separation to answer", async () => {
-    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    const pipeline = new TrackPipeline(
+      fakeSeparationHost(),
+      () => 250 * 1024 * 1024,
+      () => TEST_MODEL
+    );
     pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
     pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
     await new Promise(resolve => setTimeout(resolve, 20));

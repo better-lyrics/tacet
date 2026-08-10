@@ -1,9 +1,10 @@
-import { DEFAULT_MODEL_VARIANT, getModelSha256, getModelUrl } from "@/cache/model-url";
+import { getModelSha256, getModelUrl } from "@/cache/model-url";
 import { createTabRegistry } from "@/orchestrator/tab-registry";
 import { SETTINGS_STORAGE_KEY } from "@/settings/settings";
+import type { Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import {
-  type ModelUrlMessage,
+  type ModelChoice,
   type SettingsChangedMessage,
   type SettingsMessage,
   isCaptureChunkMessage,
@@ -12,7 +13,6 @@ import {
   isClearStemCacheCommand,
   isForgetTrackCommand,
   isGetCacheStatusCommand,
-  isGetModelUrlCommand,
   isGetSettingsCommand,
   isTrackPipelineOutboundMessage,
 } from "../workers/protocol2";
@@ -46,26 +46,11 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// -- Model URL --------------------------------------------------------------
+// -- Model choice -----------------------------------------------------------
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (!isGetModelUrlCommand(message)) return undefined;
-  loadSettingsFrom(chrome.storage.sync)
-    .then(settings => settings.modelVariant)
-    .catch(error => {
-      logger.error("failed to read the model variant, falling back", error);
-      return DEFAULT_MODEL_VARIANT;
-    })
-    .then(variant => {
-      const response: ModelUrlMessage = {
-        type: "blk-model-url",
-        modelUrl: getModelUrl(variant),
-        modelSha256: getModelSha256(variant),
-      };
-      sendResponse(response);
-    });
-  return true;
-});
+function modelChoiceFor(settings: Settings): ModelChoice {
+  return { modelUrl: getModelUrl(settings.modelVariant), modelSha256: getModelSha256(settings.modelVariant) };
+}
 
 // -- Track pipeline relay --------------------------------------------------
 
@@ -152,7 +137,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 
   loadSettingsFrom(chrome.storage.sync)
     .then(settings => {
-      const response: SettingsMessage = { type: "blk-settings", settings };
+      const response: SettingsMessage = { type: "blk-settings", settings, model: modelChoiceFor(settings) };
       sendResponse(response);
     })
     .catch(error => {
@@ -169,7 +154,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     .then(async hasDocument => {
       if (!hasDocument) return;
       const settings = await loadSettingsFrom(chrome.storage.sync);
-      const message: SettingsChangedMessage = { type: "blk-settings-changed", settings };
+      const message: SettingsChangedMessage = {
+        type: "blk-settings-changed",
+        settings,
+        model: modelChoiceFor(settings),
+      };
       await chrome.runtime.sendMessage(message);
     })
     .catch(error => {
