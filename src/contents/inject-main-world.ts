@@ -39,7 +39,7 @@ let pendingStems: LoadedStems | null = null;
 let engagedStems: LoadedStems | null = null;
 let lastAction: EngagementAction = "idle";
 
-logger.log("karaoke page world ready, build 0.0.3");
+logger.log("karaoke page world ready");
 
 function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;

@@ -2,6 +2,7 @@ import "./popup.css";
 import betterLyricsIconUrl from "data-base64:../assets/brand/better-lyrics.png";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { formatBytes } from "@/settings/format-bytes";
+import { extensionVersion } from "@/shared/version";
 import { createSelect } from "@/settings/select";
 import { CACHE_BUDGET_PRESETS_BYTES, DEFAULT_SETTINGS } from "@/settings/settings";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
@@ -104,7 +105,7 @@ function createHeader(): HTMLElement {
   const title = createElement("span", "blk-popup__title");
   title.textContent = "Tacet";
   const version = createElement("span", "blk-popup__version");
-  version.textContent = chrome.runtime.getManifest().version;
+  version.textContent = extensionVersion();
   title.append(version);
 
   const repository = createExternalLink(REPOSITORY_URL, "View source on GitHub", "blk-popup__icon-button");

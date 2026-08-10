@@ -12,6 +12,7 @@ import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
 import { createLogger } from "@/shared/logger";
+import { extensionVersion } from "@/shared/version";
 
 const logger = createLogger("orchestrator");
 
@@ -22,6 +23,8 @@ export const config: PlasmoCSConfig = {
   run_at: "document_end",
   all_frames: false,
 };
+
+logger.log(`build ${extensionVersion()}`);
 
 // -- Stylesheet ----------------------------------------------------------
 const STYLE_ELEMENT_ID = "blyrics-karaoke-style";
