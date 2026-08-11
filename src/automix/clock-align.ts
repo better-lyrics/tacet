@@ -3,7 +3,7 @@
 const ALIGN_TOLERANCE_SECONDS = 0.12;
 
 type AlignDecision =
-  | { kind: "seek"; toSeconds: number; driftSeconds: number }
+  | { kind: "seek"; toSeconds: number; driftSeconds: number; nextLeadSeconds: number }
   | { kind: "wait"; reason: string }
   | { kind: "settled"; driftSeconds: number }
   | { kind: "abandon"; reason: string };
@@ -44,7 +44,13 @@ function decideAlignment(input: AlignInput): AlignDecision {
   }
 
   const lead = Number.isFinite(input.leadSeconds) ? input.leadSeconds : 0;
-  return { kind: "seek", toSeconds: Math.max(0, input.deckPositionSeconds + lead), driftSeconds: drift };
+  const nextLead = input.seeksSoFar === 0 ? 0 : lead + drift;
+  return {
+    kind: "seek",
+    toSeconds: Math.max(0, input.deckPositionSeconds + nextLead),
+    driftSeconds: drift,
+    nextLeadSeconds: nextLead,
+  };
 }
 
 export { ALIGN_TOLERANCE_SECONDS, decideAlignment };

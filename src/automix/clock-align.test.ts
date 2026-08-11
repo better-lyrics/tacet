@@ -19,7 +19,7 @@ function input(overrides: Partial<AlignInput> = {}): AlignInput {
 
 describe("decideAlignment", () => {
   it("seeks the player onto the deck once both name the same track", () => {
-    expect(decideAlignment(input())).toEqual({ kind: "seek", toSeconds: 4, driftSeconds: 4 });
+    expect(decideAlignment(input())).toEqual({ kind: "seek", toSeconds: 4, driftSeconds: 4, nextLeadSeconds: 0 });
   });
 
   it("is settled once the two clocks agree", () => {
@@ -33,8 +33,32 @@ describe("decideAlignment", () => {
     expect(decision.kind).toBe("wait");
   });
 
-  it("folds the residue of the last attempt into the next aim", () => {
-    expect(decideAlignment(input({ leadSeconds: 0.2 }))).toMatchObject({ kind: "seek", toSeconds: 4.2 });
+  it("aims straight at the deck on the first seek, before any residue is known", () => {
+    expect(decideAlignment(input({ deckPositionSeconds: 8, playerPositionSeconds: 0 }))).toMatchObject({
+      kind: "seek",
+      toSeconds: 8,
+      nextLeadSeconds: 0,
+    });
+  });
+
+  it("folds the residue of the last seek into the next aim", () => {
+    const decision = decideAlignment(input({ seeksSoFar: 1, deckPositionSeconds: 8.7, playerPositionSeconds: 8.4 }));
+    expect(decision).toMatchObject({ kind: "seek", nextLeadSeconds: expect.any(Number) });
+    if (decision.kind === "seek") {
+      expect(decision.nextLeadSeconds).toBeCloseTo(0.3, 5);
+      expect(decision.toSeconds).toBeCloseTo(9, 5);
+    }
+  });
+
+  it("keeps accumulating residues across later seeks", () => {
+    const decision = decideAlignment({
+      ...input({ seeksSoFar: 2, deckPositionSeconds: 10, playerPositionSeconds: 9.9 }),
+      leadSeconds: 0.3,
+      toleranceSeconds: 0.05,
+    });
+    if (decision.kind !== "seek") throw new Error(`expected a seek, got ${decision.kind}`);
+    expect(decision.nextLeadSeconds).toBeCloseTo(0.4, 5);
+    expect(decision.toSeconds).toBeCloseTo(10.4, 5);
   });
 
   describe("edge cases", () => {
@@ -65,12 +89,16 @@ describe("decideAlignment", () => {
     });
 
     it("never aims the player before the start of the track", () => {
-      const decision = decideAlignment(input({ deckPositionSeconds: 0.5, playerPositionSeconds: 4, leadSeconds: -2 }));
+      const decision = decideAlignment(
+        input({ seeksSoFar: 1, deckPositionSeconds: 0.5, playerPositionSeconds: 4, leadSeconds: -2 })
+      );
       expect(decision).toMatchObject({ kind: "seek", toSeconds: 0 });
     });
 
     it("treats a non-finite lead as no lead at all", () => {
-      expect(decideAlignment(input({ leadSeconds: Number.NaN }))).toMatchObject({ kind: "seek", toSeconds: 4 });
+      const decision = decideAlignment(input({ seeksSoFar: 1, leadSeconds: Number.NaN }));
+      if (decision.kind !== "seek") throw new Error(`expected a seek, got ${decision.kind}`);
+      expect(decision.nextLeadSeconds).toBeCloseTo(4, 5);
     });
 
     it("honours a caller's own tolerance", () => {
@@ -117,6 +145,44 @@ describe("decideAlignment", () => {
     it("does not seek backwards past the start when the deck is behind the player", () => {
       const decision = decideAlignment(input({ deckPositionSeconds: 1, playerPositionSeconds: 9 }));
       expect(decision).toMatchObject({ kind: "seek", toSeconds: 1, driftSeconds: -8 });
+    });
+
+    it("does not fold the whole opening gap into the aim of the second seek", () => {
+      const first = decideAlignment(input({ deckPositionSeconds: 8, playerPositionSeconds: 0.11 }));
+      if (first.kind !== "seek") throw new Error(`expected a seek, got ${first.kind}`);
+      expect(first.toSeconds).toBeCloseTo(8, 5);
+
+      const second = decideAlignment(
+        input({
+          seeksSoFar: 1,
+          leadSeconds: first.nextLeadSeconds,
+          deckPositionSeconds: 8.7,
+          playerPositionSeconds: 8.4,
+        })
+      );
+      if (second.kind !== "seek") throw new Error(`expected a seek, got ${second.kind}`);
+      expect(second.toSeconds).toBeCloseTo(9, 5);
+    });
+
+    it("converges rather than diverging over three seeks against a fixed seek latency", () => {
+      const latency = 0.3;
+      let lead = 0;
+      let deck = 8;
+      let player = 0;
+      const drifts = [];
+      for (let seeks = 0; seeks < 3; seeks++) {
+        const decision = decideAlignment(
+          input({ seeksSoFar: seeks, leadSeconds: lead, deckPositionSeconds: deck, playerPositionSeconds: player })
+        );
+        if (decision.kind !== "seek") break;
+        lead = decision.nextLeadSeconds;
+        player = decision.toSeconds - latency;
+        deck += 0.7;
+        player += 0.7;
+        drifts.push(deck - player);
+      }
+      expect(Math.abs(drifts[drifts.length - 1])).toBeLessThan(Math.abs(drifts[0]));
+      expect(Math.abs(drifts[drifts.length - 1])).toBeLessThan(0.05);
     });
   });
 });

@@ -652,7 +652,7 @@ function alignPlayerToDeck(run: AlignRun): void {
     return;
   }
   setTimeout(
-    () => alignPlayerToDeck({ ...run, seeks: run.seeks + 1, lead: run.lead + decision.driftSeconds }),
+    () => alignPlayerToDeck({ ...run, seeks: run.seeks + 1, lead: decision.nextLeadSeconds }),
     ALIGN_SETTLE_MS
   );
 }
