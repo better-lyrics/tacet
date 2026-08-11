@@ -1,8 +1,15 @@
-/* Ported verbatim from docs/mocks/2026-08-07-singalong-fader-v3.html and
-   docs/mocks/2026-08-07-singalong-mounts.html (better-lyrics repo). Every
-   value here was measured or deliberately chosen; see
+/* Geometry ported from docs/mocks/2026-08-07-singalong-fader-v3.html and
+   docs/mocks/2026-08-07-singalong-mounts.html (better-lyrics repo); the
+   surface treatment from docs/mocks/option-c-wash.html. Every value here was
+   measured or deliberately chosen; see
    docs/plans/2026-08-07-singalong-karaoke.md section 6 before changing
    anything.
+
+   The card is opaque and carries no backdrop-filter. The 26px blur it used to
+   have was measured as expensive enough to starve frames and destabilise the
+   drag spring, so the flat surface is a performance decision as much as a
+   visual one. The hover card below keeps its own 12px blur, which is a much
+   smaller box and was never implicated.
 
    The button and card carry Better Lyrics' own dock classes too
    (blyrics-dock__control / --active, blyrics-dock__menu / --open), so a
@@ -18,9 +25,12 @@
      ours at higher specificity, so it wins deterministically instead of
      depending on which stylesheet the browser happens to cascade last.
    - Every read of a Better Lyrics theme variable (--dock-pill-accent,
-     --ease, --dock-ease) carries a fallback equal to the mock's own
-     default value, computed from --dock-accent: hsl(45, 100%, 56%), so nothing
-     here breaks if Better Lyrics is missing entirely, as in the player bar.
+     --ease, --dock-ease) carries a fallback, so nothing here breaks if Better
+     Lyrics is missing entirely, as in the player bar. The accent's fallback is
+     Tacet's own mark colour, #f20c32. It is inlined at each use site rather
+     than hoisted into one custom property because --dock-pill-accent is set by
+     Better Lyrics somewhere up the tree, and resolving it once on :root would
+     stop themes reaching it.
 
    --bar modifier classes below carry only what genuinely differs by host:
    the button's size and shape (28px pill vs. 40px circle) and the removal
@@ -65,19 +75,17 @@
   scale: 0.96;
 }
 .blyrics-sing:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h));
+  outline: 2px solid var(--dock-pill-accent, #f20c32);
   outline-offset: 2px;
 }
 .blyrics-sing--active {
-  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 80%, #fff);
-  background-color: color-mix(
-    in srgb,
-    var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%,
-    transparent
+  color: color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, #fff);
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, transparent),
+    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 22%, transparent)
   );
-  box-shadow: inset
-    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%, transparent) 0
-    1px 0 0;
+  box-shadow: inset rgba(255, 255, 255, 0.18) 0 1px 0 0;
 }
 
 /* Better Lyrics' own .blyrics-dock__control carries the same box model, but
@@ -107,7 +115,7 @@
   color: hsla(0, 0%, 100%, 0.95);
 }
 .blyrics-sing.blyrics-dock__control:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h));
+  outline: 2px solid var(--dock-pill-accent, #f20c32);
   outline-offset: 2px;
 }
 /* Three classes, not two: blyrics-dock__control--active is toggled
@@ -116,15 +124,13 @@
    bar button whenever it is engaged. Requiring blyrics-dock__control too
    keeps this scoped to the dock. */
 .blyrics-sing.blyrics-dock__control.blyrics-dock__control--active {
-  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 80%, #fff);
-  background-color: color-mix(
-    in srgb,
-    var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%,
-    transparent
+  color: color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, #fff);
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, transparent),
+    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 22%, transparent)
   );
-  box-shadow: inset
-    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%, transparent) 0
-    1px 0 0;
+  box-shadow: inset rgba(255, 255, 255, 0.18) 0 1px 0 0;
 }
 
 /* -- Player bar fallback: only what differs from the dock pill. YouTube
@@ -151,7 +157,9 @@
 }
 .blyrics-sing--bar.blyrics-sing--active {
   background-color: transparent;
+  background-image: none;
   box-shadow: none;
+  color: color-mix(in srgb, var(--dock-pill-accent, #f20c32) 40%, #fff);
 }
 .blyrics-sing--bar .blyrics-sing__glyph--busy > span {
   width: 24px;
@@ -218,16 +226,13 @@
 .blyrics-mix {
   position: fixed;
   z-index: 2147483000;
-  padding: 12px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  border-radius: 26px;
-  background-color: hsla(0, 0%, 100%, 0.07);
-  box-shadow:
-    rgba(0, 0, 0, 0.28) 0 10px 28px -10px,
-    inset rgba(255, 255, 255, 0.1) 0 1px 0 0;
-  backdrop-filter: blur(26px);
+  border-radius: 20px;
+  background-color: hsl(220, 3%, 13%);
+  box-shadow: rgba(0, 0, 0, 0.5) 0 8px 24px 0;
   /* Same enter and exit as the shipped .blyrics-dock__menu: a 6px rise and
      a fade over 160ms. No scale, no blur. */
   opacity: 0;
@@ -259,8 +264,8 @@
   max-height: none;
   overflow: visible;
   gap: 0;
-  padding: 12px;
-  border-radius: 26px;
+  padding: 6px;
+  border-radius: 20px;
 }
 
 .blyrics-mix-track {
@@ -269,10 +274,7 @@
   height: 146px;
   padding: 3px;
   border-radius: 14px;
-  background-color: hsla(0, 0%, 100%, 0.06);
-  box-shadow:
-    inset rgba(0, 0, 0, 0.3) 0 1px 3px 0,
-    inset rgba(255, 255, 255, 0.07) 0 1px 0 0;
+  background-color: rgba(0, 0, 0, 0.22);
   cursor: grab;
   touch-action: none;
 }
@@ -280,13 +282,13 @@
   cursor: grabbing;
 }
 .blyrics-mix-track:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h));
+  outline: 2px solid var(--dock-pill-accent, #f20c32);
   outline-offset: 3px;
 }
 
 /* Three concentric steps, so the clearance around the moving parts is the
    same on all four sides instead of only on the inline axis.
-     card  26 - 12 padding -> track 14
+     card  20 - 6 padding  -> track 14
      track 14 - 3 padding  -> well  11  (the inline gap that was already right)
      well  11 - 2 padding  -> fill and handle 9
    A taller handle is what lets the radius climb: at 18px it takes the full
@@ -309,11 +311,7 @@
   left: 0;
   right: 0;
   border-radius: 9px;
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 50%, transparent),
-    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 65%, transparent)
-  );
+  background: var(--dock-pill-accent, #f20c32);
 }
 .blyrics-mix-thumb {
   position: absolute;
@@ -368,7 +366,7 @@
   top: 0;
   font-size: 11px;
   font-weight: 500;
-  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 78%, #fff);
+  color: hsla(0, 0%, 100%, 0.55);
   opacity: 1;
   filter: blur(0);
   transform: translate(-50%, 0);
