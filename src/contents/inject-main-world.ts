@@ -375,7 +375,10 @@ function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, attempt: numbe
   const deckSeconds = state.decks[state.activeDeck].positionSeconds;
   const playerSeconds = playerCurrentTime(document);
   const drift = deckSeconds - playerSeconds;
-  if (!Number.isFinite(drift)) return;
+  if (!Number.isFinite(drift)) {
+    logger.warn(`not aligning the clocks, the deck reads ${deckSeconds} against a player at ${playerSeconds}`);
+    return;
+  }
   if (Math.abs(drift) <= ALIGN_TOLERANCE_SECONDS) {
     if (attempt > 0) logger.log(`clocks aligned after ${attempt} seek(s), ${(drift * 1000).toFixed(0)} ms apart`);
     return;

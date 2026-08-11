@@ -156,6 +156,15 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     deck().stop();
   }
 
+  // Unlike play and playing, which the transition's own advance fires, a seek
+  // during a fade is always the listener's: nothing here seeks until the fade
+  // is over. Ignoring it leaves the fade running from a position they have
+  // already left.
+  function onSeeked(): void {
+    if (abortCrossfade("the listener seeked mid fade")) return;
+    syncToElement();
+  }
+
   function syncToElement(): void {
     if (!deck().hasStems() || bypass.isBypassed()) return;
     // A crossfade owns both decks' timelines, and the player clock still
@@ -185,7 +194,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     element.addEventListener("play", syncToElement);
     element.addEventListener("playing", syncToElement);
     element.addEventListener("pause", stopDeck);
-    element.addEventListener("seeked", syncToElement);
+    element.addEventListener("seeked", onSeeked);
     element.addEventListener("ratechange", syncToElement);
   }
 
@@ -364,7 +373,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     element.removeEventListener("play", syncToElement);
     element.removeEventListener("playing", syncToElement);
     element.removeEventListener("pause", stopDeck);
-    element.removeEventListener("seeked", syncToElement);
+    element.removeEventListener("seeked", onSeeked);
     element.removeEventListener("ratechange", syncToElement);
   }
 
