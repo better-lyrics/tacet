@@ -435,7 +435,7 @@ function askWhatComesNext(): void {
   postToWindow({ type: "blk-request-next-prefetch", videoId: listening });
 }
 
-function stageMixIfUseful(graph: PlaybackGraph): void {
+function stageMixIfUseful(): void {
   if (crossfadeSeconds <= 0) return;
   releaseSpentStaging();
   if (nextTrackVideoId !== null && nextTrackVideoId === playerTrackId()) nextTrackVideoId = null;
@@ -445,7 +445,7 @@ function stageMixIfUseful(graph: PlaybackGraph): void {
   if (videoId === null || videoId === playerTrackId()) return;
   if (!capturedVideoIds.has(videoId) || mixUnavailableVideoIds.has(videoId)) return;
 
-  const remainingSeconds = remainingForCue(cueClock(graph));
+  const remainingSeconds = remainingForCue(cueClock(cachedGraph));
   if (!Number.isFinite(remainingSeconds) || remainingSeconds <= crossfadeSeconds + DECODE_LEAD_SECONDS) return;
 
   const choice = decideStagedSource({
@@ -627,14 +627,14 @@ function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, generation: nu
   setTimeout(() => alignPlayerToDeck(graph, videoId, generation, attempt + 1, lead + drift), ALIGN_SETTLE_MS);
 }
 
-function cueClock(graph: PlaybackGraph): CueClockInput {
-  const state = graph.describe();
-  const active = state.decks[state.activeDeck];
+function cueClock(graph: PlaybackGraph | null): CueClockInput {
+  const state = graph?.describe() ?? null;
+  const active = state ? state.decks[state.activeDeck] : null;
   return {
     trackDurationSeconds: currentPlayerSnapshot(document)?.durationSeconds ?? Number.NaN,
     trackPositionSeconds: playerCurrentTime(document),
-    deckDurationSeconds: active.durationSeconds,
-    deckPositionSeconds: active.positionSeconds,
+    deckDurationSeconds: active?.durationSeconds ?? Number.NaN,
+    deckPositionSeconds: active?.positionSeconds ?? Number.NaN,
   };
 }
 
@@ -737,6 +737,7 @@ function tendCrossfadeGraph(): void {
     return;
   }
   if (crossfadeSeconds <= 0 || acquiring !== null) return;
+  if (stagedVideoId === null || stagedState === "none") return;
   if (playerTrackId() === null || isAdPlaying(document)) return;
 
   const element = playerVideoElement(document);
@@ -749,10 +750,8 @@ function tendCrossfadeGraph(): void {
 }
 
 function reconcile(): void {
-  if (cachedGraph) {
-    stageMixIfUseful(cachedGraph);
-    if (runTransitionCue(cachedGraph)) return;
-  }
+  stageMixIfUseful();
+  if (cachedGraph && runTransitionCue(cachedGraph)) return;
 
   const track = pendingTrack;
   if (!track) {

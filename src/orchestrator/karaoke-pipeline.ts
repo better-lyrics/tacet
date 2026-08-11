@@ -345,7 +345,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       }
       log(`capture ready for ${data.videoId}`);
       dispatch({ type: "capture-ready", videoId: data.videoId });
-      if (data.videoId === state.videoId && prefetchVideoId === null) requestNextPrefetch(data.videoId);
       maybeAutoEngage(data.videoId);
       return;
     }
@@ -527,10 +526,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
       log(`cached stems found for ${message.videoId}, capture is not needed`);
-      if (message.videoId === state.videoId) {
-        clearCacheProbeTimer();
-        if (prefetchVideoId === null) requestNextPrefetch(message.videoId);
-      }
+      if (message.videoId === state.videoId) clearCacheProbeTimer();
       dispatch({ type: "cache-hit", videoId: message.videoId });
       postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
       finishStemsIfReady(message.videoId);
@@ -604,7 +600,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           return;
         }
         log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
-        if (prefetchVideoId === null) requestNextPrefetch(videoId);
       })
       .catch(error => logError("failed to read the auto-separate setting", error));
   }
