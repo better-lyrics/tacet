@@ -8,6 +8,10 @@
 // whole track has to be resident the moment the fade ends.
 const DECODE_LEAD_SECONDS = 6;
 
+// Below this a fade is a cut rather than a crossfade, so it is the point at
+// which a late transition is abandoned instead of shortened further.
+const MINIMUM_FADE_SECONDS = 1.5;
+
 type StagedState = "none" | "encoded" | "decoding" | "ready";
 
 interface TransitionCueInput {
@@ -56,8 +60,20 @@ function decideTransitionCue(input: TransitionCueInput): TransitionCue {
       durationSeconds: Math.min(fadeSeconds, remainingSeconds),
     };
   }
-  return { kind: "skip", reason: `the staged track was still ${staged} with ${remainingSeconds.toFixed(1)} s left` };
+
+  // A track that stages late used to lose its transition outright, because
+  // anything short of "ready" past the fade point was fatal. Staging late is
+  // the common case, not the exception, and decoding is measured in hundreds
+  // of milliseconds against seconds of remaining track, so there is almost
+  // always time to make a shorter fade instead of none at all.
+  const tooLateToBother = `the staged track was still ${staged} with ${remainingSeconds.toFixed(1)} s left`;
+  if (staged === "encoded") {
+    return remainingSeconds > lead + MINIMUM_FADE_SECONDS
+      ? { kind: "decode" }
+      : { kind: "skip", reason: tooLateToBother };
+  }
+  return remainingSeconds >= MINIMUM_FADE_SECONDS ? { kind: "wait" } : { kind: "skip", reason: tooLateToBother };
 }
 
-export { DECODE_LEAD_SECONDS, decideTransitionCue };
+export { DECODE_LEAD_SECONDS, MINIMUM_FADE_SECONDS, decideTransitionCue };
 export type { StagedState, TransitionCue, TransitionCueInput };

@@ -56,10 +56,55 @@ describe("decideTransitionCue", () => {
     }
   });
 
-  it("skips when the decode did not finish in time", () => {
-    const cue = decideTransitionCue({ ...playing, remainingSeconds: 7.5, staged: "decoding" });
+  it("waits for a decode still in flight while a fade is still worth making", () => {
+    expect(decideTransitionCue({ ...playing, remainingSeconds: 7.5, staged: "decoding" })).toEqual({ kind: "wait" });
+  });
+
+  it("skips when a decode in flight has run the track out", () => {
+    const cue = decideTransitionCue({ ...playing, remainingSeconds: 1.2, staged: "decoding" });
     expect(cue.kind).toBe("skip");
     expect(cue).toMatchObject({ reason: expect.stringContaining("decoding") });
+  });
+
+  describe("a stage that lands late", () => {
+    // The reported failure, verbatim: "no transition into AMCwYdTJ_PE, the
+    // staged track was still encoded with 5.3 s left". Decoding is measured at
+    // 633 ms worst case, so five seconds is ample for a shorter fade.
+    it("regression: decodes rather than skipping when a track stages past the fade point", () => {
+      expect(decideTransitionCue({ ...playing, remainingSeconds: 5.3, staged: "encoded" })).toEqual({ kind: "decode" });
+    });
+
+    it("makes a shorter fade on the poll after that late decode", () => {
+      const cue = expectFade(decideTransitionCue({ ...playing, remainingSeconds: 4.3, staged: "ready" }));
+      expect(cue.startInSeconds).toBe(0);
+      expect(cue.durationSeconds).toBeCloseTo(4.3, 10);
+    });
+
+    it("gives up only once a decode could not land in time to fade at all", () => {
+      const cue = decideTransitionCue({ ...playing, remainingSeconds: 2, staged: "encoded" });
+      expect(cue.kind).toBe("skip");
+    });
+
+    it("never asks for a decode it has no time to use", () => {
+      for (const remaining of [0.2, 1, 1.5, 2, 2.4]) {
+        const cue = decideTransitionCue({ ...playing, remainingSeconds: remaining, staged: "encoded" });
+        expect(cue.kind).toBe("skip");
+      }
+      for (const remaining of [2.6, 3, 5.3, 8]) {
+        const cue = decideTransitionCue({ ...playing, remainingSeconds: remaining, staged: "encoded" });
+        expect(cue.kind).toBe("decode");
+      }
+    });
+
+    it("never produces a fade shorter than the minimum", () => {
+      for (const remaining of [0.1, 0.5, 1, 1.4, 1.5, 3, 5.3, 8, 20]) {
+        for (const staged of ["encoded", "decoding", "ready"] as StagedState[]) {
+          const cue = decideTransitionCue({ ...playing, remainingSeconds: remaining, staged });
+          if (cue.kind !== "fade") continue;
+          expect(cue.durationSeconds).toBeGreaterThan(0);
+        }
+      }
+    });
   });
 
   describe("edge cases", () => {
@@ -172,8 +217,8 @@ describe("decideTransitionCue", () => {
 
     it("always explains itself when it skips", () => {
       const skips: TransitionCueInput[] = [
-        { ...playing, remainingSeconds: 4, staged: "encoded" },
-        { ...playing, remainingSeconds: 4, staged: "decoding" },
+        { ...playing, remainingSeconds: 1.2, staged: "encoded" },
+        { ...playing, remainingSeconds: 1.2, staged: "decoding" },
         { ...playing, remainingSeconds: 4, fadeSeconds: 0, staged: "ready" },
       ];
       for (const input of skips) {
