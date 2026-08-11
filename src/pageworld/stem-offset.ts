@@ -8,6 +8,8 @@ interface StemStartInput {
   playerTimeSeconds: number;
   elementTimeSeconds: number;
   stemDurationSeconds: number;
+  deckTrackId: string | null;
+  playerTrackId: string | null;
 }
 
 function usable(value: number): boolean {
@@ -15,7 +17,18 @@ function usable(value: number): boolean {
 }
 
 function resolveStemStart(input: StemStartInput): StemStart {
-  const { playerTimeSeconds, elementTimeSeconds, stemDurationSeconds } = input;
+  const { playerTimeSeconds, elementTimeSeconds, stemDurationSeconds, deckTrackId, playerTrackId } = input;
+
+  // Every path that starts a deck comes through here, and none of the clocks
+  // below say anything about *which* track is in the buffer. Without this a
+  // deck left holding the previous track is restarted at the current track's
+  // playhead, which plays the wrong song perfectly cleanly. A null on either
+  // side is "unknown", never "mismatched": refusing on unknown would hand the
+  // listener back to the unseparated track every time the player is between
+  // tracks.
+  if (deckTrackId !== null && playerTrackId !== null && deckTrackId !== playerTrackId) {
+    return { kind: "bypass", reason: `the deck holds ${deckTrackId} and the player is on ${playerTrackId}` };
+  }
 
   if (!Number.isFinite(stemDurationSeconds) || stemDurationSeconds <= 0) {
     return { kind: "bypass", reason: "the stems have no duration" };

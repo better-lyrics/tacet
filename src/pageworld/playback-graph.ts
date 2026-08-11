@@ -17,6 +17,14 @@ const logger = createLogger("page");
 interface PlaybackGraphDeps {
   context: AudioContext;
   source: MediaElementAudioSourceNode;
+  // Which track the listener is on, answered for the moment rather than read
+  // off the player, which keeps naming the previous track for several seconds
+  // after a transition. Null means genuinely unknown, which reads as "no
+  // opinion" rather than "a different track".
+  playerTrackId(): string | null;
+  // True while a track change this graph asked for has not reached the player
+  // yet. In that window a transport event is ours, not the listener's.
+  ownAdvanceLanding(): boolean;
   // A fade can be unwound from a transport listener the caller never sees, and
   // the bookkeeping it moved across has to move back.
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
@@ -58,7 +66,12 @@ interface GraphState {
 }
 
 interface PlaybackGraph {
-  loadStems(vocals: Float32Array<ArrayBuffer>[], instrumental: Float32Array<ArrayBuffer>[], sampleRate: number): void;
+  loadStems(
+    vocals: Float32Array<ArrayBuffer>[],
+    instrumental: Float32Array<ArrayBuffer>[],
+    sampleRate: number,
+    trackId: string | null
+  ): void;
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
   resumeStems(): void;
@@ -129,6 +142,17 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     },
   });
 
+  // Unmuting the original is the fallback for every refusal, so it is one
+  // operation rather than a gain assignment repeated per caller. It reports
+  // whether it changed anything, which is what stops a polled caller logging
+  // the same refusal every second.
+  function handBackToOriginal(reason: string): boolean {
+    if (originalGainNode.gain.value === 1) return false;
+    logger.warn(`handing back to the original, ${reason}`);
+    originalGainNode.gain.value = 1;
+    return true;
+  }
+
   function startSourcesAtPlayhead(): void {
     if (!deck().hasStems()) return;
     deck().stop();
@@ -137,12 +161,13 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       playerTimeSeconds: playerCurrentTime(document),
       elementTimeSeconds: element.currentTime,
       stemDurationSeconds: deck().durationSeconds(),
+      deckTrackId: deck().trackId(),
+      playerTrackId: deps.playerTrackId(),
     });
     lastStart = start;
 
     if (start.kind === "bypass") {
-      logger.warn(`handing back to the original, ${start.reason}`);
-      originalGainNode.gain.value = 1;
+      handBackToOriginal(start.reason);
       return;
     }
 
@@ -151,7 +176,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     deck().setMixLevel(currentMixLevel);
   }
 
+  // The transition's own midpoint advance makes YouTube emit a pause, so an
+  // unqualified abort here tears down the fade that fired it. The suppression
+  // is narrowed to a fade still in flight during our own advance: outside that
+  // pair, a pause is the listener's and still stops the deck.
   function stopDeck(): void {
+    if (isCrossfading() && deps.ownAdvanceLanding()) return;
     if (abortCrossfade("the listener paused mid fade")) return;
     deck().stop();
   }
@@ -201,9 +231,10 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function loadStems(
     vocals: Float32Array<ArrayBuffer>[],
     instrumental: Float32Array<ArrayBuffer>[],
-    sampleRate: number
+    sampleRate: number,
+    trackId: string | null
   ): void {
-    if (!deck().load(vocals, instrumental, sampleRate)) {
+    if (!deck().load(vocals, instrumental, sampleRate, trackId)) {
       logger.warn("load-stems carried no channels, staying on the original");
       return;
     }
@@ -229,10 +260,18 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   // the deck. If a transport event stopped it in the meantime, nothing else
   // would ever start it again, and the listener just gets silence. This is the
   // one polled path that notices.
+  //
+  // A timer is weak evidence, unlike a transport event, so a deck that simply
+  // ran out is not restarted: the stems end a fraction before the element
+  // does, and restarting on that made every natural track end look like a
+  // stall. It still has to be answered, though, because a deck holding less
+  // than the whole track leaves the original silenced with nothing playing.
   function recoverIfStopped(): boolean {
     if (bypass.isBypassed() || isCrossfading()) return false;
     if (!deck().hasStems() || deck().isPlaying()) return false;
     if (element.paused) return false;
+
+    if (deck().hasFinished()) return handBackToOriginal("the stems ran out before the track did");
 
     logger.warn("the deck stopped while the track kept playing, restarting it at the playhead");
     startSourcesAtPlayhead();
@@ -256,7 +295,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (gate.kind === "refuse") return { kind: "refused", reason: gate.reason };
 
     const incoming = idleDeck();
-    if (!incoming.load(request.vocals, request.instrumental, request.sampleRate)) {
+    if (!incoming.load(request.vocals, request.instrumental, request.sampleRate, request.videoId ?? null)) {
       return { kind: "refused", reason: "the incoming stems carried no channels" };
     }
 
@@ -299,7 +338,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     logger.warn(`crossfade aborted, ${reason}`);
 
     const abandoned = crossfade.videoId;
-    activeDeck = crossfade.outgoingDeck;
+    // Handing back to the outgoing deck is right only while the player is
+    // still on the outgoing track. Once our advance has landed, that deck
+    // holds the track the listener has already left.
+    const advanceLanded = abandoned !== null && deps.playerTrackId() === abandoned;
+    if (!advanceLanded) activeDeck = crossfade.outgoingDeck;
     crossfade = null;
     for (const each of decks) {
       each.gainParam().cancelScheduledValues(context.currentTime);

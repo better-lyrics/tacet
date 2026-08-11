@@ -7,6 +7,8 @@ import { advanceToNextTrack, seekPlayerTo } from "@/capture/yt-player";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
+import { listenerTrackId } from "@/pageworld/listener-track";
+import type { PendingAdvance } from "@/pageworld/listener-track";
 import { startPlayerBridge } from "@/pageworld/player-bridge";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
@@ -48,6 +50,7 @@ const OWN_ADVANCE_GRACE_MS = 20_000;
 
 let ownAdvanceUntilMs = 0;
 let advancingFromVideoId: string | null = null;
+let advancingIntoVideoId: string | null = null;
 
 interface LoadedStems {
   videoId: string;
@@ -80,16 +83,30 @@ function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
 }
 
+function pendingAdvance(): PendingAdvance | null {
+  if (Date.now() >= ownAdvanceUntilMs) return null;
+  if (advancingFromVideoId === null || advancingIntoVideoId === null) return null;
+  return { fromVideoId: advancingFromVideoId, intoVideoId: advancingIntoVideoId };
+}
+
+// The one answer to "which track is the listener on". Everything that compares
+// a track against the listener's position comes through here.
+function playerTrackId(): string | null {
+  return listenerTrackId({
+    playerVideoId: currentPlayerSnapshot(document)?.videoId ?? null,
+    advance: pendingAdvance(),
+  });
+}
+
 function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
-  const snapshot = currentPlayerSnapshot(document);
-  if (!snapshot || snapshot.videoId !== stems.videoId) return null;
+  if (playerTrackId() !== stems.videoId) return null;
   const element = playerVideoElement(document);
   return element?.isConnected ? element : null;
 }
 
 function playerOnOtherTrack(stems: LoadedStems): boolean {
-  const snapshot = currentPlayerSnapshot(document);
-  return snapshot !== null && snapshot.videoId !== stems.videoId;
+  const id = playerTrackId();
+  return id !== null && id !== stems.videoId;
 }
 
 let awaitingReconfirmation = false;
@@ -107,20 +124,17 @@ function reconfirmIfPossible(stems: LoadedStems): void {
   if (decision === "confirmed") awaitingReconfirmation = false;
 }
 
-// A transition moves the stems onto the incoming track before the player gets
-// there, and the player can take several seconds to report the new videoId.
-// In that window the stems look stale to every check below, get released, and
-// the listener drops back to the unseparated track until the pipeline reloads
-// them. This is only true while the player is still on the track we faded out
-// of, so it cannot swallow a genuine skip.
+// True while a track change we asked for has not reached the player's own
+// bookkeeping. It is narrowed to the player still naming the track we left, so
+// it cannot swallow a genuine skip, and it expires either way.
 function advanceStillLanding(): boolean {
-  if (Date.now() >= ownAdvanceUntilMs || advancingFromVideoId === null) return false;
+  const advance = pendingAdvance();
+  if (advance === null) return false;
   const snapshot = currentPlayerSnapshot(document);
-  return snapshot === null || snapshot.videoId === advancingFromVideoId;
+  return snapshot === null || snapshot.videoId === advance.fromVideoId;
 }
 
 function stemsAreStale(stems: LoadedStems): boolean {
-  if (advanceStillLanding()) return false;
   return awaitingReconfirmation || playerOnOtherTrack(stems);
 }
 
@@ -148,6 +162,16 @@ window.blkTransitionProbe = () => {
     pendingVideoId: pendingStems?.videoId ?? null,
     activeDeck: state?.activeDeck ?? null,
     crossfading: state?.crossfading ?? null,
+    // What the listener is actually hearing, against what they are looking at.
+    // Every deformity metric passes for the wrong song played correctly, so
+    // this pair is the only thing that catches one.
+    playerVideoId: playerTrackId(),
+    activeDeckTrackId: active?.trackId ?? null,
+    audibleTrackMatchesPlayer: active === null ? null : active.playing && active.trackId === playerTrackId(),
+    deckTrackIds: state ? state.decks.map(deck => deck.trackId) : null,
+    deckFinished: state ? state.decks.map(deck => deck.finished) : null,
+    deckPlaying: state ? state.decks.map(deck => deck.playing) : null,
+    startRefusedBecause: state?.startRefusedBecause ?? null,
     remainingSeconds: active ? +(active.durationSeconds - active.positionSeconds).toFixed(2) : null,
     deckPeaks: state ? state.decks.map(deck => +deck.combinedPeak.toFixed(4)) : null,
     deckRms: state ? state.decks.map(deck => [+deck.vocalsRms.toFixed(4), +deck.instrumentalRms.toFixed(4)]) : null,
@@ -242,7 +266,7 @@ window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
   // so the outgoing deck carries real separated stems rather than a tone.
   const outgoingIsReal = graph.describe().stemsPlaying;
   if (!outgoingIsReal) {
-    graph.loadStems(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate);
+    graph.loadStems(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate, playerTrackId());
     graph.setMixLevel(1);
     await new Promise(resolve => setTimeout(resolve, 400));
   }
@@ -313,13 +337,25 @@ function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMess
 // and the pipeline reports engaged with nothing in the deck.
 let stemsBeforeCrossfade: LoadedStems | null = null;
 
+// Every timer a transition arms outlives the transition itself, and the
+// alignment one fires after the fade is over, so "is a fade running" cannot
+// tell it whether it still belongs to anything.
+let transitionGeneration = 0;
+
 function onCrossfadeAborted(videoId: string | null, reason: string): void {
+  transitionGeneration++;
   logger.warn(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
-  if (stemsBeforeCrossfade !== null) {
+  // Unwinding to the outgoing track is only right while the listener is still
+  // on it. Once the advance has landed they are on the incoming track, and
+  // handing the pipeline the previous track's stems is what put the wrong song
+  // in the deck. Clearing engagement alone re-loads what is already there.
+  if (videoId !== null && playerTrackId() === videoId) {
+    engagedStems = null;
+  } else if (stemsBeforeCrossfade !== null) {
     pendingStems = stemsBeforeCrossfade;
     engagedStems = null;
-    stemsBeforeCrossfade = null;
   }
+  stemsBeforeCrossfade = null;
   clearStaging();
   postToIsolated({ type: "blk-crossfade-aborted", videoId, reason });
 }
@@ -353,6 +389,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   engagedStems = pendingStems;
   awaitingReconfirmation = false;
 
+  const generation = ++transitionGeneration;
   const startsInMs = startInSeconds * 1000;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
@@ -363,6 +400,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
       if (!graph.describe().crossfading) return;
       ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
       advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
+      advancingIntoVideoId = videoId;
       if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
     },
     startsInMs + (fadeSeconds / 2) * 1000
@@ -373,13 +411,15 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   // audible, and as a backwards jump the next time any transport event reaches
   // the drift correction. The player's own audio is silenced, so moving its
   // clock to the deck's costs nothing that can be heard.
-  setTimeout(() => alignPlayerToDeck(graph, videoId, 0), startsInMs + fadeSeconds * 1000 + ALIGN_DELAY_MS);
+  setTimeout(() => alignPlayerToDeck(graph, videoId, generation, 0), startsInMs + fadeSeconds * 1000 + ALIGN_DELAY_MS);
 }
 
 // A seek takes time to land, and the deck keeps moving while it does, so one
 // pass leaves a residue. Two or three converge, and each one is inaudible
 // because the player's own audio sits at a gain of zero.
-function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, attempt: number, lead = 0): void {
+function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, generation: number, attempt: number, lead = 0): void {
+  if (generation !== transitionGeneration) return;
+
   const snapshot = currentPlayerSnapshot(document);
   if (snapshot?.videoId !== videoId) {
     logger.warn(`not aligning the clocks, the player is on ${snapshot?.videoId ?? "nothing"} rather than ${videoId}`);
@@ -412,7 +452,7 @@ function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, attempt: numbe
   }
   // Whatever this attempt leaves behind is the seek's own latency, so folding
   // it into the next aim cancels it rather than repeating it.
-  setTimeout(() => alignPlayerToDeck(graph, videoId, attempt + 1, lead + drift), ALIGN_SETTLE_MS);
+  setTimeout(() => alignPlayerToDeck(graph, videoId, generation, attempt + 1, lead + drift), ALIGN_SETTLE_MS);
 }
 
 function runTransitionCue(graph: PlaybackGraph): boolean {
@@ -456,7 +496,7 @@ function discardGraph(): void {
 }
 
 function applyStems(graph: PlaybackGraph, stems: LoadedStems): void {
-  graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate);
+  graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate, stems.videoId);
   graph.setMixLevel(pendingMixLevel);
   engagedStems = stems;
   awaitingReconfirmation = false;
@@ -471,7 +511,13 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
     }
     logger.log(`audio bus acquired, context=${bus.context.state}, element decoded bytes=${decodedBytes(bus.element)}`);
 
-    const graph = createPlaybackGraph({ context: bus.context, source: bus.source, onCrossfadeAborted });
+    const graph = createPlaybackGraph({
+      context: bus.context,
+      source: bus.source,
+      playerTrackId,
+      ownAdvanceLanding: advanceStillLanding,
+      onCrossfadeAborted,
+    });
     cachedElement = bus.element;
 
     bus.context.addEventListener("statechange", () => {

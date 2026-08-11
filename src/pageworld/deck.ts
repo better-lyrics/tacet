@@ -9,6 +9,8 @@ interface DeckDeps {
 
 interface DeckState {
   stemsLoaded: boolean;
+  trackId: string | null;
+  finished: boolean;
   stemFrames: number;
   stemSampleRate: number;
   vocalsRms: number;
@@ -23,13 +25,20 @@ interface DeckState {
 }
 
 interface Deck {
-  load(vocals: Float32Array<ArrayBuffer>[], instrumental: Float32Array<ArrayBuffer>[], sampleRate: number): boolean;
+  load(
+    vocals: Float32Array<ArrayBuffer>[],
+    instrumental: Float32Array<ArrayBuffer>[],
+    sampleRate: number,
+    trackId: string | null
+  ): boolean;
   startAt(offsetSeconds: number, when?: number): void;
   stop(): void;
   stopAt(when: number): void;
   setMixLevel(mixLevel: number): void;
   hasStems(): boolean;
   isPlaying(): boolean;
+  hasFinished(): boolean;
+  trackId(): string | null;
   durationSeconds(): number;
   positionNow(): number;
   gainParam(): AudioParam;
@@ -39,6 +48,7 @@ interface Deck {
 }
 
 interface LoadedStems {
+  trackId: string | null;
   vocals: AudioBuffer;
   instrumental: AudioBuffer;
   durationSeconds: number;
@@ -114,6 +124,7 @@ function createDeck(deps: DeckDeps): Deck {
   let currentMixLevel = 1;
   let startedAtOffsetSeconds = 0;
   let startedAtContextTime = 0;
+  let finished = false;
 
   function applyMixLevel(mixLevel: number): void {
     currentMixLevel = mixLevel;
@@ -138,6 +149,9 @@ function createDeck(deps: DeckDeps): Deck {
       instrumental.disconnect();
       vocalsSource = null;
       instrumentalSource = null;
+      // Reaching the end of the buffer and being stopped early both leave the
+      // deck silent, and only one of them is worth recovering from.
+      finished = true;
     };
   }
 
@@ -154,14 +168,17 @@ function createDeck(deps: DeckDeps): Deck {
   function load(
     vocals: Float32Array<ArrayBuffer>[],
     instrumental: Float32Array<ArrayBuffer>[],
-    sampleRate: number
+    sampleRate: number,
+    trackId: string | null
   ): boolean {
     stop();
     if (vocals.length === 0 || instrumental.length === 0) return false;
 
+    finished = false;
     const vocalsBuffer = createStemBuffer(context, vocals, sampleRate);
     const instrumentalBuffer = createStemBuffer(context, instrumental, sampleRate);
     loaded = {
+      trackId,
       vocals: vocalsBuffer,
       instrumental: instrumentalBuffer,
       durationSeconds: vocalsBuffer.duration,
@@ -173,6 +190,7 @@ function createDeck(deps: DeckDeps): Deck {
   function startAt(offsetSeconds: number, when = 0): void {
     if (!loaded) return;
     stop();
+    finished = false;
 
     vocalsSource = context.createBufferSource();
     vocalsSource.buffer = loaded.vocals;
@@ -203,6 +221,8 @@ function createDeck(deps: DeckDeps): Deck {
   function describe(): DeckState {
     return {
       stemsLoaded: loaded !== null,
+      trackId: loaded?.trackId ?? null,
+      finished,
       stemFrames: loaded?.instrumental.length ?? 0,
       stemSampleRate: loaded?.instrumental.sampleRate ?? 0,
       vocalsRms: loaded?.vocalsRms ?? 0,
@@ -233,6 +253,8 @@ function createDeck(deps: DeckDeps): Deck {
     setMixLevel: applyMixLevel,
     hasStems: () => loaded !== null,
     isPlaying: () => instrumentalSource !== null,
+    hasFinished: () => finished,
+    trackId: () => loaded?.trackId ?? null,
     durationSeconds: () => loaded?.durationSeconds ?? 0,
     positionNow,
     gainParam: () => deckGainNode.gain,
