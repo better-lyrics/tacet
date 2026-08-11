@@ -25,6 +25,7 @@ interface PlaybackGraphDeps {
   playerTrackId(): string | null;
   ownAdvanceLanding(): boolean;
   ownAdvanceRecent(): boolean;
+  consumeOwnSeek(): boolean;
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
 
@@ -256,7 +257,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function onSeeked(): void {
-    if (abortCrossfade("the listener seeked mid fade")) return;
+    if (!deps.consumeOwnSeek() && abortCrossfade("the listener seeked mid fade")) return;
     syncToElement();
   }
 

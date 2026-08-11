@@ -1,4 +1,5 @@
 import type { PlasmoCSConfig } from "plasmo";
+import { decideAlignment } from "@/automix/clock-align";
 import { fadeCeilingSeconds, remainingForCue } from "@/automix/cue-clock";
 import type { CueClockInput } from "@/automix/cue-clock";
 import { clampFadeToAudio } from "@/automix/crossfade-gate";
@@ -53,10 +54,12 @@ export const config: PlasmoCSConfig = {
 };
 
 const RECONCILE_INTERVAL_MS = 1000;
-const ALIGN_DELAY_MS = 250;
+const ALIGN_DELAY_MS = 150;
+const ALIGN_POLL_MS = 200;
 const ALIGN_SETTLE_MS = 700;
-const ALIGN_MAX_ATTEMPTS = 3;
-const ALIGN_TOLERANCE_SECONDS = 0.12;
+const ALIGN_MAX_SEEKS = 3;
+const ALIGN_PATIENCE_MS = 12_000;
+const OWN_SEEK_SETTLE_MS = 1200;
 const OWN_ADVANCE_GRACE_MS = 20_000;
 const ORIGINAL_ADVANCE_LEAD_SECONDS = 0.15;
 const ADVANCE_SETTLE_MS = 10_000;
@@ -65,6 +68,7 @@ const WARM_NEXT_WITHIN_SECONDS = 120;
 
 let ownAdvanceUntilMs = 0;
 let advanceIssuedAtMs = 0;
+let ownSeekAtMs = 0;
 let advancingFromVideoId: string | null = null;
 let advancingIntoVideoId: string | null = null;
 
@@ -106,6 +110,12 @@ logger.log("karaoke page world ready");
 
 function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
+}
+
+function consumeOwnSeek(): boolean {
+  if (Date.now() - ownSeekAtMs >= OWN_SEEK_SETTLE_MS) return false;
+  ownSeekAtMs = 0;
+  return true;
 }
 
 function pendingAdvance(): PendingAdvance | null {
@@ -572,6 +582,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
 
   const generation = ++transitionGeneration;
   const startsInMs = startInSeconds * 1000;
+  const fadingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
     postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds, kind: incoming.kind });
@@ -581,7 +592,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     if (!graph.describe().crossfading) return;
     ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
     advanceIssuedAtMs = Date.now();
-    advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
+    advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? fadingFromVideoId;
     advancingIntoVideoId = videoId;
     if (advancingFromVideoId === videoId) {
       logger.log(`the player reached ${videoId} on its own, not advancing it again`);
@@ -590,48 +601,62 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
   }, startsInMs + advanceAfterMs);
   setTimeout(
-    () => alignPlayerToDeck(graph, videoId, generation, 0),
-    startsInMs + clamped.seconds * 1000 + ALIGN_DELAY_MS
+    () => alignPlayerToDeck({ graph, videoId, generation, startedAtMs: Date.now(), seeks: 0, lead: 0 }),
+    startsInMs + advanceAfterMs + ALIGN_DELAY_MS
   );
 }
 
-function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, generation: number, attempt: number, lead = 0): void {
-  if (generation !== transitionGeneration) return;
+interface AlignRun {
+  graph: PlaybackGraph;
+  videoId: string;
+  generation: number;
+  startedAtMs: number;
+  seeks: number;
+  lead: number;
+}
 
-  const snapshot = currentPlayerSnapshot(document);
-  if (snapshot?.videoId !== videoId) {
-    logger.warn(`not aligning the clocks, the player is on ${snapshot?.videoId ?? "nothing"} rather than ${videoId}`);
-    return;
-  }
+function alignPlayerToDeck(run: AlignRun): void {
+  if (run.generation !== transitionGeneration) return;
 
-  const state = graph.describe();
-  const deckSeconds = state.decks[state.activeDeck].positionSeconds;
-  const playerSeconds = playerCurrentTime(document);
-  const drift = deckSeconds - playerSeconds;
-  if (!Number.isFinite(drift)) {
-    if (attempt >= ALIGN_MAX_ATTEMPTS) {
-      logger.warn(`giving up aligning the clocks, the deck reads ${deckSeconds} against a player at ${playerSeconds}`);
-      return;
+  const state = run.graph.describe();
+  const decision = decideAlignment({
+    playerVideoId: currentPlayerSnapshot(document)?.videoId ?? null,
+    intoVideoId: run.videoId,
+    playerPositionSeconds: playerCurrentTime(document),
+    deckPositionSeconds: state.decks[state.activeDeck].positionSeconds,
+    leadSeconds: run.lead,
+    seeksSoFar: run.seeks,
+    maxSeeks: ALIGN_MAX_SEEKS,
+    waitedMs: Date.now() - run.startedAtMs,
+    patienceMs: ALIGN_PATIENCE_MS,
+  });
+
+  if (decision.kind === "settled") {
+    if (run.seeks > 0) {
+      logger.log(`clocks aligned after ${run.seeks} seek(s), ${(decision.driftSeconds * 1000).toFixed(0)} ms apart`);
     }
-    setTimeout(() => alignPlayerToDeck(graph, videoId, generation, attempt + 1, lead), ALIGN_SETTLE_MS);
     return;
   }
-  if (Math.abs(drift) <= ALIGN_TOLERANCE_SECONDS) {
-    if (attempt > 0) logger.log(`clocks aligned after ${attempt} seek(s), ${(drift * 1000).toFixed(0)} ms apart`);
+  if (decision.kind === "abandon") {
+    logger.warn(`giving up aligning the clocks, ${decision.reason}`);
     return;
   }
-  if (attempt >= ALIGN_MAX_ATTEMPTS) {
-    logger.warn(`giving up aligning the clocks, still ${drift.toFixed(2)} s apart`);
+  if (decision.kind === "wait") {
+    setTimeout(() => alignPlayerToDeck(run), ALIGN_POLL_MS);
     return;
   }
 
-  graph.suppressDriftFor((ALIGN_SETTLE_MS / 1000) * 2);
-  logger.log(`aligning the player to the deck, ${drift.toFixed(2)} s behind (attempt ${attempt + 1})`);
-  if (!seekPlayerTo(document, deckSeconds + lead)) {
+  run.graph.suppressDriftFor((ALIGN_SETTLE_MS / 1000) * 2);
+  logger.log(`aligning the player to the deck, ${decision.driftSeconds.toFixed(2)} s behind (seek ${run.seeks + 1})`);
+  ownSeekAtMs = Date.now();
+  if (!seekPlayerTo(document, decision.toSeconds)) {
     logger.warn("the player would not seek, its clock stays behind the deck");
     return;
   }
-  setTimeout(() => alignPlayerToDeck(graph, videoId, generation, attempt + 1, lead + drift), ALIGN_SETTLE_MS);
+  setTimeout(
+    () => alignPlayerToDeck({ ...run, seeks: run.seeks + 1, lead: run.lead + decision.driftSeconds }),
+    ALIGN_SETTLE_MS
+  );
 }
 
 function cueClock(graph: PlaybackGraph | null): CueClockInput {
@@ -707,6 +732,7 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
       playerTrackId,
       ownAdvanceLanding: advanceStillLanding,
       ownAdvanceRecent: () => Date.now() - advanceIssuedAtMs < ADVANCE_SETTLE_MS,
+      consumeOwnSeek,
       onCrossfadeAborted,
     });
     cachedElement = bus.element;
