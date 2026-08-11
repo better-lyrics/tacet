@@ -350,6 +350,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function stopStems(): void {
     if (abortCrossfade("the stems were released mid fade")) return;
+    if (!bypass.isBypassed()) logger.warn("bypassing to the original, the deck was released");
     bypass.enterBypass();
   }
 
