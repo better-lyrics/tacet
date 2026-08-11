@@ -1,8 +1,9 @@
 // -- Arriving on a track a crossfade already faded into ----------------------
 
+import type { StagedKind } from "@/automix/staged-source";
 import type { KaraokeStatus } from "@/orchestrator/karaoke-state";
 
-type LandingKind = "stems" | "mix";
+type LandingKind = StagedKind;
 
 interface CrossfadeLandingInput {
   kind: LandingKind;

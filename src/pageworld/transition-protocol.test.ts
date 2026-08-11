@@ -120,11 +120,26 @@ describe("transition protocol", () => {
       expect(isStagedReadyMessage(request)).toBe(false);
       expect(isRequestStagedDeckMessage(staged)).toBe(false);
     });
+
+    it("accepts a crossfade-started from either kind of deck", () => {
+      expect(isCrossfadeStartedMessage({ ...started, kind: "stems" })).toBe(true);
+      expect(isCrossfadeStartedMessage({ ...started, kind: "mix" })).toBe(true);
+    });
   });
 
   describe("regressions", () => {
     it("regression: a crossfade-started message without a videoId is rejected, so the pipeline never stages a null", () => {
       expect(isCrossfadeStartedMessage({ type: "blk-crossfade-started", durationSeconds: 8 })).toBe(false);
+    });
+
+    it("regression: a crossfade-started from a page world that predates the kind field still passes", () => {
+      expect(isCrossfadeStartedMessage(started)).toBe(true);
+      expect(started.kind).toBeUndefined();
+    });
+
+    it("regression: an unrecognised kind is rejected rather than read as stems over unseparated audio", () => {
+      expect(isCrossfadeStartedMessage({ ...started, kind: "instrumental" })).toBe(false);
+      expect(isCrossfadeStartedMessage({ ...started, kind: null })).toBe(false);
     });
 
     it("regression: blk-load-stems is not mistaken for blk-stage-deck, since only one engages immediately", () => {

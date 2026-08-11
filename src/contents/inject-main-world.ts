@@ -517,7 +517,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   const startsInMs = startInSeconds * 1000;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
-    postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds });
+    postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds, kind: incoming.kind });
   }, startsInMs);
   setTimeout(
     () => {

@@ -1,5 +1,7 @@
 // -- Isolated to page world audio bridge protocol -----------------------------
 
+import type { StagedKind } from "@/automix/staged-source";
+
 export interface SetMixLevelMessage {
   type: "blk-set-mix-level";
   mixLevel: number;
@@ -52,6 +54,7 @@ export interface CrossfadeStartedMessage {
   type: "blk-crossfade-started";
   videoId: string;
   durationSeconds: number;
+  kind?: StagedKind;
 }
 
 export type AudioBridgeMessage = SetMixLevelMessage | LoadStemsMessage | StopStemsMessage;
@@ -137,12 +140,17 @@ export function isSetCrossfadeMessage(data: unknown): data is SetCrossfadeMessag
   );
 }
 
+function isStagedKindOrAbsent(value: unknown): value is StagedKind | undefined {
+  return value === undefined || value === "stems" || value === "mix";
+}
+
 export function isCrossfadeStartedMessage(data: unknown): data is CrossfadeStartedMessage {
   return (
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-crossfade-started" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
-    typeof (data as { durationSeconds?: unknown }).durationSeconds === "number"
+    typeof (data as { durationSeconds?: unknown }).durationSeconds === "number" &&
+    isStagedKindOrAbsent((data as { kind?: unknown }).kind)
   );
 }

@@ -11,6 +11,8 @@ import {
   isDownloadProgressMessage,
   isNextTrackMessage,
 } from "@/capture/bridge-protocol";
+import { decideCrossfadeLanding } from "@/orchestrator/crossfade-landing";
+import type { LandingKind } from "@/orchestrator/crossfade-landing";
 import {
   BETTER_LYRICS_PLAYER_EVENT,
   durationForTrack,
@@ -96,6 +98,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let stagedInstrumental: ChunkAssembler | null = null;
   let stagedDoneReceived = false;
   let crossfadingInto: string | null = null;
+  let crossfadingIntoKind: LandingKind = "stems";
   let crossfadeArmTimer: ReturnType<typeof setTimeout> | null = null;
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTrack: PlayerState | null = null;
@@ -119,10 +122,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     doneReceived = false;
   }
 
-  function armCrossfade(videoId: string, durationSeconds: number): void {
+  function armCrossfade(videoId: string, durationSeconds: number, kind: LandingKind): void {
     disarmCrossfade();
     crossfadingInto = videoId;
-    log(`crossfading into ${videoId} over ${durationSeconds} s`);
+    crossfadingIntoKind = kind;
+    log(`crossfading into ${videoId} over ${durationSeconds} s of ${kind}`);
     crossfadeArmTimer = setTimeout(
       () => {
         if (crossfadingInto !== videoId) return;
@@ -137,6 +141,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (crossfadeArmTimer !== null) clearTimeout(crossfadeArmTimer);
     crossfadeArmTimer = null;
     crossfadingInto = null;
+    crossfadingIntoKind = "stems";
   }
 
   function resetStaging(): void {
@@ -170,13 +175,32 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (videoId === state.videoId) return;
 
     if (videoId === crossfadingInto) {
-      log(`crossfaded into ${videoId}, its stems are already in the deck`);
+      const landing = decideCrossfadeLanding({ kind: crossfadingIntoKind, status: state.status });
       disarmCrossfade();
       resetStemAssembly();
       resetStaging();
       prefetchVideoId = null;
-      dispatch({ type: "crossfaded", videoId });
+
+      if (landing === "release") {
+        log(`crossfaded into ${videoId} while karaoke was ${state.status}, handing the audio back`);
+        postToPageWorld({ type: "blk-stop-stems" });
+        dispatch({ type: "track-changed", videoId });
+        probeCacheFor(videoId);
+        return;
+      }
+
       const nextRequest: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
+
+      if (landing === "keep-deck-and-reacquire") {
+        log(`crossfaded into ${videoId} on unseparated audio, separating it while it plays`);
+        dispatch({ type: "track-changed", videoId });
+        probeCacheFor(videoId);
+        postToPageWorld(nextRequest);
+        return;
+      }
+
+      log(`crossfaded into ${videoId}, its stems are already in the deck`);
+      dispatch({ type: "crossfaded", videoId });
       postToPageWorld(nextRequest);
       return;
     }
@@ -284,7 +308,13 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isCrossfadeStartedMessage(data)) {
-      armCrossfade(data.videoId, data.durationSeconds);
+      if (data.kind === undefined) {
+        logError(
+          "a crossfade started without naming what it faded in",
+          new Error(`assuming stems for ${data.videoId}, so an unseparated track would never be separated`)
+        );
+      }
+      armCrossfade(data.videoId, data.durationSeconds, data.kind ?? "stems");
       options.onCrossfadeStarted(data.durationSeconds);
       return;
     }
