@@ -7,12 +7,13 @@ import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import type { SetLoggingMessage } from "@/pageworld/protocol";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
-import { createLogger } from "@/shared/logger";
+import { createLogger, setLoggingEnabled } from "@/shared/logger";
 import { extensionVersion } from "@/shared/version";
 import { type BetterLyricsPresenceMessage, isHasBetterLyricsCommand } from "../../workers/protocol2";
 
@@ -131,7 +132,14 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
 
 let mounted: MountedFader | null = null;
 
+function applyLogging(enabled: boolean): void {
+  setLoggingEnabled(enabled);
+  const message: SetLoggingMessage = { type: "blk-set-logging", enabled };
+  window.postMessage(message, window.location.origin);
+}
+
 function applySettings(settings: Settings): void {
+  applyLogging(settings.debugLoggingEnabled);
   const { singAlongEnabled, faderPlacement, crossfadeSeconds } = settings;
   if (singAlongEnabled === (mounted !== null)) {
     mounted?.setPlacement(faderPlacement);

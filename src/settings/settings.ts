@@ -42,6 +42,7 @@ interface Settings {
   modelVariant: ModelVariant;
   faderPlacement: FaderPlacement;
   crossfadeSeconds: number;
+  debugLoggingEnabled: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -51,6 +52,7 @@ const DEFAULT_SETTINGS: Settings = {
   modelVariant: DEFAULT_MODEL_VARIANT,
   faderPlacement: "dock",
   crossfadeSeconds: 8,
+  debugLoggingEnabled: false,
 };
 
 // -- Validation -----------------------------------------------------------------
@@ -82,6 +84,10 @@ function sanitizeSettings(raw: unknown): Settings {
     crossfadeSeconds: isValidCrossfadeSeconds(record.crossfadeSeconds)
       ? record.crossfadeSeconds
       : DEFAULT_SETTINGS.crossfadeSeconds,
+    debugLoggingEnabled:
+      typeof record.debugLoggingEnabled === "boolean"
+        ? record.debugLoggingEnabled
+        : DEFAULT_SETTINGS.debugLoggingEnabled,
   };
 }
 

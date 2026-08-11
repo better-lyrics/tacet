@@ -31,7 +31,9 @@ import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slic
 import { decidePrefetch } from "@/capture/prefetch-gate";
 import { videoIdsToRelease } from "@/capture/prefetch-retention";
 import { settledTrackDuration } from "@/capture/settled-duration";
+import { isSetLoggingMessage } from "@/pageworld/protocol";
 import { readClockDuration } from "@/pageworld/track-duration";
+import { setLoggingEnabled } from "@/shared/logger";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { nextVideoIdInQueue, readQueueItems } from "@/capture/next-track";
 import { getVideoIdFromSearch } from "@/capture/video-id";
@@ -519,6 +521,7 @@ function standDownFor(videoId: string): void {
 window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
+  if (isSetLoggingMessage(data)) setLoggingEnabled(data.enabled);
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {

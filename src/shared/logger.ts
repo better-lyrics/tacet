@@ -1,6 +1,6 @@
 const PREFIX = "[Tacet]";
 
-let enabled = true;
+let enabled = false;
 
 interface Logger {
   log(...args: unknown[]): void;

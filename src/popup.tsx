@@ -390,6 +390,19 @@ async function main(): Promise<void> {
     }
   );
 
+  const debugLoggingToggle = createToggle(
+    "Console logging",
+    "Print what the extension is doing to the console. Off unless you are debugging.",
+    settings.debugLoggingEnabled,
+    next => {
+      saveSettingsFrom(chrome.storage.sync, { debugLoggingEnabled: next }).catch(error => {
+        console.error(`${LOG_PREFIX} failed to save the logging setting`, error);
+        showStatus("Could not save that change.");
+        debugLoggingToggle.setChecked(!next);
+      });
+    }
+  );
+
   const modelVariantRow = createModelVariantRow(settings.modelVariant, next => {
     saveSettingsFrom(chrome.storage.sync, { modelVariant: next })
       .then(() => refreshCacheStatus())
@@ -446,6 +459,7 @@ async function main(): Promise<void> {
     budgetSlider.row,
     stemRow.row,
     modelRow.row,
+    debugLoggingToggle.row,
     status
   );
   document.body.append(root);

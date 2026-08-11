@@ -50,6 +50,11 @@ export interface SetCrossfadeMessage {
   seconds: number;
 }
 
+export interface SetLoggingMessage {
+  type: "blk-set-logging";
+  enabled: boolean;
+}
+
 export interface CrossfadeStartedMessage {
   type: "blk-crossfade-started";
   videoId: string;
@@ -137,6 +142,15 @@ export function isSetCrossfadeMessage(data: unknown): data is SetCrossfadeMessag
     data !== null &&
     (data as { type?: unknown }).type === "blk-set-crossfade" &&
     typeof (data as { seconds?: unknown }).seconds === "number"
+  );
+}
+
+export function isSetLoggingMessage(data: unknown): data is SetLoggingMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-set-logging" &&
+    typeof (data as { enabled?: unknown }).enabled === "boolean"
   );
 }
 

@@ -1,6 +1,6 @@
 import { getModelSha256, getModelUrl } from "@/cache/model-url";
 import { createTabRegistry } from "@/orchestrator/tab-registry";
-import { SETTINGS_STORAGE_KEY } from "@/settings/settings";
+import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import {
@@ -16,7 +16,7 @@ import {
   isGetSettingsCommand,
   isTrackPipelineOutboundMessage,
 } from "../workers/protocol2";
-import { createLogger } from "@/shared/logger";
+import { createLogger, setLoggingEnabled } from "@/shared/logger";
 
 const logger = createLogger("pipeline");
 
@@ -146,8 +146,13 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   return true;
 });
 
+loadSettingsFrom(chrome.storage.sync)
+  .then(settings => setLoggingEnabled(settings.debugLoggingEnabled))
+  .catch(error => logger.error("failed to read the logging setting", error));
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !(SETTINGS_STORAGE_KEY in changes)) return;
+  setLoggingEnabled(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue).debugLoggingEnabled);
 
   chrome.offscreen
     .hasDocument()

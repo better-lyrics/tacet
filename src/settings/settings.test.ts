@@ -128,6 +128,7 @@ describe("sanitizeSettings", () => {
       modelVariant: "fp16" as const,
       faderPlacement: "bar" as const,
       crossfadeSeconds: 6,
+      debugLoggingEnabled: false,
     };
     expect(sanitizeSettings(valid)).toEqual(valid);
   });
