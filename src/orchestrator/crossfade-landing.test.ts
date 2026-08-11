@@ -20,21 +20,21 @@ describe("decideCrossfadeLanding", () => {
     expect(decideCrossfadeLanding(landing("mix", "engaged"))).toBe("keep-deck-and-reacquire");
   });
 
-  it("releases the deck when the pipeline was not the thing driving it", () => {
+  it("releases the deck when the pipeline was the thing driving it and no longer is", () => {
     expect(decideCrossfadeLanding(landing("stems", "waiting-for-capture"))).toBe("release");
-    expect(decideCrossfadeLanding(landing("mix", "waiting-for-capture"))).toBe("release");
+  });
+
+  it("keeps a mix landing whatever the pipeline is doing, since the page world staged it", () => {
+    expect(decideCrossfadeLanding(landing("mix", "waiting-for-capture"))).toBe("keep-deck-and-reacquire");
   });
 
   describe("edge cases", () => {
-    it.each(UNENGAGED)("releases on a landing found in %s, whatever was faded in", status => {
-      for (const kind of KINDS) {
-        expect(decideCrossfadeLanding(landing(kind, status))).toBe("release");
-      }
+    it.each(UNENGAGED)("releases a stems landing found in %s, since the pipeline put those stems there", status => {
+      expect(decideCrossfadeLanding(landing("stems", status))).toBe("release");
     });
 
     it("releases after a failure that lands mid fade rather than claiming sing-along over it", () => {
       expect(decideCrossfadeLanding(landing("stems", "failed"))).toBe("release");
-      expect(decideCrossfadeLanding(landing("mix", "failed"))).toBe("release");
     });
 
     it("releases when a reacquire reset the pipeline while the fade was in flight", () => {
@@ -47,6 +47,12 @@ describe("decideCrossfadeLanding", () => {
     it("never releases a deck the pipeline was engaged on", () => {
       for (const kind of KINDS) {
         expect(decideCrossfadeLanding(landing(kind, "engaged"))).not.toBe("release");
+      }
+    });
+
+    it("never releases a mix landing in any pipeline state, since the page world owns that deck", () => {
+      for (const status of STATUSES) {
+        expect(decideCrossfadeLanding(landing("mix", status))).not.toBe("release");
       }
     });
 
@@ -65,12 +71,11 @@ describe("decideCrossfadeLanding", () => {
       }
     });
 
-    it("only asks for a reacquire on a landing it is also keeping", () => {
+    it("only asks for a reacquire on a mix landing, which is the only kind that arrives unseparated", () => {
       for (const kind of KINDS) {
         for (const status of STATUSES) {
           if (decideCrossfadeLanding(landing(kind, status)) !== "keep-deck-and-reacquire") continue;
           expect(kind).toBe("mix");
-          expect(status).toBe("engaged");
         }
       }
     });
@@ -88,6 +93,12 @@ describe("decideCrossfadeLanding", () => {
   describe("regressions", () => {
     it("regression: a mix landing does not release the deck", () => {
       expect(decideCrossfadeLanding(landing("mix", "engaged"))).not.toBe("release");
+    });
+
+    it("regression: with separation off the pipeline never engages, and a mix landing must still keep its deck", () => {
+      for (const status of UNENGAGED) {
+        expect(decideCrossfadeLanding(landing("mix", status))).toBe("keep-deck-and-reacquire");
+      }
     });
 
     it("regression: a mix landing asks for the track to be acquired", () => {
