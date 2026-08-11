@@ -1,10 +1,10 @@
 // -- Crossfade gate ----------------------------------------------------------
 
-type OutgoingSource = "deck" | "original" | "none";
+import type { AudibleSource } from "@/pageworld/audible-source";
 
 interface CrossfadeGateInput {
   crossfading: boolean;
-  outgoing: OutgoingSource;
+  outgoing: AudibleSource;
   durationSeconds: number;
 }
 
@@ -75,4 +75,4 @@ function clampFadeToAudio(fadeSeconds: number, audioSeconds: number, minimumFade
 }
 
 export { SILENCE_RMS, clampFadeToAudio, decideCrossfade, judgeIncomingStems };
-export type { ClampedFade, CrossfadeGate, CrossfadeGateInput, IncomingStems, OutgoingSource };
+export type { ClampedFade, CrossfadeGate, CrossfadeGateInput, IncomingStems };

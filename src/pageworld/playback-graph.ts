@@ -1,15 +1,15 @@
 // -- Playback graph ----------------------------------------------------------
 
 import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
-import type { OutgoingSource } from "@/automix/crossfade-gate";
-import { chooseOutgoingSource } from "@/automix/fade-plan";
 import { CROSSFADE_CURVE_STEPS, equalPowerCurve } from "@/automix/transition";
+import { audibleSource } from "@/pageworld/audible-source";
+import type { AudibleSource } from "@/pageworld/audible-source";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
 import { listenerGain } from "@/pageworld/gain-law";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { resolveStemStart } from "@/pageworld/stem-offset";
-import { shouldRestartStems } from "@/pageworld/stem-restart";
+import { decideDriftCorrection, DRIFT_SEEK_SETTLE_S } from "@/pageworld/stem-restart";
 import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
 import type { StemStart } from "@/pageworld/stem-offset";
 import { createLogger } from "@/shared/logger";
@@ -26,6 +26,7 @@ interface PlaybackGraphDeps {
   ownAdvanceLanding(): boolean;
   ownAdvanceRecent(): boolean;
   consumeOwnSeek(): boolean;
+  seekPlayerTo(seconds: number): boolean;
   onListenerSeeked?(): void;
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
@@ -78,7 +79,7 @@ interface GraphState {
   listenerGain: number;
   activeDeck: 0 | 1;
   crossfading: boolean;
-  outgoingSource: OutgoingSource;
+  outgoingSource: AudibleSource;
   decks: [DeckState, DeckState];
 }
 
@@ -168,6 +169,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   const element = source.mediaElement;
 
+  function suppressDrift(seconds: number): void {
+    const until = context.currentTime + Math.max(0, seconds);
+    driftSuppressedUntilContextTime = Math.max(driftSuppressedUntilContextTime, until);
+  }
+
   function syncListenerVolume(): void {
     listenerVolumeNode.gain.value = listenerGain(element.volume, element.muted);
   }
@@ -206,8 +212,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     setTimeout(() => element.removeEventListener("emptied", onEmptied), (durationSeconds + 1) * 1000);
   }
 
-  function outgoingSource(): OutgoingSource {
-    return chooseOutgoingSource({
+  function whatIsAudible(): AudibleSource {
+    return audibleSource({
       bypassed: bypass.isBypassed(),
       deckPlaying: deck().isPlaying(),
       elementPaused: element.paused,
@@ -281,12 +287,26 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       deck().stop();
       return;
     }
-    const restart = shouldRestartStems({
+
+    const correction = decideDriftCorrection({
       hasActiveSources: deck().isPlaying(),
       stemPositionSeconds: deck().positionNow(),
       playerPositionSeconds: playerCurrentTime(document),
+      listenerSeeked,
+      originalGain: originalGainNow(),
     });
-    if (restart) startSourcesAtPlayhead();
+    if (correction.kind === "hold") return;
+    if (correction.kind === "restart-deck") {
+      startSourcesAtPlayhead();
+      return;
+    }
+
+    suppressDrift(DRIFT_SEEK_SETTLE_S);
+    if (!deps.seekPlayerTo(correction.toSeconds)) {
+      logger.warn("the player would not seek, its clock stays adrift from the deck");
+      return;
+    }
+    logger.log(`the player is ${correction.driftSeconds.toFixed(3)} s off the deck, seeking the silent player onto it`);
   }
 
   function attachTransportListeners(): void {
@@ -359,7 +379,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   // -- Crossfade --------------------------------------------------------------
 
   function crossfadeTo(request: CrossfadeRequest): CrossfadeResult {
-    const outgoingFrom = outgoingSource();
+    const outgoingFrom = whatIsAudible();
     const gate = decideCrossfade({
       crossfading: isCrossfading(),
       outgoing: outgoingFrom,
@@ -524,7 +544,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       listenerGain: listenerVolumeNode.gain.value,
       activeDeck,
       crossfading: isCrossfading(),
-      outgoingSource: outgoingSource(),
+      outgoingSource: whatIsAudible(),
       decks: [decks[0].describe(), decks[1].describe()],
     };
   }
@@ -538,9 +558,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     crossfadeTo,
     abortCrossfade,
     recoverIfStopped,
-    suppressDriftFor: seconds => {
-      driftSuppressedUntilContextTime = context.currentTime + Math.max(0, seconds);
-    },
+    suppressDriftFor: suppressDrift,
     recordOutput,
     isEngaged: () => !bypass.isBypassed(),
     dispose,

@@ -1,5 +1,6 @@
 import { SILENCE_RMS, clampFadeToAudio, decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
-import type { CrossfadeGateInput, IncomingStems, OutgoingSource } from "@/automix/crossfade-gate";
+import type { CrossfadeGateInput, IncomingStems } from "@/automix/crossfade-gate";
+import type { AudibleSource } from "@/pageworld/audible-source";
 import { describe, expect, it } from "vitest";
 
 const ready: CrossfadeGateInput = {
@@ -8,7 +9,7 @@ const ready: CrossfadeGateInput = {
   durationSeconds: 16,
 };
 
-const SOURCES: OutgoingSource[] = ["deck", "original", "none"];
+const SOURCES: AudibleSource[] = ["deck", "original", "none"];
 
 describe("decideCrossfade", () => {
   it("allows a crossfade when a deck is playing and nothing is in flight", () => {

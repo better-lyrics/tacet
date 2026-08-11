@@ -1,20 +1,5 @@
 // -- How a particular fade runs, once it is allowed to ------------------------
 
-import type { OutgoingSource } from "@/automix/crossfade-gate";
-
-interface OutgoingSourceInput {
-  bypassed: boolean;
-  deckPlaying: boolean;
-  elementPaused: boolean;
-  originalGain: number;
-}
-
-function chooseOutgoingSource(input: OutgoingSourceInput): OutgoingSource {
-  if (!input.bypassed && input.deckPlaying) return "deck";
-  if (!input.elementPaused && input.originalGain > 0) return "original";
-  return "none";
-}
-
 const PLAYER_REWIND_TOLERANCE_SECONDS = 1;
 
 type AdvanceDecision = "advance" | "already-there" | "moved-on";
@@ -46,5 +31,5 @@ function advanceDelaySeconds(outgoing: "deck" | "original", fadeSeconds: number,
   return Math.max(0, fadeSeconds - leadSeconds);
 }
 
-export { advanceDelaySeconds, chooseOutgoingSource, decideAdvance, PLAYER_REWIND_TOLERANCE_SECONDS };
-export type { AdvanceDecision, AdvanceInput, OutgoingSourceInput };
+export { advanceDelaySeconds, decideAdvance, PLAYER_REWIND_TOLERANCE_SECONDS };
+export type { AdvanceDecision, AdvanceInput };

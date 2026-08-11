@@ -121,6 +121,11 @@ function consumeOwnSeek(): boolean {
   return true;
 }
 
+function seekPlayerAndClaimIt(seconds: number): boolean {
+  ownSeekAtMs = Date.now();
+  return seekPlayerTo(document, seconds);
+}
+
 function pendingAdvance(): PendingAdvance | null {
   if (Date.now() >= ownAdvanceUntilMs) return null;
   if (advancingFromVideoId === null || advancingIntoVideoId === null) return null;
@@ -648,7 +653,7 @@ function alignPlayerToDeck(run: AlignRun): void {
   if (run.generation !== transitionGeneration) return;
 
   const state = run.graph.describe();
-  if (!state.crossfading && state.originalGain > 0) {
+  if (!state.crossfading && state.outgoingSource === "original") {
     logger.log("not aligning the clocks, the listener is back on the original and would hear the seek");
     return;
   }
@@ -685,8 +690,7 @@ function alignPlayerToDeck(run: AlignRun): void {
 
   run.graph.suppressDriftFor((ALIGN_SETTLE_MS / 1000) * 2);
   logger.log(`aligning the player to the deck, ${decision.driftSeconds.toFixed(2)} s behind (seek ${run.seeks + 1})`);
-  ownSeekAtMs = Date.now();
-  if (!seekPlayerTo(document, decision.toSeconds)) {
+  if (!seekPlayerAndClaimIt(decision.toSeconds)) {
     logger.warn("the player would not seek, its clock stays behind the deck");
     return;
   }
@@ -769,6 +773,7 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
       ownAdvanceLanding: advanceStillLanding,
       ownAdvanceRecent: () => Date.now() - advanceIssuedAtMs < ADVANCE_SETTLE_MS,
       consumeOwnSeek,
+      seekPlayerTo: seekPlayerAndClaimIt,
       onListenerSeeked,
       onCrossfadeAborted,
     });
