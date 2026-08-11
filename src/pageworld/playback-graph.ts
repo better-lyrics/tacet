@@ -2,6 +2,7 @@
 
 import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
 import type { OutgoingSource } from "@/automix/crossfade-gate";
+import { chooseOutgoingSource } from "@/automix/fade-plan";
 import { CROSSFADE_CURVE_STEPS, equalPowerCurve } from "@/automix/transition";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
@@ -200,9 +201,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function outgoingSource(): OutgoingSource {
-    if (!bypass.isBypassed() && deck().isPlaying()) return "deck";
-    if (!element.paused && originalGainNow() > 0) return "original";
-    return "none";
+    return chooseOutgoingSource({
+      bypassed: bypass.isBypassed(),
+      deckPlaying: deck().isPlaying(),
+      elementPaused: element.paused,
+      originalGain: originalGainNow(),
+    });
   }
 
   function startSourcesAtPlayhead(): void {

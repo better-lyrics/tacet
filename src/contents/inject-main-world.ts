@@ -2,6 +2,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { fadeCeilingSeconds, remainingForCue } from "@/automix/cue-clock";
 import type { CueClockInput } from "@/automix/cue-clock";
 import { clampFadeToAudio } from "@/automix/crossfade-gate";
+import { advanceDelaySeconds } from "@/automix/fade-plan";
 import { analyseOutput } from "@/automix/output-analysis";
 import { decideStagedSource } from "@/automix/staged-source";
 import type { StagedKind } from "@/automix/staged-source";
@@ -537,10 +538,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     if (!graph.describe().crossfading) return;
     postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds, kind: incoming.kind });
   }, startsInMs);
-  const advanceAfterMs =
-    result.outgoing === "deck"
-      ? (clamped.seconds / 2) * 1000
-      : Math.max(0, clamped.seconds - ORIGINAL_ADVANCE_LEAD_SECONDS) * 1000;
+  const advanceAfterMs = advanceDelaySeconds(result.outgoing, clamped.seconds, ORIGINAL_ADVANCE_LEAD_SECONDS) * 1000;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
     ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
