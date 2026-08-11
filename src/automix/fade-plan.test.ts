@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { advanceDelaySeconds, chooseOutgoingSource, decideAdvance } from "@/automix/fade-plan";
+import {
+  PLAYER_REWIND_TOLERANCE_SECONDS,
+  advanceDelaySeconds,
+  chooseOutgoingSource,
+  decideAdvance,
+} from "@/automix/fade-plan";
+import type { AdvanceInput } from "@/automix/fade-plan";
 import type { OutgoingSourceInput } from "@/automix/fade-plan";
 
 function graph(overrides: Partial<OutgoingSourceInput> = {}): OutgoingSourceInput {
@@ -165,10 +171,12 @@ describe("advanceDelaySeconds", () => {
 });
 
 describe("decideAdvance", () => {
-  const at = (overrides = {}) => ({
-    playerVideoId: "from",
+  const at = (overrides: Partial<AdvanceInput> = {}): AdvanceInput => ({
+    listenerVideoId: "from",
     intoVideoId: "into",
     elementMovedOn: false,
+    playerPositionSeconds: 210,
+    positionWhenScheduledSeconds: 206,
     ...overrides,
   });
 
@@ -177,23 +185,40 @@ describe("decideAdvance", () => {
   });
 
   it("leaves a player that already reached the track alone", () => {
-    expect(decideAdvance(at({ playerVideoId: "into" }))).toBe("already-there");
+    expect(decideAdvance(at({ listenerVideoId: "into" }))).toBe("already-there");
   });
 
   describe("edge cases", () => {
     it("advances a player that names nothing yet and has not moved on", () => {
-      expect(decideAdvance(at({ playerVideoId: null }))).toBe("advance");
+      expect(decideAdvance(at({ listenerVideoId: null }))).toBe("advance");
     });
 
-    it("prefers what the player names over what the element did", () => {
-      expect(decideAdvance(at({ playerVideoId: "into", elementMovedOn: true }))).toBe("already-there");
+    it("prefers what the listener is on over what the element did", () => {
+      expect(decideAdvance(at({ listenerVideoId: "into", elementMovedOn: true }))).toBe("already-there");
+    });
+
+    it("ignores an unreadable clock rather than reading it as a rewind", () => {
+      expect(decideAdvance(at({ playerPositionSeconds: Number.NaN }))).toBe("advance");
+      expect(decideAdvance(at({ positionWhenScheduledSeconds: Number.NaN }))).toBe("advance");
+    });
+
+    it("allows the clock to jitter without calling it a track change", () => {
+      const edge = PLAYER_REWIND_TOLERANCE_SECONDS;
+      expect(decideAdvance(at({ playerPositionSeconds: 206 - edge }))).toBe("advance");
+      expect(decideAdvance(at({ playerPositionSeconds: 206 - edge - 0.01 }))).toBe("moved-on");
     });
   });
 
   describe("invariants", () => {
     it("never advances once the element has moved on by itself", () => {
-      for (const playerVideoId of ["from", null, "elsewhere"]) {
-        expect(decideAdvance(at({ playerVideoId, elementMovedOn: true }))).not.toBe("advance");
+      for (const listenerVideoId of ["from", null, "elsewhere"]) {
+        expect(decideAdvance(at({ listenerVideoId, elementMovedOn: true }))).not.toBe("advance");
+      }
+    });
+
+    it("never advances once the player's own clock has restarted", () => {
+      for (const listenerVideoId of ["from", null, "elsewhere"]) {
+        expect(decideAdvance(at({ listenerVideoId, playerPositionSeconds: 0.4 }))).not.toBe("advance");
       }
     });
   });
@@ -203,7 +228,15 @@ describe("decideAdvance", () => {
       // getVideoData().video_id keeps naming the previous track for seconds
       // after a natural advance, so the id alone said "advance" and nextVideo()
       // then jumped past the incoming track entirely.
-      expect(decideAdvance(at({ playerVideoId: "from", elementMovedOn: true }))).toBe("moved-on");
+      expect(decideAdvance(at({ listenerVideoId: "from", elementMovedOn: true }))).toBe("moved-on");
+    });
+
+    it("regression: catches a gapless advance, which emits no emptied at all", () => {
+      // The element is reused and never emptied, so the only evidence is the
+      // player's own clock restarting while the id still lags.
+      expect(decideAdvance(at({ listenerVideoId: "from", elementMovedOn: false, playerPositionSeconds: 0.2 }))).toBe(
+        "moved-on"
+      );
     });
   });
 });

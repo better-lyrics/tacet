@@ -583,6 +583,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   const startsInMs = startInSeconds * 1000;
   const fadingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
   const scheduledAtMs = Date.now();
+  const positionWhenScheduledSeconds = playerCurrentTime(document);
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
     postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds, kind: incoming.kind });
@@ -590,13 +591,15 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   const advanceAfterMs = advanceDelaySeconds(result.outgoing, clamped.seconds, ORIGINAL_ADVANCE_LEAD_SECONDS) * 1000;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
-    ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
-    advanceIssuedAtMs = Date.now();
     const advance = decideAdvance({
-      playerVideoId: currentPlayerSnapshot(document)?.videoId ?? null,
+      listenerVideoId: playerTrackId(),
       intoVideoId: videoId,
       elementMovedOn: elementEmptiedAtMs > scheduledAtMs,
+      playerPositionSeconds: playerCurrentTime(document),
+      positionWhenScheduledSeconds,
     });
+    ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
+    advanceIssuedAtMs = Date.now();
     advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? fadingFromVideoId;
     advancingIntoVideoId = videoId;
     if (advance === "already-there") {
