@@ -17,6 +17,7 @@ import { createLogger } from "@/shared/logger";
 const logger = createLogger("page");
 
 const PAUSE_SETTLE_MS = 600;
+const PAUSE_CHECK_ATTEMPTS = 20;
 
 interface PlaybackGraphDeps {
   context: AudioContext;
@@ -237,8 +238,17 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function stopDeck(): void {
     if (isCrossfading() && deps.ownAdvanceLanding()) return;
+    checkPauseIsTheListeners(0);
+  }
+
+  function checkPauseIsTheListeners(attempt: number): void {
+    if (attempt > PAUSE_CHECK_ATTEMPTS) return;
     setTimeout(() => {
-      if (!element.paused || deps.ownAdvanceRecent()) return;
+      if (!element.paused) return;
+      if (deps.ownAdvanceRecent()) {
+        checkPauseIsTheListeners(attempt + 1);
+        return;
+      }
       if (abortCrossfade("the listener paused mid fade")) return;
       deck().stop();
       handBackToOriginal("the listener paused with no deck running");
@@ -313,12 +323,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function recoverIfStopped(): boolean {
     if (bypass.isBypassed() || isCrossfading()) return false;
 
-    if (element.paused) {
+    if (element.paused && !deps.ownAdvanceRecent()) {
       if (deck().isPlaying()) deck().stop();
       return handBackToOriginal("the listener is paused, so nothing should be held silent");
     }
 
-    if (deck().isPlaying()) return false;
+    if (deck().isPlaying() || element.paused) return false;
     if (!deck().hasStems()) return handBackToOriginal("no deck holds anything to play");
     if (deck().hasFinished()) return handBackToOriginal("the stems ran out before the track did");
 

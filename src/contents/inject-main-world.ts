@@ -609,7 +609,11 @@ function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, generation: nu
   const playerSeconds = playerCurrentTime(document);
   const drift = deckSeconds - playerSeconds;
   if (!Number.isFinite(drift)) {
-    logger.warn(`not aligning the clocks, the deck reads ${deckSeconds} against a player at ${playerSeconds}`);
+    if (attempt >= ALIGN_MAX_ATTEMPTS) {
+      logger.warn(`giving up aligning the clocks, the deck reads ${deckSeconds} against a player at ${playerSeconds}`);
+      return;
+    }
+    setTimeout(() => alignPlayerToDeck(graph, videoId, generation, attempt + 1, lead), ALIGN_SETTLE_MS);
     return;
   }
   if (Math.abs(drift) <= ALIGN_TOLERANCE_SECONDS) {
