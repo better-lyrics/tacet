@@ -60,6 +60,7 @@ const ALIGN_TOLERANCE_SECONDS = 0.12;
 const OWN_ADVANCE_GRACE_MS = 20_000;
 const ORIGINAL_ADVANCE_LEAD_SECONDS = 0.15;
 const NEXT_TRACK_ASK_INTERVAL_MS = 5000;
+const WARM_NEXT_WITHIN_SECONDS = 120;
 
 let ownAdvanceUntilMs = 0;
 let advancingFromVideoId: string | null = null;
@@ -423,6 +424,13 @@ function releaseSpentStaging(): void {
 function askWhatComesNext(): void {
   const listening = playerTrackId();
   if (listening === null || Date.now() < nextTrackAskedUntilMs) return;
+
+  const remaining = currentPlayerSnapshot(document)?.durationSeconds ?? Number.NaN;
+  const position = playerCurrentTime(document);
+  if (Number.isFinite(remaining) && Number.isFinite(position) && remaining - position > WARM_NEXT_WITHIN_SECONDS) {
+    return;
+  }
+
   nextTrackAskedUntilMs = Date.now() + NEXT_TRACK_ASK_INTERVAL_MS;
   postToWindow({ type: "blk-request-next-prefetch", videoId: listening });
 }
