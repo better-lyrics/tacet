@@ -10,6 +10,7 @@ import { DECODE_LEAD_SECONDS, MINIMUM_FADE_SECONDS, decideTransitionCue } from "
 import type { StagedState } from "@/automix/transition-cue";
 import { isAdPlaying } from "@/capture/ad-state";
 import {
+  type RequestNextPrefetchMessage,
   type RequestPrefetchedAudioMessage,
   isCaptureReadyMessage,
   isNextTrackMessage,
@@ -58,6 +59,7 @@ const ALIGN_MAX_ATTEMPTS = 3;
 const ALIGN_TOLERANCE_SECONDS = 0.12;
 const OWN_ADVANCE_GRACE_MS = 20_000;
 const ORIGINAL_ADVANCE_LEAD_SECONDS = 0.15;
+const NEXT_TRACK_ASK_INTERVAL_MS = 5000;
 
 let ownAdvanceUntilMs = 0;
 let advancingFromVideoId: string | null = null;
@@ -342,6 +344,7 @@ const MIX_REQUEST_TIMEOUT_MS = 4000;
 const REMEMBERED_CAPTURES = 8;
 
 let nextTrackVideoId: string | null = null;
+let nextTrackAskedUntilMs = 0;
 let mixRequestTimer: number | null = null;
 const capturedVideoIds = new Set<string>();
 const mixUnavailableVideoIds = new Set<string>();
@@ -362,7 +365,12 @@ function clearStaging(): void {
 }
 
 function postToWindow(
-  message: RequestStagedDeckMessage | CrossfadeStartedMessage | CrossfadeAbortedMessage | RequestPrefetchedAudioMessage
+  message:
+    | RequestStagedDeckMessage
+    | CrossfadeStartedMessage
+    | CrossfadeAbortedMessage
+    | RequestPrefetchedAudioMessage
+    | RequestNextPrefetchMessage
 ): void {
   window.postMessage(message, window.location.origin);
 }
@@ -412,9 +420,18 @@ function releaseSpentStaging(): void {
   clearStaging();
 }
 
+function askWhatComesNext(): void {
+  const listening = playerTrackId();
+  if (listening === null || Date.now() < nextTrackAskedUntilMs) return;
+  nextTrackAskedUntilMs = Date.now() + NEXT_TRACK_ASK_INTERVAL_MS;
+  postToWindow({ type: "blk-request-next-prefetch", videoId: listening });
+}
+
 function stageMixIfUseful(graph: PlaybackGraph): void {
   if (crossfadeSeconds <= 0) return;
   releaseSpentStaging();
+  if (nextTrackVideoId !== null && nextTrackVideoId === playerTrackId()) nextTrackVideoId = null;
+  if (nextTrackVideoId === null) askWhatComesNext();
 
   const videoId = nextTrackVideoId;
   if (videoId === null || videoId === playerTrackId()) return;

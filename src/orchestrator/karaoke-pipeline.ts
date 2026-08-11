@@ -330,7 +330,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isNextTrackMessage(data)) {
-      if (data.videoId === state.videoId) return;
+      if (data.videoId === state.videoId || data.videoId === prefetchVideoId) return;
       resetStaging();
       prefetchVideoId = data.videoId;
       log(`next up is ${data.videoId}, checking whether it needs separating`);
