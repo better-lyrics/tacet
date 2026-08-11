@@ -16,16 +16,27 @@ const CROSSFADE_CURVE_STEPS = 256;
 
 type FadeDirection = "in" | "out";
 
-function equalPowerCurve(steps: number, direction: FadeDirection): Float32Array {
+type FadeShape = "equal-power" | "equal-gain";
+
+function fadeCurve(steps: number, direction: FadeDirection, shape: FadeShape = "equal-power"): Float32Array {
   if (!Number.isInteger(steps) || steps < 2) {
     throw new Error(`transition: steps must be an integer of at least 2, got ${steps}`);
   }
   const curve = new Float32Array(steps);
   for (let i = 0; i < steps; i++) {
-    const angle = (i / (steps - 1)) * 0.5 * Math.PI;
+    const fraction = i / (steps - 1);
+    if (shape === "equal-gain") {
+      curve[i] = direction === "in" ? fraction : 1 - fraction;
+      continue;
+    }
+    const angle = fraction * 0.5 * Math.PI;
     curve[i] = direction === "in" ? Math.sin(angle) : Math.cos(angle);
   }
   return curve;
+}
+
+function equalPowerCurve(steps: number, direction: FadeDirection): Float32Array {
+  return fadeCurve(steps, direction, "equal-power");
 }
 
 // -- Planning ----------------------------------------------------------------
@@ -58,5 +69,13 @@ function planTransition(request: TransitionRequest): TransitionPlan {
   return { kind: "start", startSeconds, durationSeconds };
 }
 
-export { BEATS_PER_BAR, CROSSFADE_CURVE_STEPS, DEFAULT_BARS, barsToSeconds, equalPowerCurve, planTransition };
-export type { FadeDirection, TransitionPlan, TransitionRequest };
+export {
+  BEATS_PER_BAR,
+  CROSSFADE_CURVE_STEPS,
+  DEFAULT_BARS,
+  barsToSeconds,
+  equalPowerCurve,
+  fadeCurve,
+  planTransition,
+};
+export type { FadeDirection, FadeShape, TransitionPlan, TransitionRequest };

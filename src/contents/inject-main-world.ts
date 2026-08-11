@@ -23,6 +23,7 @@ import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
 import { listenerTrackId } from "@/pageworld/listener-track";
+import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
 import type { PendingAdvance } from "@/pageworld/listener-track";
 import { startPlayerBridge } from "@/pageworld/player-bridge";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
@@ -130,6 +131,11 @@ function pendingAdvance(): PendingAdvance | null {
   if (Date.now() >= ownAdvanceUntilMs) return null;
   if (advancingFromVideoId === null || advancingIntoVideoId === null) return null;
   return { fromVideoId: advancingFromVideoId, intoVideoId: advancingIntoVideoId };
+}
+
+function mustStandDown(): ReturnType<typeof standDownReason> {
+  const element = cachedElement?.isConnected ? cachedElement : playerVideoElement(document);
+  return standDownReason({ adPlaying: isAdPlaying(document), playbackRate: element?.playbackRate ?? 1 });
 }
 
 function playerTrackId(): string | null {
@@ -269,6 +275,11 @@ window.blkKaraokeProbe = () => {
     hasGraph: cachedGraph !== null,
     lastAction,
     adPlaying: isAdPlaying(document),
+    playbackRate: (cachedElement?.isConnected ? cachedElement : element)?.playbackRate ?? null,
+    standingDown: (() => {
+      const reason = mustStandDown();
+      return reason === null ? null : describeStandDown(reason);
+    })(),
     acquiring: acquiring !== null,
     targetPosition: pendingTrack ? targetPosition(pendingTrack) : null,
     stemsPending: pendingTrack !== null,
@@ -444,7 +455,7 @@ function releaseSpentStaging(): void {
 function askWhatComesNext(): void {
   const listening = playerTrackId();
   if (listening === null || Date.now() < nextTrackAskedUntilMs) return;
-  if (isAdPlaying(document)) return;
+  if (mustStandDown() !== null) return;
 
   const remaining = remainingForCue(cueClock(cachedGraph));
   if (!Number.isFinite(remaining) || remaining > WARM_NEXT_WITHIN_SECONDS) return;
@@ -714,7 +725,7 @@ function cueClock(graph: PlaybackGraph | null): CueClockInput {
 function runTransitionCue(graph: PlaybackGraph): boolean {
   if (crossfadeSeconds <= 0) return false;
   const state = graph.describe();
-  if (!state.crossfading && isAdPlaying(document)) return false;
+  if (!state.crossfading && mustStandDown() !== null) return false;
   const cue = decideTransitionCue({
     remainingSeconds: remainingForCue(cueClock(graph)),
     fadeSeconds: crossfadeSeconds,
@@ -814,7 +825,7 @@ function tendCrossfadeGraph(): void {
   }
   if (crossfadeSeconds <= 0 || acquiring !== null) return;
   if (stagedVideoId === null || stagedState === "none") return;
-  if (playerTrackId() === null || isAdPlaying(document)) return;
+  if (playerTrackId() === null || mustStandDown() !== null) return;
 
   const element = playerVideoElement(document);
   if (!element?.isConnected || decodedBytes(element) === 0) return;
@@ -836,6 +847,7 @@ function reconcile(): void {
   }
 
   reconfirmIfPossible(track);
+  const standDown = mustStandDown();
 
   const action = decideEngagement({
     hasStems: true,
@@ -845,7 +857,7 @@ function reconcile(): void {
     acquiring: acquiring !== null,
     stemsEngaged: engagedTrack === track,
     stemsAudible: cachedGraph?.isEngaged() ?? false,
-    adPlaying: isAdPlaying(document),
+    standDown: standDown !== null,
     stemsAreStale: trackIsStale(track),
   });
   lastAction = action;
@@ -856,7 +868,7 @@ function reconcile(): void {
   }
 
   if (action === "release" || action === "suspend") {
-    cachedGraph?.stopStems();
+    cachedGraph?.stopStems(standDown === null ? "the deck was released" : describeStandDown(standDown));
     if (action === "release") engagedTrack = null;
     return;
   }

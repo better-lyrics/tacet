@@ -1,5 +1,6 @@
 // -- Deck --------------------------------------------------------------------
 
+import { GAIN_RAMP_SECONDS, rampGainTo } from "@/pageworld/gain-ramp";
 import { gainsForMixLevel } from "@/pageworld/gain-law";
 
 interface DeckDeps {
@@ -43,6 +44,7 @@ interface Deck {
   startAt(offsetSeconds: number, when?: number): void;
   stop(): void;
   stopAt(when: number): void;
+  fadeOutAndStop(seconds?: number): void;
   setMixLevel(mixLevel: number): void;
   hasStems(): boolean;
   isPlaying(): boolean;
@@ -51,7 +53,7 @@ interface Deck {
   durationSeconds(): number;
   positionNow(): number;
   gainParam(): AudioParam;
-  setGain(value: number): void;
+  setGain(value: number, seconds?: number): void;
   describe(): DeckState;
   dispose(): void;
 }
@@ -175,8 +177,8 @@ function createDeck(deps: DeckDeps): Deck {
   function applyMixLevel(mixLevel: number): void {
     currentMixLevel = mixLevel;
     const gains = gainsForMixLevel(mixLevel);
-    vocalsGainNode.gain.value = gains.vocalsGain;
-    instrumentalGainNode.gain.value = gains.instrumentalGain;
+    rampGainTo(vocalsGainNode.gain, context, gains.vocalsGain);
+    rampGainTo(instrumentalGainNode.gain, context, gains.instrumentalGain);
   }
 
   function stop(): void {
@@ -198,6 +200,26 @@ function createDeck(deps: DeckDeps): Deck {
       finished = true;
       deps.onFinished?.();
     };
+  }
+
+  function fadeOutAndStop(seconds = GAIN_RAMP_SECONDS): void {
+    const vocals = vocalsSource;
+    const instrumental = instrumentalSource;
+    if (instrumental === null) {
+      stop();
+      return;
+    }
+
+    rampGainTo(deckGainNode.gain, context, 0, seconds);
+    instrumental.onended = () => {
+      vocals?.disconnect();
+      instrumental.disconnect();
+    };
+    const endsAt = context.currentTime + seconds;
+    vocals?.stop(endsAt);
+    instrumental.stop(endsAt);
+    vocalsSource = null;
+    instrumentalSource = null;
   }
 
   function stopAt(when: number): void {
@@ -231,6 +253,7 @@ function createDeck(deps: DeckDeps): Deck {
     if (!loaded) return;
     stop();
     finished = false;
+    rampGainTo(deckGainNode.gain, context, 1, 0);
 
     if (loaded.vocals !== null) {
       vocalsSource = context.createBufferSource();
@@ -288,6 +311,7 @@ function createDeck(deps: DeckDeps): Deck {
     startAt,
     stop,
     stopAt,
+    fadeOutAndStop,
     setMixLevel: applyMixLevel,
     hasStems: () => loaded !== null,
     isPlaying: () => instrumentalSource !== null,
@@ -296,9 +320,7 @@ function createDeck(deps: DeckDeps): Deck {
     durationSeconds: () => loaded?.durationSeconds ?? 0,
     positionNow,
     gainParam: () => deckGainNode.gain,
-    setGain: value => {
-      deckGainNode.gain.value = value;
-    },
+    setGain: (value, seconds) => rampGainTo(deckGainNode.gain, context, value, seconds),
     describe,
     dispose,
   };

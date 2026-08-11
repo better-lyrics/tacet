@@ -28,6 +28,7 @@ interface IncomingStems {
   vocalsRms: number | null;
   instrumentalRms: number;
   fadeSeconds: number;
+  offsetSeconds?: number;
 }
 
 function judgeIncomingStems(input: IncomingStems): CrossfadeGate {
@@ -36,10 +37,14 @@ function judgeIncomingStems(input: IncomingStems): CrossfadeGate {
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     return { kind: "refuse", reason: `the incoming audio is ${durationSeconds} s long` };
   }
-  if (durationSeconds < fadeSeconds) {
+  const offsetSeconds = input.offsetSeconds ?? 0;
+  if (!Number.isFinite(offsetSeconds) || offsetSeconds < 0) {
+    return { kind: "refuse", reason: `the incoming audio would start at ${offsetSeconds} s` };
+  }
+  if (durationSeconds < offsetSeconds + fadeSeconds) {
     return {
       kind: "refuse",
-      reason: `the incoming audio is ${durationSeconds.toFixed(1)} s, shorter than the ${fadeSeconds} s fade`,
+      reason: `the incoming audio is ${durationSeconds.toFixed(1)} s, too short to fade over from ${offsetSeconds.toFixed(1)} s`,
     };
   }
   if (!Number.isFinite(instrumentalRms) || (vocalsRms !== null && !Number.isFinite(vocalsRms))) {

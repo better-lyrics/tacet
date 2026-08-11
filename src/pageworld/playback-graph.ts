@@ -1,14 +1,17 @@
 // -- Playback graph ----------------------------------------------------------
 
 import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
-import { CROSSFADE_CURVE_STEPS, equalPowerCurve } from "@/automix/transition";
+import { CROSSFADE_CURVE_STEPS, equalPowerCurve, fadeCurve } from "@/automix/transition";
+import type { FadeShape } from "@/automix/transition";
 import { audibleSource } from "@/pageworld/audible-source";
+import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
 import type { AudibleSource } from "@/pageworld/audible-source";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
 import { listenerGain } from "@/pageworld/gain-law";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { resolveStemStart } from "@/pageworld/stem-offset";
+import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
 import { decideDriftCorrection, DRIFT_SEEK_SETTLE_S } from "@/pageworld/stem-restart";
 import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
 import type { StemStart } from "@/pageworld/stem-offset";
@@ -17,6 +20,7 @@ import { createLogger } from "@/shared/logger";
 const logger = createLogger("page");
 
 const PAUSE_SETTLE_MS = 600;
+const SWAP_SECONDS = 0.12;
 const PAUSE_CHECK_ATTEMPTS = 20;
 
 interface PlaybackGraphDeps {
@@ -36,6 +40,7 @@ interface CrossfadeTiming {
   incomingOffsetSeconds?: number;
   startInSeconds?: number;
   videoId?: string;
+  shape?: FadeShape;
 }
 
 interface StemsCrossfadeRequest extends CrossfadeTiming {
@@ -92,7 +97,7 @@ interface PlaybackGraph {
   ): void;
   loadMix(mix: AudioBuffer, trackId: string | null): void;
   setMixLevel(mixLevel: number): void;
-  stopStems(): void;
+  stopStems(reason?: string): void;
   resumeStems(): void;
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
   abortCrossfade(reason: string): boolean;
@@ -149,14 +154,22 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   source.connect(originalGainNode);
   originalGainNode.connect(masterNode);
 
-  function setOriginalGain(value: number): void {
-    originalGainNode.gain.cancelScheduledValues(context.currentTime);
-    originalGainNode.gain.value = value;
+  let originalTarget = 1;
+
+  function setOriginalGain(value: number, seconds = GAIN_RAMP_SECONDS): void {
+    originalTarget = value;
+    rampGainTo(originalGainNode.gain, context, value, seconds);
   }
 
   function rampOriginalOut(startsAt: number, durationSeconds: number): void {
-    originalGainNode.gain.cancelScheduledValues(context.currentTime);
-    originalGainNode.gain.setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "out"), startsAt, durationSeconds);
+    originalTarget = 0;
+    scheduleGainCurve(
+      originalGainNode.gain,
+      context,
+      equalPowerCurve(CROSSFADE_CURVE_STEPS, "out"),
+      startsAt,
+      durationSeconds
+    );
   }
 
   const originalGainNow = (): number => originalGainNode.gain.value;
@@ -175,7 +188,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function syncListenerVolume(): void {
-    listenerVolumeNode.gain.value = listenerGain(element.volume, element.muted);
+    rampGainTo(listenerVolumeNode.gain, context, listenerGain(element.volume, element.muted));
   }
   syncListenerVolume();
   element.addEventListener("volumechange", syncListenerVolume);
@@ -185,12 +198,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       setOriginalGain(1);
     },
     stopStems() {
-      deck().stop();
+      deck().fadeOutAndStop();
     },
   });
 
   function handBackToOriginal(reason: string): boolean {
-    if (originalGainNow() === 1) return false;
+    if (originalTarget === 1) return false;
     logger.log(`handing back to the original, ${reason}`);
     setOriginalGain(1);
     return true;
@@ -258,7 +271,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
         return;
       }
       if (abortCrossfade("the listener paused mid fade")) return;
-      deck().stop();
+      deck().fadeOutAndStop();
       handBackToOriginal("the listener paused with no deck running");
     }, PAUSE_SETTLE_MS);
   }
@@ -277,6 +290,15 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     syncToElement(false);
   }
 
+  function onRateChange(): void {
+    const reason = standDownReason({ adPlaying: false, playbackRate: element.playbackRate });
+    if (reason === null) {
+      syncToElement(false);
+      return;
+    }
+    stopStems(describeStandDown(reason));
+  }
+
   function syncToElement(listenerSeeked: boolean): void {
     if (!deck().hasStems() || bypass.isBypassed()) return;
     if (isCrossfading()) return;
@@ -284,7 +306,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (deck().isPlaying() && !listenerSeeked && deps.ownAdvanceRecent()) return;
     if (element.paused) {
       if (deps.ownAdvanceRecent()) return;
-      deck().stop();
+      deck().fadeOutAndStop();
       return;
     }
 
@@ -316,7 +338,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     element.addEventListener("playing", onTransport);
     element.addEventListener("pause", stopDeck);
     element.addEventListener("seeked", onSeeked);
-    element.addEventListener("ratechange", onTransport);
+    element.addEventListener("ratechange", onRateChange);
   }
 
   function loadStems(
@@ -325,19 +347,52 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     sampleRate: number,
     trackId: string | null
   ): void {
-    if (!deck().load({ kind: "stems", vocals, instrumental, sampleRate, trackId })) {
-      logger.warn("load-stems carried no channels, staying on the original");
+    adoptTrack({ kind: "stems", vocals, instrumental, sampleRate, trackId }, "load-stems");
+  }
+
+  function loadMix(mix: AudioBuffer, trackId: string | null): void {
+    adoptTrack({ kind: "mix", mix, trackId }, "the mix");
+  }
+
+  function adoptTrack(load: DeckLoad, what: string): void {
+    if (swapInPlace(load)) return;
+    if (!deck().load(load)) {
+      logger.warn(`${what} carried no channels, staying on the original`);
       return;
     }
     resumeStems();
   }
 
-  function loadMix(mix: AudioBuffer, trackId: string | null): void {
-    if (!deck().load({ kind: "mix", mix, trackId })) {
-      logger.warn("the mix carried no channels, staying on the original");
-      return;
+  function swapInPlace(load: DeckLoad): boolean {
+    if (load.trackId === null || deck().trackId() !== load.trackId) return false;
+    if (whatIsAudible() !== "deck") return false;
+
+    const position = deck().positionNow();
+    if (!Number.isFinite(position)) return false;
+
+    const request: CrossfadeRequest =
+      load.kind === "mix"
+        ? { mix: load.mix, durationSeconds: SWAP_SECONDS }
+        : {
+            vocals: load.vocals,
+            instrumental: load.instrumental,
+            sampleRate: load.sampleRate,
+            durationSeconds: SWAP_SECONDS,
+          };
+
+    const result = crossfadeTo({
+      ...request,
+      videoId: load.trackId,
+      incomingOffsetSeconds: position,
+      startInSeconds: 0,
+      shape: "equal-gain",
+    });
+    if (result.kind === "refused") {
+      logger.log(`not swapping ${load.trackId} in place, ${result.reason}`);
+      return false;
     }
-    resumeStems();
+    logger.log(`swapped ${load.trackId} to a ${load.kind} deck at ${position.toFixed(2)} s, without a cut`);
+    return true;
   }
 
   function resumeStems(): void {
@@ -357,7 +412,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (bypass.isBypassed() || isCrossfading()) return false;
 
     if (element.paused && !deps.ownAdvanceRecent()) {
-      if (deck().isPlaying()) deck().stop();
+      if (deck().isPlaying()) deck().fadeOutAndStop();
       return handBackToOriginal("the listener is paused, so nothing should be held silent");
     }
 
@@ -370,9 +425,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     return true;
   }
 
-  function stopStems(): void {
-    if (abortCrossfade("the stems were released mid fade")) return;
-    if (!bypass.isBypassed()) logger.log("bypassing to the original, the deck was released");
+  function stopStems(reason = "the deck was released"): void {
+    if (abortCrossfade(`the stems were released mid fade, ${reason}`)) return;
+    if (!bypass.isBypassed()) logger.log(`bypassing to the original, ${reason}`);
     bypass.enterBypass();
   }
 
@@ -400,6 +455,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       vocalsRms: incomingState.kind === "mix" ? null : incomingState.vocalsRms,
       instrumentalRms: incomingState.instrumentalRms,
       fadeSeconds: request.durationSeconds,
+      offsetSeconds: request.incomingOffsetSeconds ?? 0,
     });
     if (judged.kind === "refuse") return { kind: "refused", reason: judged.reason };
 
@@ -411,18 +467,27 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     incoming.setGain(0);
     incoming.startAt(request.incomingOffsetSeconds ?? 0, startsAt);
 
+    const shape = request.shape ?? "equal-power";
     if (outgoingFrom === "deck") {
-      outgoing
-        .gainParam()
-        .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "out"), startsAt, request.durationSeconds);
+      scheduleGainCurve(
+        outgoing.gainParam(),
+        context,
+        fadeCurve(CROSSFADE_CURVE_STEPS, "out", shape),
+        startsAt,
+        request.durationSeconds
+      );
       outgoing.stopAt(endsAt);
     } else {
       rampOriginalOut(startsAt, request.durationSeconds);
       silenceOriginalIfTheElementMovesOn(request.durationSeconds);
     }
-    incoming
-      .gainParam()
-      .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "in"), startsAt, request.durationSeconds);
+    scheduleGainCurve(
+      incoming.gainParam(),
+      context,
+      fadeCurve(CROSSFADE_CURVE_STEPS, "in", shape),
+      startsAt,
+      request.durationSeconds
+    );
 
     crossfade = {
       outgoingDeck: activeDeck,
@@ -447,11 +512,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     const advanceLanded = abandoned !== null && deps.playerTrackId() === abandoned;
     if (!advanceLanded) activeDeck = crossfade.outgoingDeck;
     crossfade = null;
-    for (const each of decks) {
-      each.gainParam().cancelScheduledValues(context.currentTime);
-      each.setGain(1);
-      each.stop();
-    }
+    for (const each of decks) each.fadeOutAndStop();
     setOriginalGain(1);
     bypass.enterBypass();
     deps.onCrossfadeAborted?.(abandoned, reason);
@@ -518,7 +579,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     element.removeEventListener("playing", onTransport);
     element.removeEventListener("pause", stopDeck);
     element.removeEventListener("seeked", onSeeked);
-    element.removeEventListener("ratechange", onTransport);
+    element.removeEventListener("ratechange", onRateChange);
   }
 
   function describe(): GraphState {

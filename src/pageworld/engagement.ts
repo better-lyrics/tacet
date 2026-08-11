@@ -12,7 +12,7 @@ interface EngagementInput {
   acquiring: boolean;
   stemsEngaged: boolean;
   stemsAudible: boolean;
-  adPlaying: boolean;
+  standDown: boolean;
   stemsAreStale: boolean;
 }
 
@@ -23,7 +23,7 @@ function decideEngagement(input: EngagementInput): EngagementAction {
 
   if (input.graph === "bound") {
     if (!input.boundElementConnected) return "rebind";
-    if (input.adPlaying) return input.stemsAudible ? "suspend" : "hold";
+    if (input.standDown) return input.stemsAudible ? "suspend" : "hold";
     if (input.stemsAreStale) return "release";
     if (input.target === "other") return "rebind";
     if (input.target === "none") return "hold";
@@ -31,7 +31,7 @@ function decideEngagement(input: EngagementInput): EngagementAction {
     return input.stemsAudible ? "hold" : "resume";
   }
 
-  if (input.adPlaying || input.target === "none" || input.acquiring) return "hold";
+  if (input.standDown || input.target === "none" || input.acquiring) return "hold";
   return "engage";
 }
 

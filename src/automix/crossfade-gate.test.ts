@@ -130,7 +130,21 @@ describe("judgeIncomingStems", () => {
     it("refuses stems shorter than the fade, which render as a fade into silence", () => {
       const gate = judgeIncomingStems({ ...healthy, durationSeconds: 3 });
       expect(gate.kind).toBe("refuse");
-      expect(gate).toMatchObject({ reason: expect.stringContaining("shorter") });
+      expect(gate).toMatchObject({ reason: expect.stringContaining("too short") });
+    });
+
+    it("refuses stems that run out before a fade starting partway through them", () => {
+      const gate = judgeIncomingStems({ ...healthy, durationSeconds: 100, offsetSeconds: 99.5 });
+      expect(gate.kind).toBe("refuse");
+    });
+
+    it("allows a fade starting partway through stems that cover it", () => {
+      expect(judgeIncomingStems({ ...healthy, durationSeconds: 100, offsetSeconds: 40 }).kind).toBe("allow");
+    });
+
+    it("refuses an offset that is not a usable position", () => {
+      expect(judgeIncomingStems({ ...healthy, offsetSeconds: Number.NaN }).kind).toBe("refuse");
+      expect(judgeIncomingStems({ ...healthy, offsetSeconds: -1 }).kind).toBe("refuse");
     });
 
     it("allows stems exactly as long as the fade", () => {
@@ -299,6 +313,12 @@ describe("clampFadeToAudio", () => {
   });
 
   describe("regressions", () => {
+    it("regression: a mid-track swap is judged against the audio left after the offset", () => {
+      const swap = { ...healthy, durationSeconds: 211, fadeSeconds: 0.12 };
+      expect(judgeIncomingStems({ ...swap, offsetSeconds: 100 }).kind).toBe("allow");
+      expect(judgeIncomingStems({ ...swap, offsetSeconds: 214 }).kind).toBe("refuse");
+    });
+
     it("regression: raising the crossfade mid-track shortens the fade instead of dropping the transition", () => {
       expect(clampFadeToAudio(12, 9, MINIMUM)).toEqual({ kind: "fade", seconds: 9 });
     });

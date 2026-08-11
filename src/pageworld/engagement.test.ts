@@ -12,7 +12,7 @@ function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
     acquiring: false,
     stemsEngaged: true,
     stemsAudible: true,
-    adPlaying: false,
+    standDown: false,
     stemsAreStale: false,
     ...overrides,
   };
@@ -92,7 +92,7 @@ describe("decideEngagement", () => {
 
     it("regression: suspends the stems for an ad the player does not admit to", () => {
       for (const target of ["same", "none"] as const) {
-        expect(decideEngagement(input({ ...bound, target, adPlaying: true }))).toBe("suspend");
+        expect(decideEngagement(input({ ...bound, target, standDown: true }))).toBe("suspend");
       }
     });
 
@@ -103,20 +103,20 @@ describe("decideEngagement", () => {
 
   describe("ad breaks", () => {
     it("leaves suspended stems alone for the rest of the break", () => {
-      expect(decideEngagement(input({ ...bound, adPlaying: true, stemsAudible: false }))).toBe("hold");
+      expect(decideEngagement(input({ ...bound, standDown: true, stemsAudible: false }))).toBe("hold");
     });
 
     it("does not claim an element while an ad is on it", () => {
-      expect(decideEngagement(input({ graph: "none", target: "same", adPlaying: true }))).toBe("hold");
+      expect(decideEngagement(input({ graph: "none", target: "same", standDown: true }))).toBe("hold");
     });
 
     it("waits out the ad before judging whether the stems went stale", () => {
-      expect(decideEngagement(input({ ...bound, adPlaying: true, stemsAreStale: true }))).toBe("suspend");
-      expect(decideEngagement(input({ ...bound, adPlaying: false, stemsAreStale: true }))).toBe("release");
+      expect(decideEngagement(input({ ...bound, standDown: true, stemsAreStale: true }))).toBe("suspend");
+      expect(decideEngagement(input({ ...bound, standDown: false, stemsAreStale: true }))).toBe("release");
     });
 
     it("still rebinds off a removed element mid-ad", () => {
-      expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, adPlaying: true }))).toBe("rebind");
+      expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, standDown: true }))).toBe("rebind");
     });
 
     it("loads stems that arrived during the break once it ends", () => {
@@ -152,7 +152,7 @@ describe("decideEngagement", () => {
     it("never leaves stems audible through an ad", () => {
       for (const target of ["none", "same", "other"] as const) {
         for (const stale of [true, false]) {
-          const action = decideEngagement(input({ ...bound, target, adPlaying: true, stemsAreStale: stale }));
+          const action = decideEngagement(input({ ...bound, target, standDown: true, stemsAreStale: stale }));
           expect(action).not.toBe("hold");
           expect(action).not.toBe("resume");
           expect(action).not.toBe("load");

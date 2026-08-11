@@ -1,4 +1,4 @@
-import { barsToSeconds, equalPowerCurve, planTransition } from "@/automix/transition";
+import { barsToSeconds, equalPowerCurve, fadeCurve, planTransition } from "@/automix/transition";
 import type { TransitionPlan } from "@/automix/transition";
 import { describe, expect, it } from "vitest";
 
@@ -174,6 +174,75 @@ describe("planTransition", () => {
       const plan = expectStart(planTransition({ outgoingDurationSeconds: 49.9, outgoingBpm: 120, bars: 8 }));
       expect(plan.startSeconds).toBeGreaterThan(0);
       expect(plan.startSeconds + plan.durationSeconds).toBeCloseTo(49.9, 6);
+    });
+  });
+});
+
+describe("fadeCurve", () => {
+  it("holds constant power across an equal-power fade, for two uncorrelated tracks", () => {
+    const into = fadeCurve(64, "in", "equal-power");
+    const out = fadeCurve(64, "out", "equal-power");
+    for (let i = 0; i < into.length; i++) {
+      expect(into[i] ** 2 + out[i] ** 2).toBeCloseTo(1, 5);
+    }
+  });
+
+  it("holds constant amplitude across an equal-gain fade, for two copies of one track", () => {
+    const into = fadeCurve(64, "in", "equal-gain");
+    const out = fadeCurve(64, "out", "equal-gain");
+    for (let i = 0; i < into.length; i++) {
+      expect(into[i] + out[i]).toBeCloseTo(1, 5);
+    }
+  });
+
+  describe("edge cases", () => {
+    it("starts and ends at the rails whatever the shape", () => {
+      for (const shape of ["equal-power", "equal-gain"] as const) {
+        expect(fadeCurve(32, "in", shape)[0]).toBeCloseTo(0, 6);
+        expect(fadeCurve(32, "in", shape)[31]).toBeCloseTo(1, 6);
+        expect(fadeCurve(32, "out", shape)[0]).toBeCloseTo(1, 6);
+        expect(fadeCurve(32, "out", shape)[31]).toBeCloseTo(0, 6);
+      }
+    });
+
+    it("refuses a curve too short to interpolate", () => {
+      expect(() => fadeCurve(1, "in", "equal-gain")).toThrow();
+      expect(() => fadeCurve(2.5, "in", "equal-gain")).toThrow();
+    });
+
+    it("defaults to equal power, which is what a transition between two tracks needs", () => {
+      expect([...fadeCurve(16, "in")]).toEqual([...equalPowerCurve(16, "in")]);
+    });
+  });
+
+  describe("invariants", () => {
+    it("is monotonic in both directions and both shapes", () => {
+      for (const shape of ["equal-power", "equal-gain"] as const) {
+        const into = fadeCurve(64, "in", shape);
+        const out = fadeCurve(64, "out", shape);
+        for (let i = 1; i < into.length; i++) {
+          expect(into[i]).toBeGreaterThanOrEqual(into[i - 1]);
+          expect(out[i]).toBeLessThanOrEqual(out[i - 1]);
+        }
+      }
+    });
+
+    it("never leaves the unit range", () => {
+      for (const shape of ["equal-power", "equal-gain"] as const) {
+        for (const value of fadeCurve(128, "in", shape)) {
+          expect(value).toBeGreaterThanOrEqual(0);
+          expect(value).toBeLessThanOrEqual(1);
+        }
+      }
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: equal power would bump two copies of one track by 3 dB at the midpoint", () => {
+      const power = fadeCurve(65, "in", "equal-power")[32] + fadeCurve(65, "out", "equal-power")[32];
+      const gain = fadeCurve(65, "in", "equal-gain")[32] + fadeCurve(65, "out", "equal-gain")[32];
+      expect(power).toBeCloseTo(Math.SQRT2, 3);
+      expect(gain).toBeCloseTo(1, 6);
     });
   });
 });
