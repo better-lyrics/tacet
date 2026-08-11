@@ -12,6 +12,7 @@ import {
   type RequestPrefetchedAudioMessage,
   isCaptureReadyMessage,
   isNextTrackMessage,
+  isPartialCaptureMessage,
   isPrefetchedAudioMessage,
 } from "@/capture/bridge-protocol";
 import { advanceToNextTrack, seekPlayerTo } from "@/capture/yt-player";
@@ -837,6 +838,14 @@ window.addEventListener("message", event => {
 
   if (isCaptureReadyMessage(data)) {
     rememberCapture(data.videoId);
+    return;
+  }
+
+  if (isPartialCaptureMessage(data)) {
+    rememberCapture(data.videoId);
+    logger.log(
+      `${data.videoId} was only captured to ${data.coveredSeconds.toFixed(1)} s of ${data.trackSeconds.toFixed(1)} s, enough to fade into but not to separate`
+    );
     return;
   }
 

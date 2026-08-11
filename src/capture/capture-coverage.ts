@@ -22,6 +22,17 @@ function missingSeconds(coverage: CaptureCoverage): number {
   return Math.max(0, coverage.trackDurationSeconds - coverage.reachedSeconds);
 }
 
+// -- Holding a capture the mix route can still fade into ---------------------
+
+const MINIMUM_MIX_SECONDS = 30;
+
+function shouldHoldCapture(coverage: CaptureCoverage): boolean {
+  const verdict = judgeCapture(coverage);
+  if (verdict === "unusable") return false;
+  if (verdict === "complete") return true;
+  return Number.isFinite(coverage.reachedSeconds) && coverage.reachedSeconds >= MINIMUM_MIX_SECONDS;
+}
+
 // -- Retrying a short capture ------------------------------------------------
 
 const MAX_AHEAD_ATTEMPTS = 3;
@@ -43,9 +54,11 @@ function retryDelayMs(attemptsSoFar: number): number {
 export {
   judgeCapture,
   missingSeconds,
+  shouldHoldCapture,
   decideRetry,
   retryDelayMs,
   COVERAGE_TOLERANCE_S,
+  MINIMUM_MIX_SECONDS,
   MAX_AHEAD_ATTEMPTS,
   RETRY_BASE_DELAY_MS,
   RETRY_MAX_DELAY_MS,

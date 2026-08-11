@@ -36,6 +36,13 @@ export interface CaptureReadyMessage {
   videoId: string;
 }
 
+export interface PartialCaptureMessage {
+  type: "blk-partial-capture";
+  videoId: string;
+  coveredSeconds: number;
+  trackSeconds: number;
+}
+
 export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
@@ -182,6 +189,17 @@ export function isCaptureReadyMessage(data: unknown): data is CaptureReadyMessag
     data !== null &&
     (data as { type?: unknown }).type === "blk-capture-ready" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isPartialCaptureMessage(data: unknown): data is PartialCaptureMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-partial-capture" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { coveredSeconds?: unknown }).coveredSeconds === "number" &&
+    typeof (data as { trackSeconds?: unknown }).trackSeconds === "number"
   );
 }
 

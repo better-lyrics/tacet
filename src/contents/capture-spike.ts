@@ -7,6 +7,7 @@ import type {
   CapturedAudioUnavailableMessage,
   DownloadProgressMessage,
   NextTrackMessage,
+  PartialCaptureMessage,
   PrefetchedAudioMessage,
 } from "@/capture/bridge-protocol";
 import {
@@ -17,7 +18,7 @@ import {
   isRequestPrefetchedAudioMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
-import { decideRetry, judgeCapture, missingSeconds, retryDelayMs } from "@/capture/capture-coverage";
+import { decideRetry, judgeCapture, missingSeconds, retryDelayMs, shouldHoldCapture } from "@/capture/capture-coverage";
 import { bufferedRangeEnd } from "@/capture/edge-hopper";
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
@@ -127,6 +128,14 @@ function announceCaptureReady(videoId: string): void {
   log(`capture-ready broadcast for videoId=${videoId}`);
 }
 
+function announcePartialCapture(videoId: string, coveredSeconds: number, trackSeconds: number): void {
+  const message: PartialCaptureMessage = { type: "blk-partial-capture", videoId, coveredSeconds, trackSeconds };
+  window.postMessage(message, window.location.origin);
+  log(
+    `partial-capture broadcast for videoId=${videoId}, ${coveredSeconds.toFixed(1)}s of ${trackSeconds.toFixed(1)}s, too short to separate`
+  );
+}
+
 let listenedElement: HTMLVideoElement | null = null;
 const announcedKeys = new Set<string>();
 
@@ -225,6 +234,9 @@ const PREFETCH_DELAY_MS = 800;
 interface PrefetchedTrack {
   mimeType: string;
   bytes: Uint8Array;
+  complete: boolean;
+  coveredSeconds: number;
+  trackSeconds: number;
 }
 
 const prefetchedByVideoId = new Map<string, PrefetchedTrack>();
@@ -300,7 +312,15 @@ function prefetchTrackInSlices(
 
 const prefetchAttemptsByVideoId = new Map<string, number>();
 
-function holdPrefetched(videoId: string, track: PrefetchedTrack): void {
+function holdPrefetched(videoId: string, track: PrefetchedTrack): boolean {
+  const held = prefetchedByVideoId.get(videoId);
+  if (held && held.coveredSeconds >= track.coveredSeconds) {
+    log(
+      `keeping the ${held.coveredSeconds.toFixed(1)}s held for videoId=${videoId} over a ${track.coveredSeconds.toFixed(1)}s retry`
+    );
+    return false;
+  }
+
   prefetchedByVideoId.delete(videoId);
   prefetchedByVideoId.set(videoId, track);
 
@@ -311,6 +331,7 @@ function holdPrefetched(videoId: string, track: PrefetchedTrack): void {
     prefetchAttemptsByVideoId.delete(released);
     log(`released ${bytes} captured bytes held for videoId=${released}`);
   }
+  return true;
 }
 
 function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void {
@@ -379,8 +400,21 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
           byteLength: captured?.bytes.byteLength ?? 0,
         };
         const verdict = judgeCapture(coverage);
+        const complete = verdict === "complete";
 
-        if (verdict !== "complete" || !captured) {
+        if (captured && shouldHoldCapture(coverage)) {
+          const took = holdPrefetched(videoId, {
+            mimeType: captured.mimeType,
+            bytes: new Uint8Array(captured.bytes),
+            complete,
+            coveredSeconds: captured.reachedSeconds,
+            trackSeconds: captured.trackDurationSeconds,
+          });
+          if (took && !complete)
+            announcePartialCapture(videoId, captured.reachedSeconds, captured.trackDurationSeconds);
+        }
+
+        if (!complete || !captured) {
           const short = verdict === "short";
           abandonPrefetch(
             videoId,
@@ -390,7 +424,6 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
           return;
         }
 
-        holdPrefetched(videoId, { mimeType: captured.mimeType, bytes: new Uint8Array(captured.bytes) });
         prefetchStateByVideoId.set(videoId, "done");
         log(
           `prefetch complete for videoId=${videoId}, ${captured.bytes.byteLength} bytes covering ${captured.trackDurationSeconds.toFixed(1)}s`
@@ -410,7 +443,12 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
 
 function respondToCapturedAudioRequest(videoId: string): void {
   const prefetched = prefetchedByVideoId.get(videoId);
-  if (prefetched) {
+  if (prefetched && !prefetched.complete) {
+    log(
+      `not serving the ${prefetched.coveredSeconds.toFixed(1)}s held for videoId=${videoId} to separation, it would cache ${prefetched.trackSeconds.toFixed(1)}s of stems as a partial track`
+    );
+  }
+  if (prefetched?.complete) {
     const bytes = prefetched.bytes.slice();
     const message: CapturedAudioMessage = {
       type: "blk-captured-audio",

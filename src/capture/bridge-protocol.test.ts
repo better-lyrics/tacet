@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isCaptureReadyMessage,
   isCaptureStandDownMessage,
+  isPartialCaptureMessage,
   isPrefetchedAudioMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
@@ -14,6 +15,7 @@ import {
 import type {
   CaptureReadyMessage,
   CaptureStandDownMessage,
+  PartialCaptureMessage,
   PrefetchedAudioMessage,
   RequestPrefetchMessage,
   RequestPrefetchedAudioMessage,
@@ -271,6 +273,38 @@ describe("capture bridge protocol", () => {
       it("regression: a reply without a videoId is rejected, so a caller never binds bytes to the wrong track", () => {
         expect(isPrefetchedAudioMessage({ type: "blk-prefetched-audio", bytes: new ArrayBuffer(4) })).toBe(false);
       });
+    });
+  });
+});
+
+describe("blk-partial-capture", () => {
+  const partial: PartialCaptureMessage = {
+    type: "blk-partial-capture",
+    videoId: "AMCwYdTJ_PE",
+    coveredSeconds: 56.6,
+    trackSeconds: 237,
+  };
+
+  it("accepts a short capture announcement", () => {
+    expect(isPartialCaptureMessage(partial)).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("rejects one missing either clock, since a fade cannot be sized without them", () => {
+      expect(isPartialCaptureMessage({ type: "blk-partial-capture", videoId: "a", trackSeconds: 237 })).toBe(false);
+      expect(isPartialCaptureMessage({ type: "blk-partial-capture", videoId: "a", coveredSeconds: 56.6 })).toBe(false);
+    });
+
+    it("rejects one without a videoId, so bytes are never bound to the wrong track", () => {
+      expect(isPartialCaptureMessage({ ...partial, videoId: undefined })).toBe(false);
+    });
+  });
+
+  describe("invariants", () => {
+    it("is never mistaken for capture-ready, which is the one that sends a track off to be separated", () => {
+      expect(isCaptureReadyMessage(partial)).toBe(false);
+      const ready: CaptureReadyMessage = { type: "blk-capture-ready", videoId: partial.videoId };
+      expect(isPartialCaptureMessage(ready)).toBe(false);
     });
   });
 });
