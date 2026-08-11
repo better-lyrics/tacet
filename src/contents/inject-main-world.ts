@@ -66,6 +66,7 @@ const ORIGINAL_ADVANCE_LEAD_SECONDS = 0.15;
 const ADVANCE_SETTLE_MS = 10_000;
 const NEXT_TRACK_ASK_INTERVAL_MS = 5000;
 const WARM_NEXT_WITHIN_SECONDS = 120;
+const TRANSITION_RELEASE_MS = 1000;
 
 let ownAdvanceUntilMs = 0;
 let advanceIssuedAtMs = 0;
@@ -538,13 +539,14 @@ function stagedTrackFor(videoId: string): LoadedTrack | null {
   };
 }
 
-function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSeconds: number): void {
+function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSeconds: number): boolean {
   const videoId = stagedVideoId;
-  if (videoId === null) return;
+  if (videoId === null) return false;
   const incoming = stagedTrackFor(videoId);
-  if (incoming === null) return;
+  if (incoming === null) return false;
 
-  const outgoingCeiling = graph.describe().outgoingSource === "deck" ? fadeCeilingSeconds(cueClock(graph)) : Number.NaN;
+  const measuredCeiling = graph.describe().outgoingSource === "deck" ? fadeCeilingSeconds(cueClock(graph)) : Number.NaN;
+  const outgoingCeiling = measuredCeiling - Math.max(0, startInSeconds);
   const audioSeconds = Number.isNaN(outgoingCeiling)
     ? incoming.durationSeconds
     : Math.min(incoming.durationSeconds, outgoingCeiling);
@@ -552,7 +554,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   if (clamped.kind === "refuse") {
     logger.log(`no transition into ${videoId}, ${clamped.reason}`);
     clearStaging();
-    return;
+    return false;
   }
   if (clamped.seconds !== fadeSeconds) {
     logger.log(`shortening the fade into ${videoId} to ${clamped.seconds.toFixed(1)} s of staged audio`);
@@ -574,7 +576,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
 
   if (result.kind === "refused") {
     logger.log(`no transition into ${videoId}, ${result.reason}`);
-    return;
+    return false;
   }
   clearStaging();
 
@@ -605,22 +607,29 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     });
     ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
     advanceIssuedAtMs = Date.now();
+    if (advance !== "advance") {
+      advancingFromVideoId = null;
+      advancingIntoVideoId = null;
+      logger.log(
+        advance === "already-there"
+          ? `the player reached ${videoId} on its own, not advancing it again`
+          : `the element moved on by itself, not advancing past ${videoId}`
+      );
+      return;
+    }
     advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? fadingFromVideoId;
     advancingIntoVideoId = videoId;
-    if (advance === "already-there") {
-      logger.log(`the player reached ${videoId} on its own, not advancing it again`);
-      return;
-    }
-    if (advance === "moved-on") {
-      logger.log(`the element moved on by itself, not advancing past ${videoId}`);
-      return;
-    }
     if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
   }, startsInMs + advanceAfterMs);
   setTimeout(
     () => alignPlayerToDeck({ graph, videoId, generation, startedAtMs: Date.now(), seeks: 0, lead: 0 }),
     startsInMs + advanceAfterMs + ALIGN_DELAY_MS
   );
+  setTimeout(() => {
+    if (generation !== transitionGeneration) return;
+    trackBeforeCrossfade = null;
+  }, startsInMs + clamped.seconds * 1000 + TRANSITION_RELEASE_MS);
+  return true;
 }
 
 interface AlignRun {
@@ -717,8 +726,7 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
     return false;
   }
 
-  startCrossfade(graph, cue.startInSeconds, cue.durationSeconds);
-  return true;
+  return startCrossfade(graph, cue.startInSeconds, cue.durationSeconds);
 }
 
 function discardGraph(): void {

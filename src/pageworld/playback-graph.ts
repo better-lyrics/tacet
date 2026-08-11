@@ -247,7 +247,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (attempt > PAUSE_CHECK_ATTEMPTS) return;
     setTimeout(() => {
       if (!element.paused) return;
-      if (deps.ownAdvanceRecent()) {
+      if (isCrossfading() || deps.ownAdvanceLanding()) {
         checkPauseIsTheListeners(attempt + 1);
         return;
       }
