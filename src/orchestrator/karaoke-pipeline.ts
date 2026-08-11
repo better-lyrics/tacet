@@ -243,7 +243,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       cacheProbeTimer = null;
       if (videoId !== state.videoId || state.status !== "waiting-for-capture") return;
       log(`still waiting on ${videoId}, asking again`);
-      postToPageWorld({ type: "blk-request-prefetch", videoId });
+      maybeAcquireCurrent(videoId);
       probeCacheFor(videoId);
     }, ACQUISITION_WATCHDOG_MS);
   }
@@ -544,8 +544,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       }
       if (message.videoId !== state.videoId) return;
       clearCacheProbeTimer();
-      log(`no cached stems for ${message.videoId}, acquiring`);
-      postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId });
+      maybeAcquireCurrent(message.videoId);
       return;
     }
     if (isTrackStageMessage(message)) {
@@ -595,6 +594,21 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Auto separate -------------------------------------------------------
 
+  function maybeAcquireCurrent(videoId: string): void {
+    loadSettingsFrom(chrome.storage.sync)
+      .then(settings => {
+        if (videoId !== state.videoId) return;
+        if (settings.autoSeparateEnabled || pendingMixLevel !== NEUTRAL_MIX_LEVEL) {
+          log(`no cached stems for ${videoId}, acquiring`);
+          postToPageWorld({ type: "blk-request-prefetch", videoId });
+          return;
+        }
+        log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
+        if (prefetchVideoId === null) requestNextPrefetch(videoId);
+      })
+      .catch(error => logError("failed to read the auto-separate setting", error));
+  }
+
   function maybeSeparateAhead(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
@@ -633,6 +647,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     postToPageWorld({ type: "blk-set-mix-level", mixLevel });
 
     if (mixLevel === NEUTRAL_MIX_LEVEL) return;
+    if (state.status === "waiting-for-capture") {
+      log(`arming ${state.videoId}, acquiring it now that the fader asked for it`);
+      postToPageWorld({ type: "blk-request-prefetch", videoId: state.videoId });
+      return;
+    }
     if (state.status !== "ready-to-engage") return;
 
     const videoId = state.videoId;
