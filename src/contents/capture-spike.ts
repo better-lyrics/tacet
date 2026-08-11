@@ -7,12 +7,14 @@ import type {
   CapturedAudioUnavailableMessage,
   DownloadProgressMessage,
   NextTrackMessage,
+  PrefetchedAudioMessage,
 } from "@/capture/bridge-protocol";
 import {
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
+  isRequestPrefetchedAudioMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs } from "@/capture/capture-coverage";
@@ -447,6 +449,26 @@ function respondToCapturedAudioRequest(videoId: string): void {
   log(`captured-audio sent for videoId=${videoId}, bytes=${byteLength}`);
 }
 
+function respondToPrefetchedAudioRequest(videoId: string): void {
+  const prefetched = prefetchedByVideoId.get(videoId);
+  if (!prefetched) {
+    log(
+      `prefetched-audio request for videoId=${videoId} went unanswered: holding [${[...prefetchedByVideoId.keys()].join(", ")}]`
+    );
+    return;
+  }
+
+  const bytes = prefetched.bytes.slice();
+  const byteLength = bytes.byteLength;
+  const message: PrefetchedAudioMessage = {
+    type: "blk-prefetched-audio",
+    videoId,
+    bytes: bytes.buffer,
+  };
+  window.postMessage(message, window.location.origin, [bytes.buffer]);
+  log(`prefetched-audio sent for videoId=${videoId}, bytes=${byteLength}`);
+}
+
 function standDownFor(videoId: string): void {
   if (stoodDownVideoIds.has(videoId)) return;
   stoodDownVideoIds.add(videoId);
@@ -460,6 +482,7 @@ window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
+  if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) announcedListenedVideoId = data.videoId;
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
