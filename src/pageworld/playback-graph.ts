@@ -78,8 +78,15 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   // -- Stem path: the deck, then the listener's own volume, then out ----------
 
+  // Both paths meet here rather than at the destination, so a tap on it hears
+  // what the listener hears. Reading the stem path alone cannot tell a stopped
+  // deck from a graph that has handed back to the original, and those two
+  // sound nothing alike.
+  const masterNode = context.createGain();
+  masterNode.connect(context.destination);
+
   const listenerVolumeNode = context.createGain();
-  listenerVolumeNode.connect(context.destination);
+  listenerVolumeNode.connect(masterNode);
 
   const decks: [Deck, Deck] = [
     createDeck({ context, output: listenerVolumeNode }),
@@ -97,7 +104,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   originalGainNode.gain.value = 1;
   source.disconnect(context.destination);
   source.connect(originalGainNode);
-  originalGainNode.connect(context.destination);
+  originalGainNode.connect(masterNode);
 
   let currentMixLevel = 1;
   let transportAttached = false;
@@ -310,7 +317,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     const processor = context.createScriptProcessor(RECORD_BUFFER_FRAMES, 1, 1);
     const silencer = context.createGain();
     silencer.gain.value = 0;
-    listenerVolumeNode.connect(processor);
+    masterNode.connect(processor);
     processor.connect(silencer);
     silencer.connect(context.destination);
 
@@ -320,7 +327,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
         if (finished) return;
         finished = true;
         processor.onaudioprocess = null;
-        listenerVolumeNode.disconnect(processor);
+        masterNode.disconnect(processor);
         processor.disconnect();
         silencer.disconnect();
         resolve({ samples: collected.subarray(0, written), sampleRate: context.sampleRate });
@@ -349,6 +356,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     source.disconnect(originalGainNode);
     originalGainNode.disconnect();
     listenerVolumeNode.disconnect();
+    masterNode.disconnect();
     source.connect(context.destination);
 
     if (!transportAttached) return;

@@ -41,6 +41,12 @@ const ALIGN_DELAY_MS = 250;
 const ALIGN_SETTLE_MS = 700;
 const ALIGN_MAX_ATTEMPTS = 3;
 const ALIGN_TOLERANCE_SECONDS = 0.12;
+// A slow advance can take several seconds to empty the element, so this has to
+// outlast the fade itself. Measured: one advance emptied 8.3 s after the fade
+// began, which is past the end of an 8 s fade.
+const OWN_ADVANCE_GRACE_MS = 20_000;
+
+let ownAdvanceUntilMs = 0;
 
 interface LoadedStems {
   videoId: string;
@@ -341,6 +347,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   setTimeout(
     () => {
       if (!graph.describe().crossfading) return;
+      ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
       if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
     },
     startsInMs + (fadeSeconds / 2) * 1000
@@ -549,9 +556,13 @@ startPlayerBridge();
 document.addEventListener(
   "emptied",
   () => {
-    // Our own midpoint advance empties the element, and the deck it would send
-    // us back to reconfirm against is already playing the track that caused it.
-    if (cachedGraph?.describe().crossfading) return;
+    // Reconfirmation exists to catch an element still carrying an ad's media
+    // after the player bar has moved on. It is the wrong guard for an advance
+    // we asked for ourselves into a track whose stems are already in the deck:
+    // element.duration reads partial for a while afterwards, reconfirmation
+    // never succeeds, and the stems get released for as long as it takes. That
+    // measured as 30 s of unseparated audio after one transition.
+    if (cachedGraph?.describe().crossfading || Date.now() < ownAdvanceUntilMs) return;
     awaitingReconfirmation = true;
     reconcile();
   },
