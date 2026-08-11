@@ -6,6 +6,7 @@ import type {
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   DownloadProgressMessage,
+  NextTrackArtworkMessage,
   NextTrackMessage,
 } from "@/capture/bridge-protocol";
 import {
@@ -469,23 +470,26 @@ function standDownFor(videoId: string): void {
 const artworkResolver = createArtworkResolver(loadImageSizeInPage);
 
 function announceNextTrack(next: NextTrack): void {
-  function post(artworkUrl: string | null): void {
-    const message: NextTrackMessage = {
-      type: "blk-next-track",
-      videoId: next.videoId,
-      title: next.title,
-      artist: next.artist,
-      artworkUrl,
-    };
-    window.postMessage(message, window.location.origin);
-  }
+  const message: NextTrackMessage = {
+    type: "blk-next-track",
+    videoId: next.videoId,
+    title: next.title,
+    artist: next.artist,
+  };
+  window.postMessage(message, window.location.origin);
 
-  // Announced without artwork first, so a slow probe never delays the
-  // separation this message actually gates.
-  post(null);
+  // Resolving the thumbnail means loading it, so it follows separately rather
+  // than delaying the separation this message gates.
   artworkResolver
     .resolve(albumArtUrlForVideoId(next.videoId))
-    .then(post)
+    .then(artworkUrl => {
+      const artwork: NextTrackArtworkMessage = {
+        type: "blk-next-track-artwork",
+        videoId: next.videoId,
+        artworkUrl,
+      };
+      window.postMessage(artwork, window.location.origin);
+    })
     .catch(error => {
       log(`could not resolve artwork for ${next.videoId}: ${String(error)}`);
     });

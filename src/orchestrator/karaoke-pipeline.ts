@@ -10,6 +10,7 @@ import {
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isDownloadProgressMessage,
+  isNextTrackArtworkMessage,
   isNextTrackMessage,
 } from "@/capture/bridge-protocol";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
@@ -229,17 +230,22 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
 
+    if (isNextTrackArtworkMessage(data)) {
+      if (comingUp?.videoId === data.videoId) comingUp = { ...comingUp, artworkUrl: data.artworkUrl };
+      return;
+    }
+
     if (isNextTrackMessage(data)) {
-      // The artwork arrives in a second announcement for the same track, so a
-      // repeat is an update rather than a new track.
+      // A repeat for the same track is the documented prefetch retry, so the
+      // record is refreshed without dropping artwork that already arrived.
       comingUp =
         data.videoId === comingUp?.videoId
-          ? { ...comingUp, artworkUrl: data.artworkUrl ?? comingUp.artworkUrl }
+          ? { ...comingUp, title: data.title ?? comingUp.title, artist: data.artist ?? comingUp.artist }
           : {
               videoId: data.videoId,
               title: data.title ?? null,
               artist: data.artist ?? null,
-              artworkUrl: data.artworkUrl ?? null,
+              artworkUrl: null,
               cached: null,
             };
       if (data.videoId === state.videoId) return;

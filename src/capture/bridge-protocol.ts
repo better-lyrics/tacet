@@ -42,7 +42,15 @@ export interface NextTrackMessage {
   videoId: string;
   title?: string | null;
   artist?: string | null;
-  artworkUrl?: string | null;
+}
+
+// Sent separately, and possibly seconds later, because resolving a thumbnail
+// means loading it. blk-next-track is a retry signal for the prefetch gate, so
+// it must not be re-sent just to carry a picture.
+export interface NextTrackArtworkMessage {
+  type: "blk-next-track-artwork";
+  videoId: string;
+  artworkUrl: string;
 }
 
 export interface CaptureStandDownMessage {
@@ -138,6 +146,16 @@ export function isNextTrackMessage(data: unknown): data is NextTrackMessage {
     data !== null &&
     (data as { type?: unknown }).type === "blk-next-track" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isNextTrackArtworkMessage(data: unknown): data is NextTrackArtworkMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-next-track-artwork" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { artworkUrl?: unknown }).artworkUrl === "string"
   );
 }
 
