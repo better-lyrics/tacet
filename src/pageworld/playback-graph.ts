@@ -52,6 +52,7 @@ interface GraphState {
   vocalsGain: number;
   instrumentalGain: number;
   originalGain: number;
+  contextSampleRate: number;
   stemsLoaded: boolean;
   stemFrames: number;
   stemSampleRate: number;
@@ -77,6 +78,7 @@ interface PlaybackGraph {
     sampleRate: number,
     trackId: string | null
   ): void;
+  loadMix(mix: AudioBuffer, trackId: string | null): void;
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
   resumeStems(): void;
@@ -234,6 +236,14 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   ): void {
     if (!deck().load({ kind: "stems", vocals, instrumental, sampleRate, trackId })) {
       logger.warn("load-stems carried no channels, staying on the original");
+      return;
+    }
+    resumeStems();
+  }
+
+  function loadMix(mix: AudioBuffer, trackId: string | null): void {
+    if (!deck().load({ kind: "mix", mix, trackId })) {
+      logger.warn("the mix carried no channels, staying on the original");
       return;
     }
     resumeStems();
@@ -406,6 +416,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       vocalsGain: deckState.vocalsGain,
       instrumentalGain: deckState.instrumentalGain,
       originalGain: originalGainNow(),
+      contextSampleRate: context.sampleRate,
       stemsLoaded: deckState.stemsLoaded,
       stemFrames: deckState.stemFrames,
       stemSampleRate: deckState.stemSampleRate,
@@ -427,6 +438,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   return {
     loadStems,
+    loadMix,
     setMixLevel,
     stopStems,
     resumeStems,

@@ -3,9 +3,17 @@ import { fadeCeilingSeconds, remainingForCue } from "@/automix/cue-clock";
 import type { CueClockInput } from "@/automix/cue-clock";
 import { clampFadeToAudio } from "@/automix/crossfade-gate";
 import { analyseOutput } from "@/automix/output-analysis";
+import { decideStagedSource } from "@/automix/staged-source";
+import type { StagedKind } from "@/automix/staged-source";
 import { DECODE_LEAD_SECONDS, MINIMUM_FADE_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
 import type { StagedState } from "@/automix/transition-cue";
 import { isAdPlaying } from "@/capture/ad-state";
+import {
+  type RequestPrefetchedAudioMessage,
+  isCaptureReadyMessage,
+  isNextTrackMessage,
+  isPrefetchedAudioMessage,
+} from "@/capture/bridge-protocol";
 import { advanceToNextTrack, seekPlayerTo } from "@/capture/yt-player";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
@@ -53,26 +61,38 @@ let advancingFromVideoId: string | null = null;
 let advancingIntoVideoId: string | null = null;
 
 interface LoadedStems {
+  kind: "stems";
   videoId: string;
+  durationSeconds: number;
   vocals: Float32Array<ArrayBuffer>[];
   instrumental: Float32Array<ArrayBuffer>[];
   sampleRate: number;
-  durationSeconds: number;
 }
+
+interface LoadedMix {
+  kind: "mix";
+  videoId: string;
+  durationSeconds: number;
+  mix: AudioBuffer;
+}
+
+type LoadedTrack = LoadedStems | LoadedMix;
 
 let cachedGraph: PlaybackGraph | null = null;
 let cachedElement: HTMLMediaElement | null = null;
 let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
-let pendingStems: LoadedStems | null = null;
-let engagedStems: LoadedStems | null = null;
+let pendingTrack: LoadedTrack | null = null;
+let engagedTrack: LoadedTrack | null = null;
 let lastAction: EngagementAction = "idle";
 
 let crossfadeSeconds = DEFAULT_SETTINGS.crossfadeSeconds;
 
 let stagedVideoId: string | null = null;
 let stagedState: StagedState = "none";
+let stagedKind: StagedKind = "stems";
 let stagedStems: Pick<LoadedStems, "vocals" | "instrumental" | "sampleRate"> | null = null;
+let stagedMix: AudioBuffer | null = null;
 
 logger.log("karaoke page world ready");
 
@@ -93,28 +113,28 @@ function playerTrackId(): string | null {
   });
 }
 
-function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
-  if (playerTrackId() !== stems.videoId) return null;
+function elementForTrack(track: LoadedTrack): HTMLMediaElement | null {
+  if (playerTrackId() !== track.videoId) return null;
   const element = playerVideoElement(document);
   return element?.isConnected ? element : null;
 }
 
-function playerOnOtherTrack(stems: LoadedStems): boolean {
+function playerOnOtherTrack(track: LoadedTrack): boolean {
   const id = playerTrackId();
-  return id !== null && id !== stems.videoId;
+  return id !== null && id !== track.videoId;
 }
 
 let awaitingReconfirmation = false;
 
-function reconfirmIfPossible(stems: LoadedStems): void {
+function reconfirmIfPossible(track: LoadedTrack): void {
   if (!awaitingReconfirmation) return;
   const snapshot = currentPlayerSnapshot(document);
   const element = playerVideoElement(document);
   const decision = reconfirmAfterEmptied({
     playerVideoId: snapshot?.videoId ?? null,
-    stemsVideoId: stems.videoId,
+    stemsVideoId: track.videoId,
     elementDurationSeconds: element?.duration ?? Number.NaN,
-    stemDurationSeconds: stems.durationSeconds,
+    stemDurationSeconds: track.durationSeconds,
   });
   if (decision === "confirmed") awaitingReconfirmation = false;
 }
@@ -126,8 +146,8 @@ function advanceStillLanding(): boolean {
   return snapshot === null || snapshot.videoId === advance.fromVideoId;
 }
 
-function stemsAreStale(stems: LoadedStems): boolean {
-  return awaitingReconfirmation || playerOnOtherTrack(stems);
+function trackIsStale(track: LoadedTrack): boolean {
+  return awaitingReconfirmation || playerOnOtherTrack(track);
 }
 
 declare global {
@@ -150,8 +170,8 @@ window.blkTransitionProbe = () => {
     stagedVideoId,
     stagedState,
     stagedFrames: stagedStems?.vocals[0]?.length ?? 0,
-    engagedVideoId: engagedStems?.videoId ?? null,
-    pendingVideoId: pendingStems?.videoId ?? null,
+    engagedVideoId: engagedTrack?.videoId ?? null,
+    pendingVideoId: pendingTrack?.videoId ?? null,
     activeDeck: state?.activeDeck ?? null,
     crossfading: state?.crossfading ?? null,
     playerVideoId: playerTrackId(),
@@ -216,10 +236,10 @@ window.blkKaraokeProbe = () => {
     lastAction,
     adPlaying: isAdPlaying(document),
     acquiring: acquiring !== null,
-    targetPosition: pendingStems ? targetPosition(pendingStems) : null,
-    stemsPending: pendingStems !== null,
-    stemsVideoId: pendingStems?.videoId ?? null,
-    stemDurationSeconds: pendingStems ? +pendingStems.durationSeconds.toFixed(2) : null,
+    targetPosition: pendingTrack ? targetPosition(pendingTrack) : null,
+    stemsPending: pendingTrack !== null,
+    stemsVideoId: pendingTrack?.videoId ?? null,
+    stemDurationSeconds: pendingTrack ? +pendingTrack.durationSeconds.toFixed(2) : null,
     playerVideoId: snapshot?.videoId ?? null,
     playerDurationSeconds: snapshot ? +snapshot.durationSeconds.toFixed(2) : null,
     audibleElementDecodedBytes: cachedElement ? decodedBytes(cachedElement) : 0,
@@ -307,17 +327,114 @@ window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
 
 // -- Transition into the staged track ----------------------------------------
 
-function clearStaging(): void {
-  stagedVideoId = null;
-  stagedState = "none";
-  stagedStems = null;
+const MIX_REQUEST_TIMEOUT_MS = 4000;
+const REMEMBERED_CAPTURES = 8;
+
+let nextTrackVideoId: string | null = null;
+let mixRequestTimer: number | null = null;
+const capturedVideoIds = new Set<string>();
+const mixUnavailableVideoIds = new Set<string>();
+
+function cancelMixRequest(): void {
+  if (mixRequestTimer === null) return;
+  window.clearTimeout(mixRequestTimer);
+  mixRequestTimer = null;
 }
 
-function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMessage | CrossfadeAbortedMessage): void {
+function clearStaging(): void {
+  cancelMixRequest();
+  stagedVideoId = null;
+  stagedState = "none";
+  stagedKind = "stems";
+  stagedStems = null;
+  stagedMix = null;
+}
+
+function postToWindow(
+  message: RequestStagedDeckMessage | CrossfadeStartedMessage | CrossfadeAbortedMessage | RequestPrefetchedAudioMessage
+): void {
   window.postMessage(message, window.location.origin);
 }
 
-let stemsBeforeCrossfade: LoadedStems | null = null;
+function rememberCapture(videoId: string): void {
+  mixUnavailableVideoIds.delete(videoId);
+  capturedVideoIds.add(videoId);
+  while (capturedVideoIds.size > REMEMBERED_CAPTURES) {
+    const oldest = capturedVideoIds.values().next().value;
+    if (oldest === undefined) return;
+    capturedVideoIds.delete(oldest);
+  }
+}
+
+function heldSource(): { videoId: string; kind: StagedKind; state: StagedState } | null {
+  if (stagedVideoId === null) return null;
+  return { videoId: stagedVideoId, kind: stagedKind, state: stagedState };
+}
+
+function requestMixFor(videoId: string): void {
+  cancelMixRequest();
+  stagedVideoId = videoId;
+  stagedKind = "mix";
+  stagedState = "decoding";
+  stagedStems = null;
+  stagedMix = null;
+
+  postToWindow({ type: "blk-request-prefetched-audio", videoId });
+  logger.log(`asking for the captured audio of ${videoId}, its stems are not staged`);
+
+  mixRequestTimer = window.setTimeout(() => {
+    mixRequestTimer = null;
+    if (stagedVideoId !== videoId || stagedKind !== "mix" || stagedState !== "decoding") return;
+    mixUnavailableVideoIds.add(videoId);
+    stagedState = "none";
+    logger.warn(`no captured audio came back for ${videoId}, it cannot be faded into without stems`);
+  }, MIX_REQUEST_TIMEOUT_MS);
+}
+
+function stageMixIfUseful(graph: PlaybackGraph): void {
+  if (crossfadeSeconds <= 0) return;
+
+  const videoId = nextTrackVideoId;
+  if (videoId === null || videoId === playerTrackId()) return;
+  if (!capturedVideoIds.has(videoId) || mixUnavailableVideoIds.has(videoId)) return;
+
+  const remainingSeconds = remainingForCue(cueClock(graph));
+  if (!Number.isFinite(remainingSeconds) || remainingSeconds <= crossfadeSeconds + DECODE_LEAD_SECONDS) return;
+
+  const choice = decideStagedSource({
+    held: heldSource(),
+    offered: { videoId, kind: "mix" },
+    remainingSeconds,
+    fadeSeconds: crossfadeSeconds,
+    decodeLeadSeconds: DECODE_LEAD_SECONDS,
+  });
+  if (choice.kind === "keep") return;
+
+  requestMixFor(videoId);
+}
+
+async function acceptPrefetchedAudio(videoId: string, bytes: ArrayBuffer): Promise<void> {
+  if (stagedVideoId !== videoId || stagedKind !== "mix" || stagedState !== "decoding") {
+    logger.log(`captured audio for ${videoId} arrived after it stopped being the staged track, dropping it`);
+    return;
+  }
+  cancelMixRequest();
+
+  const sampleRate = cachedGraph?.describe().contextSampleRate ?? 48000;
+  try {
+    const decoded = await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(bytes);
+    if (stagedVideoId !== videoId || stagedKind !== "mix") return;
+    stagedMix = decoded;
+    stagedState = "ready";
+    logger.log(`${videoId} staged as ${decoded.duration.toFixed(1)} s of unseparated audio, ready to fade`);
+  } catch (error) {
+    mixUnavailableVideoIds.add(videoId);
+    if (stagedVideoId === videoId && stagedKind === "mix") stagedState = "none";
+    logger.warn(`could not decode the captured audio for ${videoId}`, error);
+  }
+}
+
+let trackBeforeCrossfade: LoadedTrack | null = null;
 
 let transitionGeneration = 0;
 
@@ -325,24 +442,42 @@ function onCrossfadeAborted(videoId: string | null, reason: string): void {
   transitionGeneration++;
   logger.warn(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
   if (videoId !== null && playerTrackId() === videoId) {
-    engagedStems = null;
-  } else if (stemsBeforeCrossfade !== null) {
-    pendingStems = stemsBeforeCrossfade;
-    engagedStems = null;
+    engagedTrack = null;
+  } else if (trackBeforeCrossfade !== null) {
+    pendingTrack = trackBeforeCrossfade;
+    engagedTrack = null;
   }
-  stemsBeforeCrossfade = null;
+  trackBeforeCrossfade = null;
   clearStaging();
-  postToIsolated({ type: "blk-crossfade-aborted", videoId, reason });
+  postToWindow({ type: "blk-crossfade-aborted", videoId, reason });
+}
+
+function stagedTrackFor(videoId: string): LoadedTrack | null {
+  if (stagedKind === "mix") {
+    if (stagedMix === null) return null;
+    return { kind: "mix", videoId, durationSeconds: stagedMix.duration, mix: stagedMix };
+  }
+  if (stagedStems === null) return null;
+  return {
+    kind: "stems",
+    videoId,
+    durationSeconds: (stagedStems.vocals[0]?.length ?? 0) / stagedStems.sampleRate,
+    vocals: stagedStems.vocals,
+    instrumental: stagedStems.instrumental,
+    sampleRate: stagedStems.sampleRate,
+  };
 }
 
 function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSeconds: number): void {
   const videoId = stagedVideoId;
-  const stems = stagedStems;
-  if (videoId === null || stems === null) return;
+  if (videoId === null) return;
+  const incoming = stagedTrackFor(videoId);
+  if (incoming === null) return;
 
-  const durationSeconds = (stems.vocals[0]?.length ?? 0) / stems.sampleRate;
   const outgoingCeiling = fadeCeilingSeconds(cueClock(graph));
-  const audioSeconds = Number.isNaN(outgoingCeiling) ? durationSeconds : Math.min(durationSeconds, outgoingCeiling);
+  const audioSeconds = Number.isNaN(outgoingCeiling)
+    ? incoming.durationSeconds
+    : Math.min(incoming.durationSeconds, outgoingCeiling);
   const clamped = clampFadeToAudio(fadeSeconds, audioSeconds, MINIMUM_FADE_SECONDS);
   if (clamped.kind === "refuse") {
     logger.warn(`no transition into ${videoId}, ${clamped.reason}`);
@@ -353,15 +488,19 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     logger.log(`shortening the fade into ${videoId} to ${clamped.seconds.toFixed(1)} s of staged audio`);
   }
 
-  const result = graph.crossfadeTo({
-    vocals: stems.vocals,
-    instrumental: stems.instrumental,
-    sampleRate: stems.sampleRate,
-    durationSeconds: clamped.seconds,
-    incomingOffsetSeconds: 0,
-    startInSeconds,
-    videoId,
-  });
+  const result = graph.crossfadeTo(
+    incoming.kind === "mix"
+      ? { mix: incoming.mix, durationSeconds: clamped.seconds, incomingOffsetSeconds: 0, startInSeconds, videoId }
+      : {
+          vocals: incoming.vocals,
+          instrumental: incoming.instrumental,
+          sampleRate: incoming.sampleRate,
+          durationSeconds: clamped.seconds,
+          incomingOffsetSeconds: 0,
+          startInSeconds,
+          videoId,
+        }
+  );
 
   if (result.kind === "refused") {
     logger.warn(`no transition into ${videoId}, ${result.reason}`);
@@ -369,16 +508,16 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   }
   clearStaging();
 
-  stemsBeforeCrossfade = pendingStems;
-  pendingStems = { videoId, ...stems, durationSeconds };
-  engagedStems = pendingStems;
+  trackBeforeCrossfade = pendingTrack;
+  pendingTrack = incoming;
+  engagedTrack = incoming;
   awaitingReconfirmation = false;
 
   const generation = ++transitionGeneration;
   const startsInMs = startInSeconds * 1000;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
-    postToIsolated({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds });
+    postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds });
   }, startsInMs);
   setTimeout(
     () => {
@@ -463,7 +602,7 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
   if (cue.kind === "decode") {
     if (stagedVideoId === null) return false;
     stagedState = "decoding";
-    postToIsolated({ type: "blk-request-staged-deck", videoId: stagedVideoId });
+    postToWindow({ type: "blk-request-staged-deck", videoId: stagedVideoId });
     return false;
   }
 
@@ -477,15 +616,16 @@ function discardGraph(): void {
   cachedGraph.dispose();
   cachedGraph = null;
   cachedElement = null;
-  engagedStems = null;
+  engagedTrack = null;
 }
 
-function applyStems(graph: PlaybackGraph, stems: LoadedStems): void {
-  graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate, stems.videoId);
+function applyTrack(graph: PlaybackGraph, track: LoadedTrack): void {
+  if (track.kind === "mix") graph.loadMix(track.mix, track.videoId);
+  else graph.loadStems(track.vocals, track.instrumental, track.sampleRate, track.videoId);
   graph.setMixLevel(pendingMixLevel);
-  engagedStems = stems;
+  engagedTrack = track;
   awaitingReconfirmation = false;
-  logger.log(`stems playing for videoId=${stems.videoId}, mix level ${pendingMixLevel}`);
+  logger.log(`${track.kind} playing for videoId=${track.videoId}, mix level ${pendingMixLevel}`);
 }
 
 function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
@@ -525,30 +665,33 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
   });
 }
 
-function targetPosition(stems: LoadedStems): TargetPosition {
-  const target = elementForStems(stems);
+function targetPosition(track: LoadedTrack): TargetPosition {
+  const target = elementForTrack(track);
   if (!target) return "none";
   return target === cachedElement ? "same" : "other";
 }
 
 function reconcile(): void {
-  if (cachedGraph && runTransitionCue(cachedGraph)) return;
+  if (cachedGraph) {
+    stageMixIfUseful(cachedGraph);
+    if (runTransitionCue(cachedGraph)) return;
+  }
 
-  const stems = pendingStems;
-  if (!stems) return;
+  const track = pendingTrack;
+  if (!track) return;
 
-  reconfirmIfPossible(stems);
+  reconfirmIfPossible(track);
 
   const action = decideEngagement({
     hasStems: true,
     graph: cachedGraph ? "bound" : "none",
     boundElementConnected: cachedElement?.isConnected ?? false,
-    target: targetPosition(stems),
+    target: targetPosition(track),
     acquiring: acquiring !== null,
-    stemsEngaged: engagedStems === stems,
+    stemsEngaged: engagedTrack === track,
     stemsAudible: cachedGraph?.isEngaged() ?? false,
     adPlaying: isAdPlaying(document),
-    stemsAreStale: stemsAreStale(stems),
+    stemsAreStale: trackIsStale(track),
   });
   lastAction = action;
 
@@ -559,7 +702,7 @@ function reconcile(): void {
 
   if (action === "release" || action === "suspend") {
     cachedGraph?.stopStems();
-    if (action === "release") engagedStems = null;
+    if (action === "release") engagedTrack = null;
     return;
   }
 
@@ -569,7 +712,7 @@ function reconcile(): void {
   }
 
   if (action === "load" && cachedGraph) {
-    applyStems(cachedGraph, stems);
+    applyTrack(cachedGraph, track);
     return;
   }
 
@@ -579,7 +722,7 @@ function reconcile(): void {
     return;
   }
 
-  const target = elementForStems(stems);
+  const target = elementForTrack(track);
   if (!target) return;
 
   acquiring = buildGraph(target).finally(() => {
@@ -587,13 +730,13 @@ function reconcile(): void {
   });
 
   void acquiring.then(graph => {
-    if (!graph || pendingStems !== stems) return;
-    if (targetPosition(stems) === "other") {
+    if (!graph || pendingTrack !== track) return;
+    if (targetPosition(track) === "other") {
       logger.warn("the audio bus bound a different element than the stems match, leaving it disengaged");
       discardGraph();
       return;
     }
-    applyStems(graph, stems);
+    applyTrack(graph, track);
   });
 }
 
@@ -628,7 +771,8 @@ window.addEventListener("message", event => {
     logger.log(
       `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
     );
-    pendingStems = {
+    pendingTrack = {
+      kind: "stems",
       videoId: data.videoId,
       vocals: data.vocals,
       instrumental: data.instrumental,
@@ -651,25 +795,54 @@ window.addEventListener("message", event => {
   }
 
   if (isStagedReadyMessage(data)) {
+    const choice = decideStagedSource({
+      held: heldSource(),
+      offered: { videoId: data.videoId, kind: "stems" },
+      remainingSeconds: cachedGraph ? remainingForCue(cueClock(cachedGraph)) : Number.NaN,
+      fadeSeconds: crossfadeSeconds,
+      decodeLeadSeconds: DECODE_LEAD_SECONDS,
+    });
+    if (choice.kind === "keep") {
+      logger.log(`not staging the stems of ${data.videoId}, ${choice.reason}`);
+      return;
+    }
+    cancelMixRequest();
     stagedVideoId = data.videoId;
+    stagedKind = "stems";
     stagedState = "encoded";
     stagedStems = null;
+    stagedMix = null;
     logger.log(`${data.videoId} is staged, a transition into it is possible`);
     return;
   }
 
   if (isStageDeckMessage(data)) {
-    if (data.videoId !== stagedVideoId) return;
+    if (data.videoId !== stagedVideoId || stagedKind !== "stems") return;
     stagedStems = { vocals: data.vocals, instrumental: data.instrumental, sampleRate: data.sampleRate };
     stagedState = "ready";
     logger.log(`${data.videoId} decoded into the idle deck, ready to fade`);
     return;
   }
 
+  if (isNextTrackMessage(data)) {
+    nextTrackVideoId = data.videoId;
+    return;
+  }
+
+  if (isCaptureReadyMessage(data)) {
+    rememberCapture(data.videoId);
+    return;
+  }
+
+  if (isPrefetchedAudioMessage(data)) {
+    void acceptPrefetchedAudio(data.videoId, data.bytes);
+    return;
+  }
+
   if (isStopStemsMessage(data)) {
     clearStaging();
-    pendingStems = null;
-    engagedStems = null;
+    pendingTrack = null;
+    engagedTrack = null;
     cachedGraph?.stopStems();
   }
 });
