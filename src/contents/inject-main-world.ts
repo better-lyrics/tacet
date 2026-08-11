@@ -437,11 +437,8 @@ function askWhatComesNext(): void {
   const listening = playerTrackId();
   if (listening === null || Date.now() < nextTrackAskedUntilMs) return;
 
-  const remaining = currentPlayerSnapshot(document)?.durationSeconds ?? Number.NaN;
-  const position = playerCurrentTime(document);
-  if (Number.isFinite(remaining) && Number.isFinite(position) && remaining - position > WARM_NEXT_WITHIN_SECONDS) {
-    return;
-  }
+  const remaining = remainingForCue(cueClock(cachedGraph));
+  if (!Number.isFinite(remaining) || remaining > WARM_NEXT_WITHIN_SECONDS) return;
 
   nextTrackAskedUntilMs = Date.now() + NEXT_TRACK_ASK_INTERVAL_MS;
   postToWindow({ type: "blk-request-next-prefetch", videoId: listening });
