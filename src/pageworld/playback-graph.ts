@@ -188,6 +188,17 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     handBackToOriginal("the deck reached the end of its audio before the track did");
   }
 
+  function silenceOriginalIfTheElementMovesOn(durationSeconds: number): void {
+    const onEmptied = (): void => {
+      element.removeEventListener("emptied", onEmptied);
+      if (!isCrossfading()) return;
+      setOriginalGain(0);
+      logger.log("the element moved to the next track mid fade, silencing the original rather than doubling it");
+    };
+    element.addEventListener("emptied", onEmptied);
+    setTimeout(() => element.removeEventListener("emptied", onEmptied), (durationSeconds + 1) * 1000);
+  }
+
   function outgoingSource(): OutgoingSource {
     if (!bypass.isBypassed() && deck().isPlaying()) return "deck";
     if (!element.paused && originalGainNow() > 0) return "original";
@@ -347,6 +358,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       outgoing.stopAt(endsAt);
     } else {
       rampOriginalOut(startsAt, request.durationSeconds);
+      silenceOriginalIfTheElementMovesOn(request.durationSeconds);
     }
     incoming
       .gainParam()

@@ -445,11 +445,18 @@ async function acceptPrefetchedAudio(videoId: string, bytes: ArrayBuffer): Promi
 }
 
 let trackBeforeCrossfade: LoadedTrack | null = null;
+let transitionTargetVideoId: string | null = null;
 
 let transitionGeneration = 0;
 
+function transitionInFlightInto(): string | null {
+  if (cachedGraph?.describe().crossfading !== true) return null;
+  return transitionTargetVideoId;
+}
+
 function onCrossfadeAborted(videoId: string | null, reason: string): void {
   transitionGeneration++;
+  transitionTargetVideoId = null;
   logger.warn(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
   if (videoId !== null && playerTrackId() === videoId) {
     engagedTrack = null;
@@ -521,6 +528,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   trackBeforeCrossfade = pendingTrack;
   pendingTrack = incoming;
   engagedTrack = incoming;
+  transitionTargetVideoId = videoId;
   awaitingReconfirmation = false;
 
   const generation = ++transitionGeneration;
@@ -599,6 +607,7 @@ function cueClock(graph: PlaybackGraph): CueClockInput {
 function runTransitionCue(graph: PlaybackGraph): boolean {
   if (crossfadeSeconds <= 0) return false;
   const state = graph.describe();
+  if (!state.crossfading && isAdPlaying(document)) return false;
   const cue = decideTransitionCue({
     remainingSeconds: remainingForCue(cueClock(graph)),
     fadeSeconds: crossfadeSeconds,
@@ -804,6 +813,11 @@ window.addEventListener("message", event => {
   }
 
   if (isLoadStemsMessage(data)) {
+    const target = transitionInFlightInto();
+    if (target !== null && data.videoId !== target) {
+      logger.log(`stems for ${data.videoId} arrived mid transition into ${target}, dropping them`);
+      return;
+    }
     const durationSeconds = (data.vocals[0]?.length ?? 0) / data.sampleRate;
     logger.log(
       `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
