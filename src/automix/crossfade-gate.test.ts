@@ -80,9 +80,20 @@ const healthy: IncomingStems = {
   fadeSeconds: 8,
 };
 
+const mix: IncomingStems = {
+  durationSeconds: 214,
+  vocalsRms: null,
+  instrumentalRms: 0.118,
+  fadeSeconds: 8,
+};
+
 describe("judgeIncomingStems", () => {
   it("allows real separated stems", () => {
     expect(judgeIncomingStems(healthy)).toEqual({ kind: "allow" });
+  });
+
+  it("allows an unseparated mix, which has no vocals stem to measure", () => {
+    expect(judgeIncomingStems(mix)).toEqual({ kind: "allow" });
   });
 
   describe("edge cases", () => {
@@ -123,6 +134,24 @@ describe("judgeIncomingStems", () => {
       expect(judgeIncomingStems({ ...healthy, vocalsRms: Number.NaN }).kind).toBe("refuse");
       expect(judgeIncomingStems({ ...healthy, instrumentalRms: Number.NaN }).kind).toBe("refuse");
     });
+
+    it("refuses a silent mix, since there is no vocals stem to carry it", () => {
+      const gate = judgeIncomingStems({ ...mix, instrumentalRms: 0 });
+      expect(gate).toMatchObject({ reason: expect.stringContaining("silent") });
+    });
+
+    it("holds a mix to the same silence floor", () => {
+      expect(judgeIncomingStems({ ...mix, instrumentalRms: SILENCE_RMS / 2 }).kind).toBe("refuse");
+      expect(judgeIncomingStems({ ...mix, instrumentalRms: SILENCE_RMS }).kind).toBe("allow");
+    });
+
+    it("refuses a mix measuring non-finite", () => {
+      expect(judgeIncomingStems({ ...mix, instrumentalRms: Number.NaN }).kind).toBe("refuse");
+    });
+
+    it("refuses a mix shorter than the fade", () => {
+      expect(judgeIncomingStems({ ...mix, durationSeconds: 3 }).kind).toBe("refuse");
+    });
   });
 
   describe("invariants", () => {
@@ -132,6 +161,9 @@ describe("judgeIncomingStems", () => {
         { ...healthy, durationSeconds: 0 },
         { ...healthy, vocalsRms: 0, instrumentalRms: 0 },
         { ...healthy, vocalsRms: Number.NaN },
+        { ...mix, instrumentalRms: 0 },
+        { ...mix, instrumentalRms: Number.NaN },
+        { ...mix, durationSeconds: 1 },
       ];
       for (const input of refusals) {
         const gate = judgeIncomingStems(input);
@@ -144,6 +176,14 @@ describe("judgeIncomingStems", () => {
       for (const fadeSeconds of [4, 8, 12, 20]) {
         const gate = judgeIncomingStems({ ...healthy, durationSeconds: 10, fadeSeconds });
         expect(gate.kind).toBe(fadeSeconds <= 10 ? "allow" : "refuse");
+      }
+    });
+
+    it("judges a mix on its instrumental alone, exactly as it judges a stems pair with silent vocals", () => {
+      for (const instrumentalRms of [0, SILENCE_RMS / 2, SILENCE_RMS, 0.05, 0.4]) {
+        expect(judgeIncomingStems({ ...mix, instrumentalRms })).toEqual(
+          judgeIncomingStems({ ...healthy, vocalsRms: 0, instrumentalRms })
+        );
       }
     });
   });

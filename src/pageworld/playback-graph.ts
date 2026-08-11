@@ -8,7 +8,7 @@ import { listenerGain } from "@/pageworld/gain-law";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { resolveStemStart } from "@/pageworld/stem-offset";
 import { shouldRestartStems } from "@/pageworld/stem-restart";
-import type { Deck, DeckState } from "@/pageworld/deck";
+import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
 import type { StemStart } from "@/pageworld/stem-offset";
 import { createLogger } from "@/shared/logger";
 
@@ -22,15 +22,28 @@ interface PlaybackGraphDeps {
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
 
-interface CrossfadeRequest {
-  vocals: Float32Array<ArrayBuffer>[];
-  instrumental: Float32Array<ArrayBuffer>[];
-  sampleRate: number;
+interface CrossfadeTiming {
   durationSeconds: number;
   incomingOffsetSeconds?: number;
   startInSeconds?: number;
   videoId?: string;
 }
+
+interface StemsCrossfadeRequest extends CrossfadeTiming {
+  vocals: Float32Array<ArrayBuffer>[];
+  instrumental: Float32Array<ArrayBuffer>[];
+  sampleRate: number;
+  mix?: undefined;
+}
+
+interface MixCrossfadeRequest extends CrossfadeTiming {
+  mix: AudioBuffer;
+  vocals?: undefined;
+  instrumental?: undefined;
+  sampleRate?: undefined;
+}
+
+type CrossfadeRequest = StemsCrossfadeRequest | MixCrossfadeRequest;
 
 type CrossfadeResult = { kind: "scheduled"; startsAt: number; endsAt: number } | { kind: "refused"; reason: string };
 
@@ -75,6 +88,18 @@ interface PlaybackGraph {
   isEngaged(): boolean;
   dispose(): void;
   describe(): GraphState;
+}
+
+function deckLoadFor(request: CrossfadeRequest): DeckLoad {
+  const trackId = request.videoId ?? null;
+  if (request.mix !== undefined) return { kind: "mix", mix: request.mix, trackId };
+  return {
+    kind: "stems",
+    vocals: request.vocals,
+    instrumental: request.instrumental,
+    sampleRate: request.sampleRate,
+    trackId,
+  };
 }
 
 function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
@@ -207,7 +232,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     sampleRate: number,
     trackId: string | null
   ): void {
-    if (!deck().load(vocals, instrumental, sampleRate, trackId)) {
+    if (!deck().load({ kind: "stems", vocals, instrumental, sampleRate, trackId })) {
       logger.warn("load-stems carried no channels, staying on the original");
       return;
     }
@@ -256,18 +281,18 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (gate.kind === "refuse") return { kind: "refused", reason: gate.reason };
 
     const incoming = idleDeck();
-    if (!incoming.load(request.vocals, request.instrumental, request.sampleRate, request.videoId ?? null)) {
+    if (!incoming.load(deckLoadFor(request))) {
       return { kind: "refused", reason: "the incoming stems carried no channels" };
     }
 
     const incomingState = incoming.describe();
-    const stems = judgeIncomingStems({
+    const judged = judgeIncomingStems({
       durationSeconds: incomingState.durationSeconds,
-      vocalsRms: incomingState.vocalsRms,
+      vocalsRms: incomingState.kind === "mix" ? null : incomingState.vocalsRms,
       instrumentalRms: incomingState.instrumentalRms,
       fadeSeconds: request.durationSeconds,
     });
-    if (stems.kind === "refuse") return { kind: "refused", reason: stems.reason };
+    if (judged.kind === "refuse") return { kind: "refused", reason: judged.reason };
 
     const outgoing = deck();
     const startsAt = context.currentTime + Math.max(0, request.startInSeconds ?? 0);
@@ -287,7 +312,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
     crossfade = { outgoingDeck: activeDeck, endsAtContextTime: endsAt, videoId: request.videoId ?? null };
     activeDeck = activeDeck === 0 ? 1 : 0;
-    logger.log(`crossfading over ${request.durationSeconds.toFixed(2)} s, deck ${activeDeck} takes over`);
+    logger.log(
+      `crossfading over ${request.durationSeconds.toFixed(2)} s into a ${incomingState.kind}, deck ${activeDeck} takes over`
+    );
     return { kind: "scheduled", startsAt, endsAt };
   }
 

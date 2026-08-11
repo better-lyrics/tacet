@@ -25,7 +25,7 @@ const SILENCE_RMS = 1e-4;
 
 interface IncomingStems {
   durationSeconds: number;
-  vocalsRms: number;
+  vocalsRms: number | null;
   instrumentalRms: number;
   fadeSeconds: number;
 }
@@ -34,19 +34,21 @@ function judgeIncomingStems(input: IncomingStems): CrossfadeGate {
   const { durationSeconds, vocalsRms, instrumentalRms, fadeSeconds } = input;
 
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    return { kind: "refuse", reason: `the incoming stems are ${durationSeconds} s long` };
+    return { kind: "refuse", reason: `the incoming audio is ${durationSeconds} s long` };
   }
   if (durationSeconds < fadeSeconds) {
     return {
       kind: "refuse",
-      reason: `the incoming stems are ${durationSeconds.toFixed(1)} s, shorter than the ${fadeSeconds} s fade`,
+      reason: `the incoming audio is ${durationSeconds.toFixed(1)} s, shorter than the ${fadeSeconds} s fade`,
     };
   }
-  if (!Number.isFinite(vocalsRms) || !Number.isFinite(instrumentalRms)) {
-    return { kind: "refuse", reason: "the incoming stems measured as non-finite" };
+  if (!Number.isFinite(instrumentalRms) || (vocalsRms !== null && !Number.isFinite(vocalsRms))) {
+    return { kind: "refuse", reason: "the incoming audio measured as non-finite" };
   }
-  if (vocalsRms < SILENCE_RMS && instrumentalRms < SILENCE_RMS) {
-    return { kind: "refuse", reason: "the incoming stems are silent" };
+
+  const vocalsSilent = vocalsRms === null || vocalsRms < SILENCE_RMS;
+  if (vocalsSilent && instrumentalRms < SILENCE_RMS) {
+    return { kind: "refuse", reason: "the incoming audio is silent" };
   }
   return { kind: "allow" };
 }

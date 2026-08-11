@@ -7,7 +7,20 @@ interface DeckDeps {
   output: AudioNode;
 }
 
+type DeckKind = "stems" | "mix";
+
+type DeckLoad =
+  | {
+      kind: "stems";
+      vocals: Float32Array<ArrayBuffer>[];
+      instrumental: Float32Array<ArrayBuffer>[];
+      sampleRate: number;
+      trackId: string | null;
+    }
+  | { kind: "mix"; mix: AudioBuffer; trackId: string | null };
+
 interface DeckState {
+  kind: DeckKind;
   stemsLoaded: boolean;
   trackId: string | null;
   finished: boolean;
@@ -25,12 +38,7 @@ interface DeckState {
 }
 
 interface Deck {
-  load(
-    vocals: Float32Array<ArrayBuffer>[],
-    instrumental: Float32Array<ArrayBuffer>[],
-    sampleRate: number,
-    trackId: string | null
-  ): boolean;
+  load(request: DeckLoad): boolean;
   startAt(offsetSeconds: number, when?: number): void;
   stop(): void;
   stopAt(when: number): void;
@@ -47,9 +55,10 @@ interface Deck {
   dispose(): void;
 }
 
-interface LoadedStems {
+interface LoadedAudio {
+  kind: DeckKind;
   trackId: string | null;
-  vocals: AudioBuffer;
+  vocals: AudioBuffer | null;
   instrumental: AudioBuffer;
   durationSeconds: number;
   vocalsRms: number;
@@ -63,7 +72,31 @@ interface Loudness {
   combinedPeak: number;
 }
 
-function measureLoudness(vocals: AudioBuffer, instrumental: AudioBuffer): Loudness {
+function measureMixLoudness(mix: AudioBuffer): Loudness {
+  let sum = 0;
+  let peak = 0;
+  let counted = 0;
+
+  for (let channel = 0; channel < mix.numberOfChannels; channel++) {
+    const samples = mix.getChannelData(channel);
+    for (let n = 0; n < samples.length; n++) {
+      sum += samples[n] * samples[n];
+      const level = Math.abs(samples[n]);
+      if (level > peak) peak = level;
+    }
+    counted += samples.length;
+  }
+
+  return {
+    vocalsRms: 0,
+    instrumentalRms: Math.sqrt(sum / Math.max(1, counted)),
+    combinedPeak: peak,
+  };
+}
+
+function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null): Loudness {
+  if (vocals === null) return measureMixLoudness(instrumental);
+
   let vocalsSum = 0;
   let instrumentalSum = 0;
   let peak = 0;
@@ -104,6 +137,20 @@ function createStemBuffer(
   return buffer;
 }
 
+interface DeckBuffers {
+  vocals: AudioBuffer | null;
+  instrumental: AudioBuffer;
+}
+
+function buffersForLoad(context: AudioContext, request: DeckLoad): DeckBuffers | null {
+  if (request.kind === "mix") return { vocals: null, instrumental: request.mix };
+  if (request.vocals.length === 0 || request.instrumental.length === 0) return null;
+  return {
+    vocals: createStemBuffer(context, request.vocals, request.sampleRate),
+    instrumental: createStemBuffer(context, request.instrumental, request.sampleRate),
+  };
+}
+
 function createDeck(deps: DeckDeps): Deck {
   const { context, output } = deps;
 
@@ -118,7 +165,7 @@ function createDeck(deps: DeckDeps): Deck {
 
   let vocalsSource: AudioBufferSourceNode | null = null;
   let instrumentalSource: AudioBufferSourceNode | null = null;
-  let loaded: LoadedStems | null = null;
+  let loaded: LoadedAudio | null = null;
   let currentMixLevel = 1;
   let startedAtOffsetSeconds = 0;
   let startedAtContextTime = 0;
@@ -161,24 +208,19 @@ function createDeck(deps: DeckDeps): Deck {
     instrumental.stop(when);
   }
 
-  function load(
-    vocals: Float32Array<ArrayBuffer>[],
-    instrumental: Float32Array<ArrayBuffer>[],
-    sampleRate: number,
-    trackId: string | null
-  ): boolean {
+  function load(request: DeckLoad): boolean {
     stop();
-    if (vocals.length === 0 || instrumental.length === 0) return false;
+    const buffers = buffersForLoad(context, request);
+    if (buffers === null) return false;
 
     finished = false;
-    const vocalsBuffer = createStemBuffer(context, vocals, sampleRate);
-    const instrumentalBuffer = createStemBuffer(context, instrumental, sampleRate);
     loaded = {
-      trackId,
-      vocals: vocalsBuffer,
-      instrumental: instrumentalBuffer,
-      durationSeconds: vocalsBuffer.duration,
-      ...measureLoudness(vocalsBuffer, instrumentalBuffer),
+      kind: request.kind,
+      trackId: request.trackId,
+      vocals: buffers.vocals,
+      instrumental: buffers.instrumental,
+      durationSeconds: buffers.instrumental.duration,
+      ...measureLoudness(buffers.instrumental, buffers.vocals),
     };
     return true;
   }
@@ -188,14 +230,16 @@ function createDeck(deps: DeckDeps): Deck {
     stop();
     finished = false;
 
-    vocalsSource = context.createBufferSource();
-    vocalsSource.buffer = loaded.vocals;
+    if (loaded.vocals !== null) {
+      vocalsSource = context.createBufferSource();
+      vocalsSource.buffer = loaded.vocals;
+      vocalsSource.connect(vocalsGainNode);
+    }
     instrumentalSource = context.createBufferSource();
     instrumentalSource.buffer = loaded.instrumental;
-    vocalsSource.connect(vocalsGainNode);
     instrumentalSource.connect(instrumentalGainNode);
     releaseWhenEnded(vocalsSource, instrumentalSource);
-    vocalsSource.start(when, offsetSeconds);
+    vocalsSource?.start(when, offsetSeconds);
     instrumentalSource.start(when, offsetSeconds);
 
     startedAtOffsetSeconds = offsetSeconds;
@@ -211,6 +255,7 @@ function createDeck(deps: DeckDeps): Deck {
 
   function describe(): DeckState {
     return {
+      kind: loaded?.kind ?? "stems",
       stemsLoaded: loaded !== null,
       trackId: loaded?.trackId ?? null,
       finished,
@@ -258,4 +303,4 @@ function createDeck(deps: DeckDeps): Deck {
 }
 
 export { createDeck, createStemBuffer };
-export type { Deck, DeckDeps, DeckState };
+export type { Deck, DeckDeps, DeckKind, DeckLoad, DeckState };
