@@ -65,6 +65,7 @@ interface PlaybackGraph {
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
   abortCrossfade(reason: string): boolean;
   suppressDriftFor(seconds: number): void;
+  recoverIfStopped(): boolean;
   recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }>;
   isEngaged(): boolean;
   dispose(): void;
@@ -153,9 +154,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     // A crossfade owns both decks' timelines, and the player clock still
     // belongs to the outgoing track, so drift correction would fight it. The
     // same holds for the moment after it, while the player is being seeked to
-    // meet the deck: correcting then would restart the deck against a clock
-    // that is deliberately in motion.
-    if (isCrossfading() || context.currentTime < driftSuppressedUntilContextTime) return;
+    // meet the deck. Suppression covers drift only, never a deck that has
+    // stopped: this listener is also the path that restarts one, and blocking
+    // it outright turned the moment after a fade into silence that nothing
+    // recovered from.
+    if (isCrossfading()) return;
+    if (deck().isPlaying() && context.currentTime < driftSuppressedUntilContextTime) return;
     if (element.paused) {
       deck().stop();
       return;
@@ -202,6 +206,21 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function setMixLevel(mixLevel: number): void {
     currentMixLevel = mixLevel;
     deck().setMixLevel(mixLevel);
+  }
+
+  // After a transition the stems keep their identity across the track change,
+  // so the engagement state machine reads "hold" and has no reason to touch
+  // the deck. If a transport event stopped it in the meantime, nothing else
+  // would ever start it again, and the listener just gets silence. This is the
+  // one polled path that notices.
+  function recoverIfStopped(): boolean {
+    if (bypass.isBypassed() || isCrossfading()) return false;
+    if (!deck().hasStems() || deck().isPlaying()) return false;
+    if (element.paused) return false;
+
+    logger.warn("the deck stopped while the track kept playing, restarting it at the playhead");
+    startSourcesAtPlayhead();
+    return true;
   }
 
   function stopStems(): void {
@@ -374,6 +393,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     resumeStems,
     crossfadeTo,
     abortCrossfade,
+    recoverIfStopped,
     suppressDriftFor: seconds => {
       driftSuppressedUntilContextTime = context.currentTime + Math.max(0, seconds);
     },

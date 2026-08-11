@@ -498,7 +498,10 @@ function reconcile(): void {
   });
   lastAction = action;
 
-  if (action === "idle" || action === "hold") return;
+  if (action === "idle" || action === "hold") {
+    cachedGraph?.recoverIfStopped();
+    return;
+  }
 
   if (action === "release" || action === "suspend") {
     cachedGraph?.stopStems();
