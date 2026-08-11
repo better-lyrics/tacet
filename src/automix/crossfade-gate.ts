@@ -54,5 +54,30 @@ function judgeIncomingStems(input: IncomingStems): CrossfadeGate {
   return { kind: "allow" };
 }
 
-export { SILENCE_RMS, decideCrossfade, judgeIncomingStems };
-export type { CrossfadeGate, CrossfadeGateInput, IncomingStems };
+// -- Fitting the fade to the audio that is actually staged --------------------
+
+// The fade length is a setting the listener can change at any moment, while the
+// staged audio was sized when it was staged. Refusing on a mismatch throws away
+// a transition over a difference the fade can simply absorb, so the fade gives
+// way to the audio rather than the other way round.
+type ClampedFade = { kind: "fade"; seconds: number } | { kind: "refuse"; reason: string };
+
+function clampFadeToAudio(fadeSeconds: number, audioSeconds: number, minimumFadeSeconds: number): ClampedFade {
+  if (!Number.isFinite(fadeSeconds) || fadeSeconds <= 0) {
+    return { kind: "refuse", reason: `a crossfade needs a positive length, got ${fadeSeconds}` };
+  }
+  if (!Number.isFinite(audioSeconds) || audioSeconds <= 0) {
+    return { kind: "refuse", reason: `the staged audio is ${audioSeconds} s long` };
+  }
+  if (audioSeconds >= fadeSeconds) return { kind: "fade", seconds: fadeSeconds };
+  if (audioSeconds < minimumFadeSeconds) {
+    return {
+      kind: "refuse",
+      reason: `the staged audio is ${audioSeconds.toFixed(1)} s, too short to fade over`,
+    };
+  }
+  return { kind: "fade", seconds: audioSeconds };
+}
+
+export { SILENCE_RMS, clampFadeToAudio, decideCrossfade, judgeIncomingStems };
+export type { ClampedFade, CrossfadeGate, CrossfadeGateInput, IncomingStems };

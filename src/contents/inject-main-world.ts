@@ -1,6 +1,7 @@
 import type { PlasmoCSConfig } from "plasmo";
+import { clampFadeToAudio } from "@/automix/crossfade-gate";
 import { analyseOutput } from "@/automix/output-analysis";
-import { DECODE_LEAD_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
+import { DECODE_LEAD_SECONDS, MINIMUM_FADE_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
 import type { StagedState } from "@/automix/transition-cue";
 import { isAdPlaying } from "@/capture/ad-state";
 import { advanceToNextTrack, seekPlayerTo } from "@/capture/yt-player";
@@ -366,21 +367,37 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   if (videoId === null || stems === null) return;
 
   const durationSeconds = (stems.vocals[0]?.length ?? 0) / stems.sampleRate;
+  // The listener can lengthen the fade at any moment, while the staged audio was
+  // sized when it was staged. Absorbing the difference in the fade keeps the
+  // transition; refusing on it throws away work already done.
+  const clamped = clampFadeToAudio(fadeSeconds, durationSeconds, MINIMUM_FADE_SECONDS);
+  if (clamped.kind === "refuse") {
+    logger.warn(`no transition into ${videoId}, ${clamped.reason}`);
+    clearStaging();
+    return;
+  }
+  if (clamped.seconds !== fadeSeconds) {
+    logger.log(`shortening the fade into ${videoId} to ${clamped.seconds.toFixed(1)} s of staged audio`);
+  }
+
   const result = graph.crossfadeTo({
     vocals: stems.vocals,
     instrumental: stems.instrumental,
     sampleRate: stems.sampleRate,
-    durationSeconds: fadeSeconds,
+    durationSeconds: clamped.seconds,
     incomingOffsetSeconds: 0,
     startInSeconds,
     videoId,
   });
-  clearStaging();
 
+  // Staging survives a refusal on purpose. Most refusals are about this moment
+  // rather than this track, so the next poll can try again with a shorter fade,
+  // and the cue clears staging itself once there is no time left to be worth it.
   if (result.kind === "refused") {
     logger.warn(`no transition into ${videoId}, ${result.reason}`);
     return;
   }
+  clearStaging();
 
   // The deck now carries the next track, so the engagement bookkeeping has to
   // follow it across before the player is told to advance.
@@ -393,7 +410,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   const startsInMs = startInSeconds * 1000;
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
-    postToIsolated({ type: "blk-crossfade-started", videoId, durationSeconds: fadeSeconds });
+    postToIsolated({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds });
   }, startsInMs);
   setTimeout(
     () => {
@@ -403,7 +420,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
       advancingIntoVideoId = videoId;
       if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
     },
-    startsInMs + (fadeSeconds / 2) * 1000
+    startsInMs + (clamped.seconds / 2) * 1000
   );
   // The incoming deck started at the top of the fade while the player advanced
   // at its midpoint, so the two clocks sit exactly half a fade apart. Left
@@ -411,7 +428,10 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   // audible, and as a backwards jump the next time any transport event reaches
   // the drift correction. The player's own audio is silenced, so moving its
   // clock to the deck's costs nothing that can be heard.
-  setTimeout(() => alignPlayerToDeck(graph, videoId, generation, 0), startsInMs + fadeSeconds * 1000 + ALIGN_DELAY_MS);
+  setTimeout(
+    () => alignPlayerToDeck(graph, videoId, generation, 0),
+    startsInMs + clamped.seconds * 1000 + ALIGN_DELAY_MS
+  );
 }
 
 // A seek takes time to land, and the deck keeps moving while it does, so one

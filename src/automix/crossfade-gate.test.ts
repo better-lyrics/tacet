@@ -1,4 +1,4 @@
-import { SILENCE_RMS, decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
+import { SILENCE_RMS, clampFadeToAudio, decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
 import type { CrossfadeGateInput, IncomingStems } from "@/automix/crossfade-gate";
 import { describe, expect, it } from "vitest";
 
@@ -155,6 +155,82 @@ describe("judgeIncomingStems", () => {
 
     it("regression: a 3 s stem against an 8 s fade is refused, which measured as a dip to 3 %", () => {
       expect(judgeIncomingStems({ ...healthy, durationSeconds: 3, fadeSeconds: 8 }).kind).toBe("refuse");
+    });
+  });
+});
+
+// -- clampFadeToAudio ---------------------------------------------------------
+
+const MINIMUM = 1.5;
+
+describe("clampFadeToAudio", () => {
+  it("leaves a fade alone when the audio covers it", () => {
+    expect(clampFadeToAudio(8, 200, MINIMUM)).toEqual({ kind: "fade", seconds: 8 });
+  });
+
+  it("shortens the fade to the audio available", () => {
+    expect(clampFadeToAudio(12, 9, MINIMUM)).toEqual({ kind: "fade", seconds: 9 });
+  });
+
+  it("allows a fade exactly as long as the audio", () => {
+    expect(clampFadeToAudio(8, 8, MINIMUM)).toEqual({ kind: "fade", seconds: 8 });
+  });
+
+  describe("edge cases", () => {
+    it("refuses audio too short to fade over at all", () => {
+      expect(clampFadeToAudio(8, 1.2, MINIMUM).kind).toBe("refuse");
+    });
+
+    it("allows audio exactly at the minimum", () => {
+      expect(clampFadeToAudio(8, MINIMUM, MINIMUM)).toEqual({ kind: "fade", seconds: MINIMUM });
+    });
+
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("refuses a fade length of %s", fade => {
+      expect(clampFadeToAudio(fade, 200, MINIMUM).kind).toBe("refuse");
+    });
+
+    it.each([0, -1, Number.NaN])("refuses audio measuring %s", audio => {
+      expect(clampFadeToAudio(8, audio, MINIMUM).kind).toBe("refuse");
+    });
+  });
+
+  describe("invariants", () => {
+    it("never returns a fade longer than the audio", () => {
+      for (const fade of [1, 4, 8, 12, 20]) {
+        for (const audio of [1.6, 3, 8, 15, 300]) {
+          const clamped = clampFadeToAudio(fade, audio, MINIMUM);
+          if (clamped.kind !== "fade") continue;
+          expect(clamped.seconds).toBeLessThanOrEqual(audio);
+        }
+      }
+    });
+
+    it("never lengthens a fade", () => {
+      for (const fade of [1.6, 4, 8, 20]) {
+        for (const audio of [2, 8, 300]) {
+          const clamped = clampFadeToAudio(fade, audio, MINIMUM);
+          if (clamped.kind !== "fade") continue;
+          expect(clamped.seconds).toBeLessThanOrEqual(fade);
+        }
+      }
+    });
+
+    it("always explains itself when it refuses", () => {
+      const refusals = [
+        clampFadeToAudio(0, 200, MINIMUM),
+        clampFadeToAudio(8, 0, MINIMUM),
+        clampFadeToAudio(8, 1, MINIMUM),
+      ];
+      for (const refusal of refusals) {
+        if (refusal.kind !== "refuse") throw new Error(`expected a refusal, got ${refusal.kind}`);
+        expect(refusal.reason.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: raising the crossfade mid-track shortens the fade instead of dropping the transition", () => {
+      expect(clampFadeToAudio(12, 9, MINIMUM)).toEqual({ kind: "fade", seconds: 9 });
     });
   });
 });
