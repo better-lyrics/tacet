@@ -1,6 +1,12 @@
 // -- Transition cue ----------------------------------------------------------
 
-const DECODE_LEAD_SECONDS = 15;
+// Measured on six real cached tracks in the offscreen document: Opus decodes at
+// 346 to 387 times realtime, worst case 633 ms for a 232 s track. The lead is
+// what it is for margin under load, not because decoding is slow, and every
+// second of it is a second holding a second track's PCM: 141 to 171 MB each.
+// Decoding only the head the fade needs would save none of that, because the
+// whole track has to be resident the moment the fade ends.
+const DECODE_LEAD_SECONDS = 6;
 
 type StagedState = "none" | "encoded" | "decoding" | "ready";
 

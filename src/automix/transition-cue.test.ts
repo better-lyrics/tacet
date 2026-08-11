@@ -28,7 +28,11 @@ describe("decideTransitionCue", () => {
   });
 
   it("decodes once the remaining time falls inside the fade plus the decode lead", () => {
-    expect(decideTransitionCue({ ...playing, remainingSeconds: 22 })).toEqual({ kind: "decode" });
+    expect(decideTransitionCue({ ...playing, remainingSeconds: DECODE_AT - 0.5 })).toEqual({ kind: "decode" });
+  });
+
+  it("leaves at least eight times the worst measured decode of 633 ms", () => {
+    expect(DECODE_LEAD_SECONDS).toBeGreaterThanOrEqual(0.633 * 8);
   });
 
   it("fades once the remaining time reaches the fade length and the decode has landed", () => {
@@ -82,8 +86,12 @@ describe("decideTransitionCue", () => {
     });
 
     it("asks for the decode exactly once, since a decode in flight reads as waiting", () => {
-      expect(decideTransitionCue({ ...playing, remainingSeconds: 22, staged: "decoding" })).toEqual({ kind: "wait" });
-      expect(decideTransitionCue({ ...playing, remainingSeconds: 22, staged: "ready" })).toEqual({ kind: "wait" });
+      expect(decideTransitionCue({ ...playing, remainingSeconds: DECODE_AT - 0.5, staged: "decoding" })).toEqual({
+        kind: "wait",
+      });
+      expect(decideTransitionCue({ ...playing, remainingSeconds: DECODE_AT - 0.5, staged: "ready" })).toEqual({
+        kind: "wait",
+      });
     });
 
     it("decodes right at the boundary and waits a moment before it", () => {
