@@ -242,6 +242,37 @@ export function isBetterLyricsPresenceMessage(data: unknown): data is BetterLyri
   );
 }
 
+// -- Coming up probe (popup -> the tab's fader control) ------------------------
+
+export interface GetComingUpCommand {
+  type: "blk-get-coming-up";
+}
+
+export interface ComingUpMessage {
+  type: "blk-coming-up";
+  // null whenever there is nothing to show: no queue, sing-along off, or the
+  // pipeline has not been told about a next track yet.
+  track: {
+    videoId: string;
+    title: string | null;
+    artist: string | null;
+    artworkUrl: string | null;
+    cached: boolean | null;
+  } | null;
+}
+
+export function isGetComingUpCommand(data: unknown): data is GetComingUpCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-coming-up";
+}
+
+export function isComingUpMessage(data: unknown): data is ComingUpMessage {
+  if (typeof data !== "object" || data === null) return false;
+  if ((data as { type?: unknown }).type !== "blk-coming-up") return false;
+  const track = (data as { track?: unknown }).track;
+  if (track === null) return true;
+  return typeof track === "object" && typeof (track as { videoId?: unknown }).videoId === "string";
+}
+
 // -- Settings relay (offscreen has no chrome.storage) --------------------------
 
 export interface GetSettingsCommand {

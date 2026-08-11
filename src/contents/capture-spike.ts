@@ -1,6 +1,6 @@
-import type { PlasmoCSConfig } from "plasmo";
 import { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator } from "@/capture/accumulator";
 import { isAdPlaying } from "@/capture/ad-state";
+import { albumArtUrlForVideoId, createArtworkResolver, loadImageSizeInPage } from "@/capture/artwork-url";
 import type {
   CaptureReadyMessage,
   CapturedAudioMessage,
@@ -16,24 +16,26 @@ import {
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs } from "@/capture/capture-coverage";
-import { bufferedRangeEnd } from "@/capture/edge-hopper";
-import type { DownloadSource } from "@/orchestrator/download-tooltip";
-import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
+import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
+import { bufferedRangeEnd } from "@/capture/edge-hopper";
+import { type CapturedSlice, FRAME_ID_PREFIX, captureTrackInSlices } from "@/capture/frame-pool";
 import { log, logError } from "@/capture/log";
-import { FRAME_ID_PREFIX, type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
-import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
-import { runSliceCapture } from "@/capture/slice-runner";
-import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
+import { nextTrackInQueue, readQueueItems } from "@/capture/next-track";
+import type { NextTrack } from "@/capture/next-track";
 import { decidePrefetch } from "@/capture/prefetch-gate";
 import { videoIdsToRelease } from "@/capture/prefetch-retention";
 import { settledTrackDuration } from "@/capture/settled-duration";
-import { readClockDuration } from "@/pageworld/track-duration";
+import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
+import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
+import { runSliceCapture } from "@/capture/slice-runner";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
-import { nextVideoIdInQueue, readQueueItems } from "@/capture/next-track";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
+import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
+import { readClockDuration } from "@/pageworld/track-duration";
+import type { PlasmoCSConfig } from "plasmo";
 
 // -- Track capture (MAIN world) ----------------------------------------------
 export const config: PlasmoCSConfig = {
@@ -461,6 +463,34 @@ function standDownFor(videoId: string): void {
   log(`capture stood down for videoId=${videoId}, dropped ${retainedBefore} retained chunk(s)`);
 }
 
+// The artwork is resolved here rather than in the popup because only this
+// world can probe an image against music.youtube.com, and because the answer
+// is memoised for the life of the tab either way.
+const artworkResolver = createArtworkResolver(loadImageSizeInPage);
+
+function announceNextTrack(next: NextTrack): void {
+  function post(artworkUrl: string | null): void {
+    const message: NextTrackMessage = {
+      type: "blk-next-track",
+      videoId: next.videoId,
+      title: next.title,
+      artist: next.artist,
+      artworkUrl,
+    };
+    window.postMessage(message, window.location.origin);
+  }
+
+  // Announced without artwork first, so a slow probe never delays the
+  // separation this message actually gates.
+  post(null);
+  artworkResolver
+    .resolve(albumArtUrlForVideoId(next.videoId))
+    .then(post)
+    .catch(error => {
+      log(`could not resolve artwork for ${next.videoId}: ${String(error)}`);
+    });
+}
+
 window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
@@ -471,13 +501,12 @@ window.addEventListener("message", event => {
   }
 
   if (isRequestNextPrefetchMessage(data) && runsOrchestration) {
-    const next = nextVideoIdInQueue(readQueueItems(document), data.videoId);
+    const next = nextTrackInQueue(readQueueItems(document), data.videoId);
     if (!next) {
       log(`no next track in the queue after ${data.videoId}`);
       return;
     }
-    const message: NextTrackMessage = { type: "blk-next-track", videoId: next };
-    window.postMessage(message, window.location.origin);
+    announceNextTrack(next);
   }
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
 });

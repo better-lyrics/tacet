@@ -19,11 +19,14 @@ import { extensionVersion } from "@/shared/version";
 import {
   type ClearModelCacheCommand,
   type ClearStemCacheCommand,
+  type ComingUpMessage,
   type GetCacheStatusCommand,
+  type GetComingUpCommand,
   type HasBetterLyricsCommand,
   isBetterLyricsPresenceMessage,
   isCacheStatusMessage,
   isClearCacheResultMessage,
+  isComingUpMessage,
 } from "../workers/protocol2";
 
 // -- Popup: settings, storage and About ----------------------------------------
@@ -477,6 +480,92 @@ function createAboutPanel(): HTMLElement {
   return panel;
 }
 
+// -- Coming up ------------------------------------------------------------------
+//
+// Artwork is resolved in the page world and handed here already correct, the
+// same division better-lyrics-shaders uses: its popup never re-derives a URL
+// from the DOM, it displays what the content script gives it. The image is
+// held at zero opacity behind a placeholder until it reports a load, and the
+// element is replaced whenever the URL changes so a new track fades in rather
+// than swapping instantly.
+
+const COMING_UP_POLL_MS = 2000;
+
+type ComingUpTrack = NonNullable<ComingUpMessage["track"]>;
+
+interface ComingUpBand {
+  element: HTMLElement;
+  render(track: ComingUpTrack | null): void;
+}
+
+function comingUpState(track: ComingUpTrack): string {
+  if (track.cached === null) return "";
+  return track.cached ? "Ready" : "Not separated";
+}
+
+function createComingUpBand(): ComingUpBand {
+  const element = createElement("div", "blk-upnext");
+  element.hidden = true;
+
+  const thumb = createElement("span", "blk-upnext__thumb");
+  const label = createElement("span", "blk-upnext__label");
+  label.textContent = "Coming up";
+  const title = createElement("span", "blk-upnext__title");
+  const artist = createElement("span", "blk-upnext__artist");
+  const state = createElement("span", "blk-upnext__state");
+  element.append(thumb, label, title, artist, state);
+
+  let shownArtworkUrl: string | null = null;
+
+  function renderArtwork(url: string | null): void {
+    if (url === shownArtworkUrl) return;
+    shownArtworkUrl = url;
+    if (url === null) {
+      thumb.replaceChildren();
+      return;
+    }
+    const image = createElement("img", "blk-upnext__art");
+    image.alt = "";
+    image.addEventListener("load", () => image.classList.add("blk-upnext__art--ready"), { once: true });
+    image.src = url;
+    thumb.replaceChildren(image);
+  }
+
+  return {
+    element,
+    render(track) {
+      if (track === null) {
+        element.hidden = true;
+        renderArtwork(null);
+        return;
+      }
+      element.hidden = false;
+      title.textContent = track.title ?? "Next track";
+      artist.textContent = track.artist ?? "";
+      state.textContent = comingUpState(track);
+      renderArtwork(track.artworkUrl);
+    },
+  };
+}
+
+async function readComingUp(): Promise<ComingUpTrack | null> {
+  const command: GetComingUpCommand = { type: "blk-get-coming-up" };
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined) return null;
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, command);
+    if (!isComingUpMessage(response)) {
+      console.error(`${LOG_PREFIX} unexpected coming-up reply`, response);
+      return null;
+    }
+    return response.track;
+  } catch (error) {
+    console.debug(`${LOG_PREFIX} no YouTube Music tab answered the coming-up probe`, error);
+    return null;
+  }
+}
+
 // -- Main -----------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -629,9 +718,19 @@ async function main(): Promise<void> {
     scroll.scrollTop = 0;
   }
 
-  root.append(header, tabs, scroll, footer);
+  const comingUpBand = createComingUpBand();
+
+  root.append(header, tabs, scroll, comingUpBand.element, footer);
   document.body.append(root);
   render();
+
+  function refreshComingUp(): void {
+    readComingUp()
+      .then(track => comingUpBand.render(track))
+      .catch(error => console.error(`${LOG_PREFIX} failed to read the coming-up track`, error));
+  }
+  refreshComingUp();
+  setInterval(refreshComingUp, COMING_UP_POLL_MS);
 
   async function refreshCacheStatus(): Promise<void> {
     const command: GetCacheStatusCommand = { type: "blk-get-cache-status" };

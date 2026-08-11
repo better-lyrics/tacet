@@ -1,20 +1,26 @@
 import faderCss from "data-text:../ui/fader.css";
-import type { PlasmoCSConfig } from "plasmo";
 import { describeBusy } from "@/orchestrator/busy-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
+import type { KaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
-import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import { createLogger } from "@/shared/logger";
+import { extensionVersion } from "@/shared/version";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
-import { createLogger } from "@/shared/logger";
-import { extensionVersion } from "@/shared/version";
-import { type BetterLyricsPresenceMessage, isHasBetterLyricsCommand } from "../../workers/protocol2";
+import type { PlasmoCSConfig } from "plasmo";
+import {
+  type BetterLyricsPresenceMessage,
+  type ComingUpMessage,
+  isGetComingUpCommand,
+  isHasBetterLyricsCommand,
+} from "../../workers/protocol2";
 
 const logger = createLogger("orchestrator");
 
@@ -77,6 +83,8 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 
 // -- Master switch ---------------------------------------------------------
 
+let livePipeline: KaraokePipeline | null = null;
+
 function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(next: FaderPlacement): void } {
   injectStylesheet();
 
@@ -107,6 +115,7 @@ function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(
       render();
     },
   });
+  livePipeline = pipeline;
 
   const mount = attachFaderMount({ button: control.button, setHost: control.setHost }, { placement });
 
@@ -115,6 +124,7 @@ function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(
     destroy() {
       mount.disconnect();
       // First, since it is what hands the audio back to the original.
+      if (livePipeline === pipeline) livePipeline = null;
       pipeline?.destroy();
       tooltip.destroy();
       control.destroy();
@@ -154,8 +164,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 // -- Better Lyrics probe, answered whether or not the fader is mounted ---------
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (!isHasBetterLyricsCommand(message)) return undefined;
-  const reply: BetterLyricsPresenceMessage = { type: "blk-better-lyrics-presence", present: hasBetterLyrics() };
-  sendResponse(reply);
+  if (isHasBetterLyricsCommand(message)) {
+    const reply: BetterLyricsPresenceMessage = { type: "blk-better-lyrics-presence", present: hasBetterLyrics() };
+    sendResponse(reply);
+    return undefined;
+  }
+
+  // Answered even with no pipeline running, so the popup can hide the band
+  // rather than wait out a timeout.
+  if (isGetComingUpCommand(message)) {
+    const reply: ComingUpMessage = { type: "blk-coming-up", track: livePipeline?.comingUp() ?? null };
+    sendResponse(reply);
+    return undefined;
+  }
+
   return undefined;
 });

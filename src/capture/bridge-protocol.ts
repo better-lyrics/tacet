@@ -40,6 +40,9 @@ export interface RequestNextPrefetchMessage {
 export interface NextTrackMessage {
   type: "blk-next-track";
   videoId: string;
+  title?: string | null;
+  artist?: string | null;
+  artworkUrl?: string | null;
 }
 
 export interface CaptureStandDownMessage {
