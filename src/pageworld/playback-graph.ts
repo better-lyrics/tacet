@@ -114,10 +114,20 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   const isCrossfading = (): boolean => crossfade !== null && context.currentTime < crossfade.endsAtContextTime;
 
   const originalGainNode = context.createGain();
-  originalGainNode.gain.value = 1;
   source.disconnect(context.destination);
   source.connect(originalGainNode);
   originalGainNode.connect(masterNode);
+
+  // The one writer of the original's gain. Assigning `.value` is defined as
+  // scheduling at the current time, so an assignment landing inside a ramp
+  // someone else scheduled is undefined at best and throws at worst. Cancelling
+  // first makes every write win outright, whoever scheduled what before it.
+  function setOriginalGain(value: number): void {
+    originalGainNode.gain.cancelScheduledValues(context.currentTime);
+    originalGainNode.gain.value = value;
+  }
+  const originalGainNow = (): number => originalGainNode.gain.value;
+  setOriginalGain(1);
 
   let currentMixLevel = 1;
   let transportAttached = false;
@@ -135,7 +145,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   const bypass = createBypassController({
     restoreOriginal() {
-      originalGainNode.gain.value = 1;
+      setOriginalGain(1);
     },
     stopStems() {
       deck().stop();
@@ -147,9 +157,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   // whether it changed anything, which is what stops a polled caller logging
   // the same refusal every second.
   function handBackToOriginal(reason: string): boolean {
-    if (originalGainNode.gain.value === 1) return false;
+    if (originalGainNow() === 1) return false;
     logger.warn(`handing back to the original, ${reason}`);
-    originalGainNode.gain.value = 1;
+    setOriginalGain(1);
     return true;
   }
 
@@ -171,7 +181,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       return;
     }
 
-    originalGainNode.gain.value = 0;
+    setOriginalGain(0);
     deck().startAt(start.offsetSeconds);
     deck().setMixLevel(currentMixLevel);
   }
@@ -243,7 +253,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function resumeStems(): void {
     if (!deck().hasStems()) return;
-    originalGainNode.gain.value = 0;
+    setOriginalGain(0);
     bypass.exitBypass();
     attachTransportListeners();
     // Start where the listener actually is, not at the beginning of the track.
@@ -404,7 +414,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     for (const each of decks) each.dispose();
     element.removeEventListener("volumechange", syncListenerVolume);
 
-    originalGainNode.gain.value = 1;
+    setOriginalGain(1);
     source.disconnect(originalGainNode);
     originalGainNode.disconnect();
     listenerVolumeNode.disconnect();
@@ -426,7 +436,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       engaged: !bypass.isBypassed(),
       vocalsGain: deckState.vocalsGain,
       instrumentalGain: deckState.instrumentalGain,
-      originalGain: originalGainNode.gain.value,
+      originalGain: originalGainNow(),
       stemsLoaded: deckState.stemsLoaded,
       stemFrames: deckState.stemFrames,
       stemSampleRate: deckState.stemSampleRate,
