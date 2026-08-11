@@ -3,7 +3,7 @@ import { decideAlignment } from "@/automix/clock-align";
 import { fadeCeilingSeconds, remainingForCue } from "@/automix/cue-clock";
 import type { CueClockInput } from "@/automix/cue-clock";
 import { clampFadeToAudio } from "@/automix/crossfade-gate";
-import { advanceDelaySeconds } from "@/automix/fade-plan";
+import { advanceDelaySeconds, decideAdvance } from "@/automix/fade-plan";
 import { analyseOutput } from "@/automix/output-analysis";
 import { decideStagedSource, isStagingSpent } from "@/automix/staged-source";
 import type { StagedKind } from "@/automix/staged-source";
@@ -69,6 +69,7 @@ const WARM_NEXT_WITHIN_SECONDS = 120;
 let ownAdvanceUntilMs = 0;
 let advanceIssuedAtMs = 0;
 let ownSeekAtMs = 0;
+let elementEmptiedAtMs = 0;
 let advancingFromVideoId: string | null = null;
 let advancingIntoVideoId: string | null = null;
 
@@ -581,6 +582,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   const generation = ++transitionGeneration;
   const startsInMs = startInSeconds * 1000;
   const fadingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
+  const scheduledAtMs = Date.now();
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
     postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds, kind: incoming.kind });
@@ -590,10 +592,19 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     if (!graph.describe().crossfading) return;
     ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
     advanceIssuedAtMs = Date.now();
+    const advance = decideAdvance({
+      playerVideoId: currentPlayerSnapshot(document)?.videoId ?? null,
+      intoVideoId: videoId,
+      elementMovedOn: elementEmptiedAtMs > scheduledAtMs,
+    });
     advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? fadingFromVideoId;
     advancingIntoVideoId = videoId;
-    if (advancingFromVideoId === videoId) {
+    if (advance === "already-there") {
       logger.log(`the player reached ${videoId} on its own, not advancing it again`);
+      return;
+    }
+    if (advance === "moved-on") {
+      logger.log(`the element moved on by itself, not advancing past ${videoId}`);
       return;
     }
     if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
@@ -856,7 +867,8 @@ startPlayerBridge();
 
 document.addEventListener(
   "emptied",
-  () => {
+  event => {
+    if (event.target === cachedElement) elementEmptiedAtMs = Date.now();
     if (cachedGraph?.describe().crossfading || Date.now() < ownAdvanceUntilMs) return;
     awaitingReconfirmation = true;
     reconcile();

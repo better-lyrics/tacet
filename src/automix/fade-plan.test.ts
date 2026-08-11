@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDelaySeconds, chooseOutgoingSource } from "@/automix/fade-plan";
+import { advanceDelaySeconds, chooseOutgoingSource, decideAdvance } from "@/automix/fade-plan";
 import type { OutgoingSourceInput } from "@/automix/fade-plan";
 
 function graph(overrides: Partial<OutgoingSourceInput> = {}): OutgoingSourceInput {
@@ -160,6 +160,50 @@ describe("advanceDelaySeconds", () => {
     it("regression: the element is still audible at the deck midpoint, so only the deck case advances there", () => {
       expect(advanceDelaySeconds("deck", 12, LEAD)).toBe(6);
       expect(advanceDelaySeconds("original", 12, LEAD)).toBeCloseTo(11.85, 6);
+    });
+  });
+});
+
+describe("decideAdvance", () => {
+  const at = (overrides = {}) => ({
+    playerVideoId: "from",
+    intoVideoId: "into",
+    elementMovedOn: false,
+    ...overrides,
+  });
+
+  it("advances the player when it is still on the track being faded out of", () => {
+    expect(decideAdvance(at())).toBe("advance");
+  });
+
+  it("leaves a player that already reached the track alone", () => {
+    expect(decideAdvance(at({ playerVideoId: "into" }))).toBe("already-there");
+  });
+
+  describe("edge cases", () => {
+    it("advances a player that names nothing yet and has not moved on", () => {
+      expect(decideAdvance(at({ playerVideoId: null }))).toBe("advance");
+    });
+
+    it("prefers what the player names over what the element did", () => {
+      expect(decideAdvance(at({ playerVideoId: "into", elementMovedOn: true }))).toBe("already-there");
+    });
+  });
+
+  describe("invariants", () => {
+    it("never advances once the element has moved on by itself", () => {
+      for (const playerVideoId of ["from", null, "elsewhere"]) {
+        expect(decideAdvance(at({ playerVideoId, elementMovedOn: true }))).not.toBe("advance");
+      }
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: does not skip the track it just faded into when the queue advanced first", () => {
+      // getVideoData().video_id keeps naming the previous track for seconds
+      // after a natural advance, so the id alone said "advance" and nextVideo()
+      // then jumped past the incoming track entirely.
+      expect(decideAdvance(at({ playerVideoId: "from", elementMovedOn: true }))).toBe("moved-on");
     });
   });
 });
