@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALIGN_ACCEPTABLE_SECONDS, decideAlignment } from "@/automix/clock-align";
+import { ALIGN_ACCEPTABLE_SECONDS, ALIGN_MAX_DRIFT_SECONDS, decideAlignment } from "@/automix/clock-align";
 import type { AlignInput } from "@/automix/clock-align";
 
 function input(overrides: Partial<AlignInput> = {}): AlignInput {
@@ -143,6 +143,28 @@ describe("decideAlignment", () => {
   });
 
   describe("regressions", () => {
+    it("regression: does not chase a listener who seeked away mid alignment", () => {
+      // Measured twice: the align chain was still running when a seek landed,
+      // read the player 73 to 78 s "ahead", and seeked them backwards to the
+      // deck. Attributing the seeked event was too fragile because our own seek
+      // and theirs arrived inside the same window, so the drift itself is the
+      // signal.
+      const decision = decideAlignment(input({ deckPositionSeconds: 9.4, playerPositionSeconds: 82.4 }));
+      expect(decision.kind).toBe("moved-on");
+    });
+
+    it("still corrects a drift the width of a whole fade", () => {
+      expect(decideAlignment(input({ deckPositionSeconds: 8, playerPositionSeconds: 0 })).kind).toBe("seek");
+    });
+
+    it("treats the bound as inclusive so an exact fade-width drift still aligns", () => {
+      const edge = ALIGN_MAX_DRIFT_SECONDS;
+      expect(decideAlignment(input({ deckPositionSeconds: edge, playerPositionSeconds: 0 })).kind).toBe("seek");
+      expect(decideAlignment(input({ deckPositionSeconds: edge + 0.01, playerPositionSeconds: 0 })).kind).toBe(
+        "moved-on"
+      );
+    });
+
     it("regression: a near miss after the last seek is not reported as a fault", () => {
       // Three seeks landing 0.15 s apart is a working alignment, and calling it
       // a failure put a warning on the extension's error page every transition.

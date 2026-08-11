@@ -2,6 +2,9 @@
 
 const ALIGN_TOLERANCE_SECONDS = 0.12;
 const ALIGN_ACCEPTABLE_SECONDS = 0.5;
+// A transition leaves the player at most a fade behind the deck. Anything wider
+// than this is the listener having moved, and chasing it seeks them backwards.
+const ALIGN_MAX_DRIFT_SECONDS = 20;
 
 type AlignDecision =
   | { kind: "seek"; toSeconds: number; driftSeconds: number; nextLeadSeconds: number }
@@ -22,6 +25,7 @@ interface AlignInput {
   patienceMs: number;
   toleranceSeconds?: number;
   acceptableSeconds?: number;
+  maxDriftSeconds?: number;
 }
 
 function decideAlignment(input: AlignInput): AlignDecision {
@@ -42,6 +46,11 @@ function decideAlignment(input: AlignInput): AlignDecision {
     return outOfPatience ? { kind: "abandon", reason } : { kind: "wait", reason };
   }
 
+  const maxDrift = input.maxDriftSeconds ?? ALIGN_MAX_DRIFT_SECONDS;
+  if (Math.abs(drift) > maxDrift) {
+    return { kind: "moved-on", reason: `the clocks are ${drift.toFixed(1)} s apart, the listener has moved` };
+  }
+
   if (Math.abs(drift) <= tolerance) return { kind: "settled", driftSeconds: drift };
   if (input.seeksSoFar >= input.maxSeeks) {
     return Math.abs(drift) <= acceptable
@@ -59,5 +68,5 @@ function decideAlignment(input: AlignInput): AlignDecision {
   };
 }
 
-export { ALIGN_ACCEPTABLE_SECONDS, ALIGN_TOLERANCE_SECONDS, decideAlignment };
+export { ALIGN_ACCEPTABLE_SECONDS, ALIGN_MAX_DRIFT_SECONDS, ALIGN_TOLERANCE_SECONDS, decideAlignment };
 export type { AlignDecision, AlignInput };
