@@ -26,6 +26,7 @@ interface PlaybackGraphDeps {
   ownAdvanceLanding(): boolean;
   ownAdvanceRecent(): boolean;
   consumeOwnSeek(): boolean;
+  onListenerSeeked?(): void;
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
 
@@ -261,6 +262,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       syncToElement(false);
       return;
     }
+    deps.onListenerSeeked?.();
     if (abortCrossfade("the listener seeked mid fade")) return;
     syncToElement(true);
   }

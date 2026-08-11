@@ -503,6 +503,10 @@ function transitionInFlightInto(): string | null {
   return transitionTargetVideoId;
 }
 
+function onListenerSeeked(): void {
+  transitionGeneration++;
+}
+
 function onCrossfadeAborted(videoId: string | null, reason: string): void {
   transitionGeneration++;
   transitionTargetVideoId = null;
@@ -750,6 +754,7 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
       ownAdvanceLanding: advanceStillLanding,
       ownAdvanceRecent: () => Date.now() - advanceIssuedAtMs < ADVANCE_SETTLE_MS,
       consumeOwnSeek,
+      onListenerSeeked,
       onCrossfadeAborted,
     });
     cachedElement = bus.element;
