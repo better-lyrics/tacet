@@ -625,10 +625,13 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     () => alignPlayerToDeck({ graph, videoId, generation, startedAtMs: Date.now(), seeks: 0, lead: 0 }),
     startsInMs + advanceAfterMs + ALIGN_DELAY_MS
   );
-  setTimeout(() => {
-    if (generation !== transitionGeneration) return;
-    trackBeforeCrossfade = null;
-  }, startsInMs + clamped.seconds * 1000 + TRANSITION_RELEASE_MS);
+  setTimeout(
+    () => {
+      if (generation !== transitionGeneration) return;
+      trackBeforeCrossfade = null;
+    },
+    startsInMs + clamped.seconds * 1000 + TRANSITION_RELEASE_MS
+  );
   return true;
 }
 
@@ -645,6 +648,10 @@ function alignPlayerToDeck(run: AlignRun): void {
   if (run.generation !== transitionGeneration) return;
 
   const state = run.graph.describe();
+  if (!state.crossfading && state.originalGain > 0) {
+    logger.log("not aligning the clocks, the listener is back on the original and would hear the seek");
+    return;
+  }
   const decision = decideAlignment({
     playerVideoId: currentPlayerSnapshot(document)?.videoId ?? null,
     intoVideoId: run.videoId,
