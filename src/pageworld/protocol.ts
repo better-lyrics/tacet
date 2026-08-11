@@ -37,6 +37,12 @@ export interface StageDeckMessage {
   sampleRate: number;
 }
 
+export interface CrossfadeAbortedMessage {
+  type: "blk-crossfade-aborted";
+  videoId: string | null;
+  reason: string;
+}
+
 export interface SetCrossfadeMessage {
   type: "blk-set-crossfade";
   seconds: number;
@@ -110,6 +116,15 @@ export function isStageDeckMessage(data: unknown): data is StageDeckMessage {
     isFloat32ArrayList((data as { vocals?: unknown }).vocals) &&
     isFloat32ArrayList((data as { instrumental?: unknown }).instrumental) &&
     typeof (data as { sampleRate?: unknown }).sampleRate === "number"
+  );
+}
+
+export function isCrossfadeAbortedMessage(data: unknown): data is CrossfadeAbortedMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-crossfade-aborted" &&
+    typeof (data as { reason?: unknown }).reason === "string"
   );
 }
 

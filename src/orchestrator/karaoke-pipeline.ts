@@ -31,6 +31,7 @@ import {
   type StagedReadyMessage,
   type SetCrossfadeMessage,
   type StopStemsMessage,
+  isCrossfadeAbortedMessage,
   isCrossfadeStartedMessage,
   isRequestStagedDeckMessage,
 } from "@/pageworld/protocol";
@@ -56,6 +57,7 @@ import {
 
 const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
 const ACQUISITION_WATCHDOG_MS = 8000;
+const CROSSFADE_ARM_GRACE_SECONDS = 6;
 
 const logger = createLogger("orchestrator");
 
@@ -94,6 +96,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let stagedInstrumental: ChunkAssembler | null = null;
   let stagedDoneReceived = false;
   let crossfadingInto: string | null = null;
+  let crossfadeArmTimer: ReturnType<typeof setTimeout> | null = null;
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTrack: PlayerState | null = null;
   const reacquiredVideoIds = new Set<string>();
@@ -115,6 +118,30 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     vocalsAssembler = null;
     instrumentalAssembler = null;
     doneReceived = false;
+  }
+
+  // Armed by the page world when a fade is scheduled and disarmed the moment
+  // the track change it causes arrives. The timer is the backstop: a fade that
+  // never lands must not leave the next natural advance looking like a
+  // completed transition, which reports engaged with nothing in the deck.
+  function armCrossfade(videoId: string, durationSeconds: number): void {
+    disarmCrossfade();
+    crossfadingInto = videoId;
+    log(`crossfading into ${videoId} over ${durationSeconds} s`);
+    crossfadeArmTimer = setTimeout(
+      () => {
+        if (crossfadingInto !== videoId) return;
+        log(`the transition into ${videoId} never landed, disarming`);
+        disarmCrossfade();
+      },
+      (durationSeconds + CROSSFADE_ARM_GRACE_SECONDS) * 1000
+    );
+  }
+
+  function disarmCrossfade(): void {
+    if (crossfadeArmTimer !== null) clearTimeout(crossfadeArmTimer);
+    crossfadeArmTimer = null;
+    crossfadingInto = null;
   }
 
   function resetStaging(): void {
@@ -149,7 +176,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     if (videoId === crossfadingInto) {
       log(`crossfaded into ${videoId}, its stems are already in the deck`);
-      crossfadingInto = null;
+      disarmCrossfade();
       resetStemAssembly();
       resetStaging();
       prefetchVideoId = null;
@@ -262,9 +289,15 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isCrossfadeStartedMessage(data)) {
-      crossfadingInto = data.videoId;
-      log(`crossfading into ${data.videoId} over ${data.durationSeconds} s`);
+      armCrossfade(data.videoId, data.durationSeconds);
       options.onCrossfadeStarted(data.durationSeconds);
+      return;
+    }
+
+    if (isCrossfadeAbortedMessage(data)) {
+      if (data.videoId !== null && data.videoId !== crossfadingInto) return;
+      log(`the transition into ${data.videoId ?? "the staged track"} was unwound: ${data.reason}`);
+      disarmCrossfade();
       return;
     }
 
@@ -366,11 +399,14 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           instrumental: instrumental.channels,
           sampleRate: vocals.sampleRate,
         };
+        // Read before posting: the transfer detaches these buffers, and a
+        // length read afterwards is always zero.
+        const frames = vocals.channels[0]?.length ?? 0;
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
         postToPageWorld(message, transfer);
         // The page world owns the samples now, so the Opus is dead weight.
         staged = null;
-        log(`handed ${videoId} to the idle deck, ${vocals.channels[0]?.length ?? 0} frames`);
+        log(`handed ${videoId} to the idle deck, ${frames} frames`);
       })
       .catch(error => {
         logError(`failed to decode the staged stems for ${videoId}`, error);
@@ -563,6 +599,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function destroy(): void {
     clearCacheProbeTimer();
+    disarmCrossfade();
     document.removeEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);

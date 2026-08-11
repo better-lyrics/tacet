@@ -131,11 +131,7 @@ function createDeck(deps: DeckDeps): Deck {
     instrumentalSource = null;
   }
 
-  function stopAt(when: number): void {
-    const vocals = vocalsSource;
-    const instrumental = instrumentalSource;
-    if (instrumental === null) return;
-
+  function releaseWhenEnded(vocals: AudioBufferSourceNode | null, instrumental: AudioBufferSourceNode): void {
     instrumental.onended = () => {
       if (instrumentalSource !== instrumental) return;
       vocals?.disconnect();
@@ -143,6 +139,14 @@ function createDeck(deps: DeckDeps): Deck {
       vocalsSource = null;
       instrumentalSource = null;
     };
+  }
+
+  function stopAt(when: number): void {
+    const vocals = vocalsSource;
+    const instrumental = instrumentalSource;
+    if (instrumental === null) return;
+
+    releaseWhenEnded(vocals, instrumental);
     vocals?.stop(when);
     instrumental.stop(when);
   }
@@ -176,6 +180,10 @@ function createDeck(deps: DeckDeps): Deck {
     instrumentalSource.buffer = loaded.instrumental;
     vocalsSource.connect(vocalsGainNode);
     instrumentalSource.connect(instrumentalGainNode);
+    // Without this the deck reports itself as playing for ever once the buffer
+    // runs out, and positionNow() counts past the end of the track, which reads
+    // to anything downstream as a track with negative time remaining.
+    releaseWhenEnded(vocalsSource, instrumentalSource);
     vocalsSource.start(when, offsetSeconds);
     instrumentalSource.start(when, offsetSeconds);
 
@@ -185,8 +193,11 @@ function createDeck(deps: DeckDeps): Deck {
   }
 
   function positionNow(): number {
-    if (instrumentalSource === null) return Number.NaN;
-    return startedAtOffsetSeconds + (context.currentTime - startedAtContextTime);
+    if (instrumentalSource === null || loaded === null) return Number.NaN;
+    const elapsed = startedAtOffsetSeconds + (context.currentTime - startedAtContextTime);
+    // onended releases the sources, but it lands on a task queue, so the clamp
+    // is what stops a late callback reading as negative time remaining.
+    return Math.min(elapsed, loaded.durationSeconds);
   }
 
   function describe(): DeckState {

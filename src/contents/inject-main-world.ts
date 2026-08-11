@@ -3,15 +3,16 @@ import { analyseOutput } from "@/automix/output-analysis";
 import { DECODE_LEAD_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
 import type { StagedState } from "@/automix/transition-cue";
 import { isAdPlaying } from "@/capture/ad-state";
-import { advanceToNextTrack } from "@/capture/yt-player";
+import { advanceToNextTrack, seekPlayerTo } from "@/capture/yt-player";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
 import { startPlayerBridge } from "@/pageworld/player-bridge";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
-import { currentPlayerSnapshot, playerVideoElement } from "@/pageworld/player-state";
+import { currentPlayerSnapshot, playerCurrentTime, playerVideoElement } from "@/pageworld/player-state";
 import {
+  type CrossfadeAbortedMessage,
   type CrossfadeStartedMessage,
   type RequestStagedDeckMessage,
   isLoadStemsMessage,
@@ -36,6 +37,10 @@ export const config: PlasmoCSConfig = {
 };
 
 const RECONCILE_INTERVAL_MS = 1000;
+const ALIGN_DELAY_MS = 250;
+const ALIGN_SETTLE_MS = 700;
+const ALIGN_MAX_ATTEMPTS = 3;
+const ALIGN_TOLERANCE_SECONDS = 0.12;
 
 interface LoadedStems {
   videoId: string;
@@ -277,8 +282,26 @@ function clearStaging(): void {
   stagedStems = null;
 }
 
-function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMessage): void {
+function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMessage | CrossfadeAbortedMessage): void {
   window.postMessage(message, window.location.origin);
+}
+
+// A fade moves the engagement bookkeeping onto the incoming track before the
+// player gets there. If it never completes, that has to move back, and the
+// ISOLATED world has to stop expecting the track change the fade would have
+// caused: otherwise the next natural advance is read as a completed crossfade
+// and the pipeline reports engaged with nothing in the deck.
+let stemsBeforeCrossfade: LoadedStems | null = null;
+
+function onCrossfadeAborted(videoId: string | null, reason: string): void {
+  logger.warn(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
+  if (stemsBeforeCrossfade !== null) {
+    pendingStems = stemsBeforeCrossfade;
+    engagedStems = null;
+    stemsBeforeCrossfade = null;
+  }
+  clearStaging();
+  postToIsolated({ type: "blk-crossfade-aborted", videoId, reason });
 }
 
 function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSeconds: number): void {
@@ -294,6 +317,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     durationSeconds: fadeSeconds,
     incomingOffsetSeconds: 0,
     startInSeconds,
+    videoId,
   });
   clearStaging();
 
@@ -304,6 +328,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
 
   // The deck now carries the next track, so the engagement bookkeeping has to
   // follow it across before the player is told to advance.
+  stemsBeforeCrossfade = pendingStems;
   pendingStems = { videoId, ...stems, durationSeconds };
   engagedStems = pendingStems;
   awaitingReconfirmation = false;
@@ -320,6 +345,49 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     },
     startsInMs + (fadeSeconds / 2) * 1000
   );
+  // The incoming deck started at the top of the fade while the player advanced
+  // at its midpoint, so the two clocks sit exactly half a fade apart. Left
+  // alone that shows up as a scrubber and a lyrics line running behind what is
+  // audible, and as a backwards jump the next time any transport event reaches
+  // the drift correction. The player's own audio is silenced, so moving its
+  // clock to the deck's costs nothing that can be heard.
+  setTimeout(() => alignPlayerToDeck(graph, videoId, 0), startsInMs + fadeSeconds * 1000 + ALIGN_DELAY_MS);
+}
+
+// A seek takes time to land, and the deck keeps moving while it does, so one
+// pass leaves a residue. Two or three converge, and each one is inaudible
+// because the player's own audio sits at a gain of zero.
+function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, attempt: number, lead = 0): void {
+  const snapshot = currentPlayerSnapshot(document);
+  if (snapshot?.videoId !== videoId) {
+    logger.warn(`not aligning the clocks, the player is on ${snapshot?.videoId ?? "nothing"} rather than ${videoId}`);
+    return;
+  }
+
+  const state = graph.describe();
+  const deckSeconds = state.decks[state.activeDeck].positionSeconds;
+  const playerSeconds = playerCurrentTime(document);
+  const drift = deckSeconds - playerSeconds;
+  if (!Number.isFinite(drift)) return;
+  if (Math.abs(drift) <= ALIGN_TOLERANCE_SECONDS) {
+    if (attempt > 0) logger.log(`clocks aligned after ${attempt} seek(s), ${(drift * 1000).toFixed(0)} ms apart`);
+    return;
+  }
+  if (attempt >= ALIGN_MAX_ATTEMPTS) {
+    logger.warn(`giving up aligning the clocks, still ${drift.toFixed(2)} s apart`);
+    return;
+  }
+
+  // The drift correction must not fight a seek we asked for.
+  graph.suppressDriftFor((ALIGN_SETTLE_MS / 1000) * 2);
+  logger.log(`aligning the player to the deck, ${drift.toFixed(2)} s behind (attempt ${attempt + 1})`);
+  if (!seekPlayerTo(document, deckSeconds + lead)) {
+    logger.warn("the player would not seek, its clock stays behind the deck");
+    return;
+  }
+  // Whatever this attempt leaves behind is the seek's own latency, so folding
+  // it into the next aim cancels it rather than repeating it.
+  setTimeout(() => alignPlayerToDeck(graph, videoId, attempt + 1, lead + drift), ALIGN_SETTLE_MS);
 }
 
 function runTransitionCue(graph: PlaybackGraph): boolean {
@@ -378,7 +446,7 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
     }
     logger.log(`audio bus acquired, context=${bus.context.state}, element decoded bytes=${decodedBytes(bus.element)}`);
 
-    const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
+    const graph = createPlaybackGraph({ context: bus.context, source: bus.source, onCrossfadeAborted });
     cachedElement = bus.element;
 
     bus.context.addEventListener("statechange", () => {

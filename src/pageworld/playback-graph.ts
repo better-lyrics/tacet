@@ -17,6 +17,9 @@ const logger = createLogger("page");
 interface PlaybackGraphDeps {
   context: AudioContext;
   source: MediaElementAudioSourceNode;
+  // A fade can be unwound from a transport listener the caller never sees, and
+  // the bookkeeping it moved across has to move back.
+  onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
 
 interface CrossfadeRequest {
@@ -26,6 +29,7 @@ interface CrossfadeRequest {
   durationSeconds: number;
   incomingOffsetSeconds?: number;
   startInSeconds?: number;
+  videoId?: string;
 }
 
 type CrossfadeResult = { kind: "scheduled"; startsAt: number; endsAt: number } | { kind: "refused"; reason: string };
@@ -60,6 +64,7 @@ interface PlaybackGraph {
   resumeStems(): void;
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
   abortCrossfade(reason: string): boolean;
+  suppressDriftFor(seconds: number): void;
   recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }>;
   isEngaged(): boolean;
   dispose(): void;
@@ -80,7 +85,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     createDeck({ context, output: listenerVolumeNode }),
   ];
   let activeDeck: 0 | 1 = 0;
-  let crossfade: { outgoingDeck: 0 | 1; endsAtContextTime: number } | null = null;
+  let crossfade: { outgoingDeck: 0 | 1; endsAtContextTime: number; videoId: string | null } | null = null;
   decks[1].setGain(0);
 
   const deck = (): Deck => decks[activeDeck];
@@ -96,6 +101,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let currentMixLevel = 1;
   let transportAttached = false;
   let lastStart: StemStart | null = null;
+  let driftSuppressedUntilContextTime = 0;
 
   // Followed directly, rather than being told about the transport.
   const element = source.mediaElement;
@@ -145,8 +151,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function syncToElement(): void {
     if (!deck().hasStems() || bypass.isBypassed()) return;
     // A crossfade owns both decks' timelines, and the player clock still
-    // belongs to the outgoing track, so drift correction would fight it.
-    if (isCrossfading()) return;
+    // belongs to the outgoing track, so drift correction would fight it. The
+    // same holds for the moment after it, while the player is being seeked to
+    // meet the deck: correcting then would restart the deck against a clock
+    // that is deliberately in motion.
+    if (isCrossfading() || context.currentTime < driftSuppressedUntilContextTime) return;
     if (element.paused) {
       deck().stop();
       return;
@@ -241,7 +250,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "in"), startsAt, request.durationSeconds);
     outgoing.stopAt(endsAt);
 
-    crossfade = { outgoingDeck: activeDeck, endsAtContextTime: endsAt };
+    crossfade = { outgoingDeck: activeDeck, endsAtContextTime: endsAt, videoId: request.videoId ?? null };
     activeDeck = activeDeck === 0 ? 1 : 0;
     logger.log(`crossfading over ${request.durationSeconds.toFixed(2)} s, deck ${activeDeck} takes over`);
     return { kind: "scheduled", startsAt, endsAt };
@@ -254,6 +263,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (!isCrossfading() || crossfade === null) return false;
     logger.warn(`crossfade aborted, ${reason}`);
 
+    const abandoned = crossfade.videoId;
     activeDeck = crossfade.outgoingDeck;
     crossfade = null;
     for (const each of decks) {
@@ -262,6 +272,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       each.stop();
     }
     bypass.enterBypass();
+    deps.onCrossfadeAborted?.(abandoned, reason);
     return true;
   }
 
@@ -285,7 +296,10 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     silencer.connect(context.destination);
 
     return new Promise(resolve => {
+      let finished = false;
       const finish = (): void => {
+        if (finished) return;
+        finished = true;
         processor.onaudioprocess = null;
         listenerVolumeNode.disconnect(processor);
         processor.disconnect();
@@ -360,6 +374,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     resumeStems,
     crossfadeTo,
     abortCrossfade,
+    suppressDriftFor: seconds => {
+      driftSuppressedUntilContextTime = context.currentTime + Math.max(0, seconds);
+    },
     recordOutput,
     isEngaged: () => !bypass.isBypassed(),
     dispose,

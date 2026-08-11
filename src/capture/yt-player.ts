@@ -84,8 +84,15 @@ function advanceToNextTrack(doc: Document): boolean {
   return callSafely("nextVideo", player.nextVideo && (() => player.nextVideo?.()));
 }
 
+function seekPlayerTo(doc: Document, seconds: number): boolean {
+  const player = getYtPlayer(doc);
+  if (!player || !Number.isFinite(seconds) || seconds < 0) return false;
+  return callSafely("seekTo", player.seekTo && (() => player.seekTo?.(seconds, true)));
+}
+
 export {
   advanceToNextTrack,
+  seekPlayerTo,
   getYtPlayer,
   suppressAutoAdvance,
   callSafely,
