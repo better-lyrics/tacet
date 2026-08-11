@@ -16,11 +16,14 @@ import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("page");
 
+const PAUSE_SETTLE_MS = 300;
+
 interface PlaybackGraphDeps {
   context: AudioContext;
   source: MediaElementAudioSourceNode;
   playerTrackId(): string | null;
   ownAdvanceLanding(): boolean;
+  ownAdvanceRecent(): boolean;
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
 
@@ -234,8 +237,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function stopDeck(): void {
     if (isCrossfading() && deps.ownAdvanceLanding()) return;
-    if (abortCrossfade("the listener paused mid fade")) return;
-    deck().stop();
+    setTimeout(() => {
+      if (!element.paused || deps.ownAdvanceRecent()) return;
+      if (abortCrossfade("the listener paused mid fade")) return;
+      deck().stop();
+      handBackToOriginal("the listener paused with no deck running");
+    }, PAUSE_SETTLE_MS);
   }
 
   function onSeeked(): void {
@@ -305,8 +312,10 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function recoverIfStopped(): boolean {
     if (bypass.isBypassed() || isCrossfading()) return false;
-    if (!deck().hasStems() || deck().isPlaying()) return false;
-    if (element.paused) return false;
+    if (deck().isPlaying()) return false;
+
+    if (!deck().hasStems()) return handBackToOriginal("no deck holds anything to play");
+    if (element.paused) return handBackToOriginal("nothing is playing and the listener is paused");
 
     if (deck().hasFinished()) return handBackToOriginal("the stems ran out before the track did");
 

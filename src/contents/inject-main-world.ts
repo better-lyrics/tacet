@@ -59,10 +59,12 @@ const ALIGN_MAX_ATTEMPTS = 3;
 const ALIGN_TOLERANCE_SECONDS = 0.12;
 const OWN_ADVANCE_GRACE_MS = 20_000;
 const ORIGINAL_ADVANCE_LEAD_SECONDS = 0.15;
+const ADVANCE_SETTLE_MS = 4000;
 const NEXT_TRACK_ASK_INTERVAL_MS = 5000;
 const WARM_NEXT_WITHIN_SECONDS = 120;
 
 let ownAdvanceUntilMs = 0;
+let advanceIssuedAtMs = 0;
 let advancingFromVideoId: string | null = null;
 let advancingIntoVideoId: string | null = null;
 
@@ -578,6 +580,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   setTimeout(() => {
     if (!graph.describe().crossfading) return;
     ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
+    advanceIssuedAtMs = Date.now();
     advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
     advancingIntoVideoId = videoId;
     if (advancingFromVideoId === videoId) {
@@ -699,6 +702,7 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
       source: bus.source,
       playerTrackId,
       ownAdvanceLanding: advanceStillLanding,
+      ownAdvanceRecent: () => Date.now() - advanceIssuedAtMs < ADVANCE_SETTLE_MS,
       onCrossfadeAborted,
     });
     cachedElement = bus.element;
