@@ -1,4 +1,6 @@
 import type { PlasmoCSConfig } from "plasmo";
+import { fadeCeilingSeconds, remainingForCue } from "@/automix/cue-clock";
+import type { CueClockInput } from "@/automix/cue-clock";
 import { clampFadeToAudio } from "@/automix/crossfade-gate";
 import { analyseOutput } from "@/automix/output-analysis";
 import { DECODE_LEAD_SECONDS, MINIMUM_FADE_SECONDS, decideTransitionCue } from "@/automix/transition-cue";
@@ -44,9 +46,6 @@ const ALIGN_DELAY_MS = 250;
 const ALIGN_SETTLE_MS = 700;
 const ALIGN_MAX_ATTEMPTS = 3;
 const ALIGN_TOLERANCE_SECONDS = 0.12;
-// A slow advance can take several seconds to empty the element, so this has to
-// outlast the fade itself. Measured: one advance emptied 8.3 s after the fade
-// began, which is past the end of an 8 s fade.
 const OWN_ADVANCE_GRACE_MS = 20_000;
 
 let ownAdvanceUntilMs = 0;
@@ -69,9 +68,6 @@ let pendingStems: LoadedStems | null = null;
 let engagedStems: LoadedStems | null = null;
 let lastAction: EngagementAction = "idle";
 
-// Overwritten by blk-set-crossfade the moment the fader mounts, and again on
-// every settings change. Read at schedule time, so a change lands on the next
-// fade rather than distorting one already in flight.
 let crossfadeSeconds = DEFAULT_SETTINGS.crossfadeSeconds;
 
 let stagedVideoId: string | null = null;
@@ -90,8 +86,6 @@ function pendingAdvance(): PendingAdvance | null {
   return { fromVideoId: advancingFromVideoId, intoVideoId: advancingIntoVideoId };
 }
 
-// The one answer to "which track is the listener on". Everything that compares
-// a track against the listener's position comes through here.
 function playerTrackId(): string | null {
   return listenerTrackId({
     playerVideoId: currentPlayerSnapshot(document)?.videoId ?? null,
@@ -125,9 +119,6 @@ function reconfirmIfPossible(stems: LoadedStems): void {
   if (decision === "confirmed") awaitingReconfirmation = false;
 }
 
-// True while a track change we asked for has not reached the player's own
-// bookkeeping. It is narrowed to the player still naming the track we left, so
-// it cannot swallow a genuine skip, and it expires either way.
 function advanceStillLanding(): boolean {
   const advance = pendingAdvance();
   if (advance === null) return false;
@@ -163,9 +154,6 @@ window.blkTransitionProbe = () => {
     pendingVideoId: pendingStems?.videoId ?? null,
     activeDeck: state?.activeDeck ?? null,
     crossfading: state?.crossfading ?? null,
-    // What the listener is actually hearing, against what they are looking at.
-    // Every deformity metric passes for the wrong song played correctly, so
-    // this pair is the only thing that catches one.
     playerVideoId: playerTrackId(),
     activeDeckTrackId: active?.trackId ?? null,
     audibleTrackMatchesPlayer: active === null ? null : active.playing && active.trackId === playerTrackId(),
@@ -263,8 +251,6 @@ window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
   if (!graph) return { error: "could not acquire the audio bus" };
 
   const sampleRate = 44100;
-  // Crossfade out of whatever is genuinely playing when there is something,
-  // so the outgoing deck carries real separated stems rather than a tone.
   const outgoingIsReal = graph.describe().stemsPlaying;
   if (!outgoingIsReal) {
     graph.loadStems(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate, playerTrackId());
@@ -331,25 +317,13 @@ function postToIsolated(message: RequestStagedDeckMessage | CrossfadeStartedMess
   window.postMessage(message, window.location.origin);
 }
 
-// A fade moves the engagement bookkeeping onto the incoming track before the
-// player gets there. If it never completes, that has to move back, and the
-// ISOLATED world has to stop expecting the track change the fade would have
-// caused: otherwise the next natural advance is read as a completed crossfade
-// and the pipeline reports engaged with nothing in the deck.
 let stemsBeforeCrossfade: LoadedStems | null = null;
 
-// Every timer a transition arms outlives the transition itself, and the
-// alignment one fires after the fade is over, so "is a fade running" cannot
-// tell it whether it still belongs to anything.
 let transitionGeneration = 0;
 
 function onCrossfadeAborted(videoId: string | null, reason: string): void {
   transitionGeneration++;
   logger.warn(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
-  // Unwinding to the outgoing track is only right while the listener is still
-  // on it. Once the advance has landed they are on the incoming track, and
-  // handing the pipeline the previous track's stems is what put the wrong song
-  // in the deck. Clearing engagement alone re-loads what is already there.
   if (videoId !== null && playerTrackId() === videoId) {
     engagedStems = null;
   } else if (stemsBeforeCrossfade !== null) {
@@ -367,10 +341,9 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   if (videoId === null || stems === null) return;
 
   const durationSeconds = (stems.vocals[0]?.length ?? 0) / stems.sampleRate;
-  // The listener can lengthen the fade at any moment, while the staged audio was
-  // sized when it was staged. Absorbing the difference in the fade keeps the
-  // transition; refusing on it throws away work already done.
-  const clamped = clampFadeToAudio(fadeSeconds, durationSeconds, MINIMUM_FADE_SECONDS);
+  const outgoingCeiling = fadeCeilingSeconds(cueClock(graph));
+  const audioSeconds = Number.isNaN(outgoingCeiling) ? durationSeconds : Math.min(durationSeconds, outgoingCeiling);
+  const clamped = clampFadeToAudio(fadeSeconds, audioSeconds, MINIMUM_FADE_SECONDS);
   if (clamped.kind === "refuse") {
     logger.warn(`no transition into ${videoId}, ${clamped.reason}`);
     clearStaging();
@@ -390,17 +363,12 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     videoId,
   });
 
-  // Staging survives a refusal on purpose. Most refusals are about this moment
-  // rather than this track, so the next poll can try again with a shorter fade,
-  // and the cue clears staging itself once there is no time left to be worth it.
   if (result.kind === "refused") {
     logger.warn(`no transition into ${videoId}, ${result.reason}`);
     return;
   }
   clearStaging();
 
-  // The deck now carries the next track, so the engagement bookkeeping has to
-  // follow it across before the player is told to advance.
   stemsBeforeCrossfade = pendingStems;
   pendingStems = { videoId, ...stems, durationSeconds };
   engagedStems = pendingStems;
@@ -422,21 +390,12 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     },
     startsInMs + (clamped.seconds / 2) * 1000
   );
-  // The incoming deck started at the top of the fade while the player advanced
-  // at its midpoint, so the two clocks sit exactly half a fade apart. Left
-  // alone that shows up as a scrubber and a lyrics line running behind what is
-  // audible, and as a backwards jump the next time any transport event reaches
-  // the drift correction. The player's own audio is silenced, so moving its
-  // clock to the deck's costs nothing that can be heard.
   setTimeout(
     () => alignPlayerToDeck(graph, videoId, generation, 0),
     startsInMs + clamped.seconds * 1000 + ALIGN_DELAY_MS
   );
 }
 
-// A seek takes time to land, and the deck keeps moving while it does, so one
-// pass leaves a residue. Two or three converge, and each one is inaudible
-// because the player's own audio sits at a gain of zero.
 function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, generation: number, attempt: number, lead = 0): void {
   if (generation !== transitionGeneration) return;
 
@@ -463,24 +422,31 @@ function alignPlayerToDeck(graph: PlaybackGraph, videoId: string, generation: nu
     return;
   }
 
-  // The drift correction must not fight a seek we asked for.
   graph.suppressDriftFor((ALIGN_SETTLE_MS / 1000) * 2);
   logger.log(`aligning the player to the deck, ${drift.toFixed(2)} s behind (attempt ${attempt + 1})`);
   if (!seekPlayerTo(document, deckSeconds + lead)) {
     logger.warn("the player would not seek, its clock stays behind the deck");
     return;
   }
-  // Whatever this attempt leaves behind is the seek's own latency, so folding
-  // it into the next aim cancels it rather than repeating it.
   setTimeout(() => alignPlayerToDeck(graph, videoId, generation, attempt + 1, lead + drift), ALIGN_SETTLE_MS);
+}
+
+function cueClock(graph: PlaybackGraph): CueClockInput {
+  const state = graph.describe();
+  const active = state.decks[state.activeDeck];
+  return {
+    trackDurationSeconds: currentPlayerSnapshot(document)?.durationSeconds ?? Number.NaN,
+    trackPositionSeconds: playerCurrentTime(document),
+    deckDurationSeconds: active.durationSeconds,
+    deckPositionSeconds: active.positionSeconds,
+  };
 }
 
 function runTransitionCue(graph: PlaybackGraph): boolean {
   if (crossfadeSeconds <= 0) return false;
   const state = graph.describe();
-  const active = state.decks[state.activeDeck];
   const cue = decideTransitionCue({
-    remainingSeconds: active.durationSeconds - active.positionSeconds,
+    remainingSeconds: remainingForCue(cueClock(graph)),
     fadeSeconds: crossfadeSeconds,
     decodeLeadSeconds: DECODE_LEAD_SECONDS,
     pollIntervalSeconds: RECONCILE_INTERVAL_MS / 1000,
@@ -508,7 +474,6 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
 function discardGraph(): void {
   if (!cachedGraph) return;
   cachedGraph.stopStems();
-  // dispose, not just stop: the listeners would keep restarting the sources.
   cachedGraph.dispose();
   cachedGraph = null;
   cachedElement = null;
@@ -567,8 +532,6 @@ function targetPosition(stems: LoadedStems): TargetPosition {
 }
 
 function reconcile(): void {
-  // A fade owns both decks and the player clock still belongs to the outgoing
-  // track, so every engagement judgement below would misread it.
   if (cachedGraph && runTransitionCue(cachedGraph)) return;
 
   const stems = pendingStems;
@@ -640,12 +603,6 @@ startPlayerBridge();
 document.addEventListener(
   "emptied",
   () => {
-    // Reconfirmation exists to catch an element still carrying an ad's media
-    // after the player bar has moved on. It is the wrong guard for an advance
-    // we asked for ourselves into a track whose stems are already in the deck:
-    // element.duration reads partial for a while afterwards, reconfirmation
-    // never succeeds, and the stems get released for as long as it takes. That
-    // measured as 30 s of unseparated audio after one transition.
     if (cachedGraph?.describe().crossfading || Date.now() < ownAdvanceUntilMs) return;
     awaitingReconfirmation = true;
     reconcile();
