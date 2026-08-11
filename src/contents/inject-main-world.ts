@@ -36,11 +36,12 @@ import {
   isSetCrossfadeMessage,
   isSetMixLevelMessage,
   isStageDeckMessage,
+  isSetLoggingMessage,
   isStagedReadyMessage,
   isStopStemsMessage,
 } from "@/pageworld/protocol";
 import { DEFAULT_SETTINGS, isValidCrossfadeSeconds } from "@/settings/settings";
-import { createLogger } from "@/shared/logger";
+import { createLogger, setLoggingEnabled } from "@/shared/logger";
 
 const logger = createLogger("page");
 
@@ -424,7 +425,7 @@ function requestMixFor(videoId: string): void {
     if (stagedVideoId !== videoId || stagedKind !== "mix" || stagedState !== "decoding") return;
     remember(mixUnavailableVideoIds, videoId);
     stagedState = "none";
-    logger.warn(`no captured audio came back for ${videoId}, it cannot be faded into without stems`);
+    logger.log(`no captured audio came back for ${videoId}, it cannot be faded into without stems`);
   }, MIX_REQUEST_TIMEOUT_MS);
 }
 
@@ -505,7 +506,7 @@ function transitionInFlightInto(): string | null {
 function onCrossfadeAborted(videoId: string | null, reason: string): void {
   transitionGeneration++;
   transitionTargetVideoId = null;
-  logger.warn(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
+  logger.log(`unwinding the transition into ${videoId ?? "an unnamed track"}, ${reason}`);
   if (videoId !== null && playerTrackId() === videoId) {
     engagedTrack = null;
   } else if (trackBeforeCrossfade !== null) {
@@ -545,7 +546,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     : Math.min(incoming.durationSeconds, outgoingCeiling);
   const clamped = clampFadeToAudio(fadeSeconds, audioSeconds, MINIMUM_FADE_SECONDS);
   if (clamped.kind === "refuse") {
-    logger.warn(`no transition into ${videoId}, ${clamped.reason}`);
+    logger.log(`no transition into ${videoId}, ${clamped.reason}`);
     clearStaging();
     return;
   }
@@ -568,7 +569,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   );
 
   if (result.kind === "refused") {
-    logger.warn(`no transition into ${videoId}, ${result.reason}`);
+    logger.log(`no transition into ${videoId}, ${result.reason}`);
     return;
   }
   clearStaging();
@@ -649,6 +650,10 @@ function alignPlayerToDeck(run: AlignRun): void {
     }
     return;
   }
+  if (decision.kind === "moved-on") {
+    logger.log(`not aligning the clocks, ${decision.reason}`);
+    return;
+  }
   if (decision.kind === "abandon") {
     logger.warn(`giving up aligning the clocks, ${decision.reason}`);
     return;
@@ -697,7 +702,7 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
 
   if (cue.kind === "wait") return state.crossfading;
   if (cue.kind === "skip") {
-    logger.warn(`no transition into ${stagedVideoId}, ${cue.reason}`);
+    logger.log(`no transition into ${stagedVideoId}, ${cue.reason}`);
     clearStaging();
     return false;
   }
@@ -885,6 +890,11 @@ for (const event of ["loadstart", "play", "playing"]) {
 window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
+
+  if (isSetLoggingMessage(data)) {
+    setLoggingEnabled(data.enabled);
+    return;
+  }
 
   if (isSetMixLevelMessage(data)) {
     pendingMixLevel = data.mixLevel;

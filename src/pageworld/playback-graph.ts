@@ -184,7 +184,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function handBackToOriginal(reason: string): boolean {
     if (originalGainNow() === 1) return false;
-    logger.warn(`handing back to the original, ${reason}`);
+    logger.log(`handing back to the original, ${reason}`);
     setOriginalGain(1);
     return true;
   }
@@ -343,14 +343,14 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (!deck().hasStems()) return handBackToOriginal("no deck holds anything to play");
     if (deck().hasFinished()) return handBackToOriginal("the stems ran out before the track did");
 
-    logger.warn("the deck stopped while the track kept playing, restarting it at the playhead");
+    logger.log("the deck stopped while the track kept playing, restarting it at the playhead");
     startSourcesAtPlayhead();
     return true;
   }
 
   function stopStems(): void {
     if (abortCrossfade("the stems were released mid fade")) return;
-    if (!bypass.isBypassed()) logger.warn("bypassing to the original, the deck was released");
+    if (!bypass.isBypassed()) logger.log("bypassing to the original, the deck was released");
     bypass.enterBypass();
   }
 
@@ -419,7 +419,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function abortCrossfade(reason: string): boolean {
     if (!isCrossfading() || crossfade === null) return false;
-    logger.warn(`crossfade aborted, ${reason}`);
+    logger.log(`crossfade aborted, ${reason}`);
 
     const abandoned = crossfade.videoId;
     const advanceLanded = abandoned !== null && deps.playerTrackId() === abandoned;

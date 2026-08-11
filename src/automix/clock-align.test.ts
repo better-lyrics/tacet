@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideAlignment } from "@/automix/clock-align";
+import { ALIGN_ACCEPTABLE_SECONDS, decideAlignment } from "@/automix/clock-align";
 import type { AlignInput } from "@/automix/clock-align";
 
 function input(overrides: Partial<AlignInput> = {}): AlignInput {
@@ -79,13 +79,24 @@ describe("decideAlignment", () => {
       expect(decision.kind).toBe("abandon");
     });
 
-    it("gives up once the player has had long enough to reach the track", () => {
+    it("calls it moved-on, not a failure, once the listener is plainly elsewhere", () => {
       const decision = decideAlignment(input({ playerVideoId: "elsewhere", waitedMs: 12_000 }));
-      expect(decision).toEqual({ kind: "abandon", reason: "the player never reached into, it is on elsewhere" });
+      expect(decision).toEqual({ kind: "moved-on", reason: "the listener is on elsewhere rather than into" });
     });
 
-    it("gives up once the seek budget is spent", () => {
+    it("gives up once the seek budget is spent and the clocks are far apart", () => {
       expect(decideAlignment(input({ seeksSoFar: 3 })).kind).toBe("abandon");
+    });
+
+    it("settles for a near miss rather than calling the spent budget a failure", () => {
+      const near = ALIGN_ACCEPTABLE_SECONDS;
+      expect(decideAlignment(input({ seeksSoFar: 3, playerPositionSeconds: 4 - near })).kind).toBe("settled");
+      expect(decideAlignment(input({ seeksSoFar: 3, playerPositionSeconds: 4 - near - 0.01 })).kind).toBe("abandon");
+    });
+
+    it("honours a caller's own idea of an acceptable miss", () => {
+      expect(decideAlignment(input({ seeksSoFar: 3, acceptableSeconds: 5 })).kind).toBe("settled");
+      expect(decideAlignment(input({ seeksSoFar: 3, acceptableSeconds: 1 })).kind).toBe("abandon");
     });
 
     it("never aims the player before the start of the track", () => {
@@ -125,13 +136,19 @@ describe("decideAlignment", () => {
       for (const playerVideoId of ["into", "from", null]) {
         for (const deckPositionSeconds of [0, 4, Number.NaN]) {
           const decision = decideAlignment(input({ ...spent, playerVideoId, deckPositionSeconds }));
-          expect(["settled", "abandon"]).toContain(decision.kind);
+          expect(["settled", "abandon", "moved-on"]).toContain(decision.kind);
         }
       }
     });
   });
 
   describe("regressions", () => {
+    it("regression: a near miss after the last seek is not reported as a fault", () => {
+      // Three seeks landing 0.15 s apart is a working alignment, and calling it
+      // a failure put a warning on the extension's error page every transition.
+      expect(decideAlignment(input({ seeksSoFar: 3, playerPositionSeconds: 4.15 })).kind).toBe("settled");
+    });
+
     it("does not give up for good when the player still names the previous track", () => {
       const decision = decideAlignment(input({ playerVideoId: "from", waitedMs: 250 }));
       expect(decision.kind).toBe("wait");

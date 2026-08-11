@@ -1,11 +1,13 @@
 // -- Bringing the player's clock onto the deck after a transition -------------
 
 const ALIGN_TOLERANCE_SECONDS = 0.12;
+const ALIGN_ACCEPTABLE_SECONDS = 0.5;
 
 type AlignDecision =
   | { kind: "seek"; toSeconds: number; driftSeconds: number; nextLeadSeconds: number }
   | { kind: "wait"; reason: string }
   | { kind: "settled"; driftSeconds: number }
+  | { kind: "moved-on"; reason: string }
   | { kind: "abandon"; reason: string };
 
 interface AlignInput {
@@ -19,16 +21,18 @@ interface AlignInput {
   waitedMs: number;
   patienceMs: number;
   toleranceSeconds?: number;
+  acceptableSeconds?: number;
 }
 
 function decideAlignment(input: AlignInput): AlignDecision {
   const tolerance = input.toleranceSeconds ?? ALIGN_TOLERANCE_SECONDS;
+  const acceptable = Math.max(tolerance, input.acceptableSeconds ?? ALIGN_ACCEPTABLE_SECONDS);
   const outOfPatience = input.waitedMs >= input.patienceMs;
 
   if (input.playerVideoId !== input.intoVideoId) {
     const on = input.playerVideoId ?? "nothing";
     return outOfPatience
-      ? { kind: "abandon", reason: `the player never reached ${input.intoVideoId}, it is on ${on}` }
+      ? { kind: "moved-on", reason: `the listener is on ${on} rather than ${input.intoVideoId}` }
       : { kind: "wait", reason: `the player is on ${on} rather than ${input.intoVideoId}` };
   }
 
@@ -40,7 +44,9 @@ function decideAlignment(input: AlignInput): AlignDecision {
 
   if (Math.abs(drift) <= tolerance) return { kind: "settled", driftSeconds: drift };
   if (input.seeksSoFar >= input.maxSeeks) {
-    return { kind: "abandon", reason: `still ${drift.toFixed(2)} s apart after ${input.seeksSoFar} seek(s)` };
+    return Math.abs(drift) <= acceptable
+      ? { kind: "settled", driftSeconds: drift }
+      : { kind: "abandon", reason: `still ${drift.toFixed(2)} s apart after ${input.seeksSoFar} seek(s)` };
   }
 
   const lead = Number.isFinite(input.leadSeconds) ? input.leadSeconds : 0;
@@ -53,5 +59,5 @@ function decideAlignment(input: AlignInput): AlignDecision {
   };
 }
 
-export { ALIGN_TOLERANCE_SECONDS, decideAlignment };
+export { ALIGN_ACCEPTABLE_SECONDS, ALIGN_TOLERANCE_SECONDS, decideAlignment };
 export type { AlignDecision, AlignInput };
