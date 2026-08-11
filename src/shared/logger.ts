@@ -17,7 +17,6 @@ function createLogger(scope?: string): Logger {
     warn: (...args: unknown[]) => {
       if (enabled) console.warn(label, ...args);
     },
-    // Errors always print: a silenced failure is how this went dark before.
     error: (...args: unknown[]) => console.error(label, ...args),
   };
 }

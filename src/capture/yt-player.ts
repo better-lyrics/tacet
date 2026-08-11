@@ -24,7 +24,6 @@ interface YtPlayer {
   nextVideo?: () => void;
 }
 
-// YT.PlayerState.PLAYING
 const PLAYER_STATE_PLAYING = 1;
 
 function getYtPlayer(doc: Document): YtPlayer | null {

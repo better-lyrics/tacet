@@ -22,13 +22,6 @@ import {
 } from "../workers/protocol2";
 
 // -- Popup: settings and cache management --------------------------------------
-//
-// Plain HTML/TS popup (Plasmo auto-detects src/popup.ts as the popup entry
-// and, since it is not a .tsx/.vue/.svelte file, ships it without a UI
-// framework). Preferences round-trip through chrome.storage.sync via
-// src/settings/storage.ts; cache byte totals and clears are read live from
-// IndexedDB by routing through src/background.ts to the offscreen document,
-// which is the only place that holds the connection (see workers/offscreen.ts).
 
 const LOG_PREFIX = "[BLK-POPUP]";
 

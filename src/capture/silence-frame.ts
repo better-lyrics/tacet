@@ -10,14 +10,12 @@ function silenceElement(element: MediaElementLike): void {
   element.volume = 0;
 }
 
-// Catches an element that autoplays from its attribute without calling play().
 function silenceMediaIn(root: ParentNode): void {
   for (const element of Array.from(root.querySelectorAll("video, audio"))) {
     silenceElement(element as unknown as MediaElementLike);
   }
 }
 
-// Takes the prototype so tests can pass a stand-in with the same accessor shape.
 function installForcedSilence(prototype: object): boolean {
   const mutedDescriptor = Object.getOwnPropertyDescriptor(prototype, "muted");
   const volumeDescriptor = Object.getOwnPropertyDescriptor(prototype, "volume");

@@ -46,8 +46,8 @@ describe("createBypassController", () => {
     it("a watchdog firing after a user-triggered stop does not double-reconnect", () => {
       const { controller, restoreOriginal } = createHarness();
       controller.exitBypass();
-      controller.enterBypass(); // user pressed stop
-      controller.enterBypass(); // watchdog observed a dead context moments later
+      controller.enterBypass();
+      controller.enterBypass();
       expect(restoreOriginal).toHaveBeenCalledTimes(1);
     });
   });

@@ -1,10 +1,5 @@
 // -- Output analysis ----------------------------------------------------------
 
-// What "the audio is fine" means, as arithmetic over the samples that actually
-// reached the destination. Every field is something that has a distinct sound:
-// clipping crackles, a discontinuity clicks, a gap drops out, non-finite
-// samples read as silence because the encoder turns them into it.
-
 const SILENCE_FLOOR = 0.001;
 const CLICK_PERCENTILE = 0.999;
 const CLICK_MULTIPLE = 8;
@@ -26,10 +21,6 @@ interface OutputAnalysis {
   envelopeWindowSeconds: number;
 }
 
-// A click is a single-sample jump far outside the signal's own slew rate, so
-// the threshold is read off the signal rather than picked. A 440 Hz sine at
-// 48 kHz already steps by 0.058 per sample at full scale, and a fixed threshold
-// would call that a defect on bright material and miss a real click on quiet.
 function clickThresholdFor(deltas: Float32Array): number {
   if (deltas.length === 0) return CLICK_FLOOR;
   const sorted = Float32Array.from(deltas).sort();
@@ -133,10 +124,6 @@ function analyseOutput(samples: Float32Array, sampleRate: number, envelopeWindow
   };
 }
 
-// The envelope an equal-power crossfade of two uncorrelated signals is supposed
-// to produce. Comparing against the mean of the two levels instead reads a
-// correct fade between a loud and a quiet track as a large dip, which is how
-// the first pass of this analysis reported a 27 % defect that was not there.
 function predictedCrossfadeEnvelope(rmsBefore: number, rmsAfter: number, windows: number): number[] {
   const predicted: number[] = [];
   for (let i = 0; i < windows; i++) {

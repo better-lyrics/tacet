@@ -27,8 +27,6 @@ describe("shouldRestartStems", () => {
 
   describe("regressions", () => {
     it("regression: a second transport event at the same position does not restart", () => {
-      // play and playing both fire at a track start. Restarting on the second
-      // tore the buffer sources down and rebuilt them, which was audible.
       expect(shouldRestartStems(playing)).toBe(false);
     });
 

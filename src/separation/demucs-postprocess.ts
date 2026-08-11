@@ -23,7 +23,6 @@ interface NormalizedAudio extends NormalizationStats {
   channels: Float32Array[];
 }
 
-// Duck-typed so tests and callers don't need the full ORT tensor surface.
 interface TensorLike {
   data: Float32Array;
 }

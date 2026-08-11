@@ -44,8 +44,6 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
     return event.videoId === state.videoId ? state : initialKaraokeState(event.videoId);
   }
 
-  // A crossfade puts the next track's stems in the deck before the player
-  // reaches it, so the track change lands with the work already done.
   if (event.type === "crossfaded") {
     return { ...initialKaraokeState(event.videoId), status: "engaged" };
   }

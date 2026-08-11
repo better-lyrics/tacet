@@ -1,6 +1,5 @@
 type GraphPresence = "none" | "bound";
 
-// Relative to the element currently bound. "none" is unidentifiable, not absent.
 type TargetPosition = "none" | "same" | "other";
 
 interface EngagementInput {
@@ -30,7 +29,6 @@ function decideEngagement(input: EngagementInput): EngagementAction {
     return input.stemsAudible ? "hold" : "resume";
   }
 
-  // Claiming an element mid-ad binds the graph to whatever is playing the ad.
   if (input.adPlaying || input.target === "none" || input.acquiring) return "hold";
   return "engage";
 }

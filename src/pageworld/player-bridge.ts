@@ -47,7 +47,6 @@ function startPlayerBridge(): () => void {
   }
 
   document.addEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyrics);
-  // Media events do not bubble, hence the capture phase.
   for (const event of MEDIA_EVENTS) document.addEventListener(event, publish, true);
   const timer = window.setInterval(publish, PUBLISH_INTERVAL_MS);
   publish();

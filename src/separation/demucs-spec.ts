@@ -3,8 +3,8 @@
 import { HOP_LENGTH, type Spectrogram, istft, reflectPad, stft } from "@/separation/stft";
 
 const SEGMENT_SAMPLES = 343_980;
-const PRE_PAD_LEFT = (HOP_LENGTH / 2) * 3; // 1536
-const PRE_PAD_RIGHT = PRE_PAD_LEFT + 336 * HOP_LENGTH - SEGMENT_SAMPLES; // 1620
+const PRE_PAD_LEFT = (HOP_LENGTH / 2) * 3;
+const PRE_PAD_RIGHT = PRE_PAD_LEFT + 336 * HOP_LENGTH - SEGMENT_SAMPLES;
 const NUM_TIME_FRAMES = 336;
 const NUM_FREQ_BINS = 2048;
 const TIME_TRIM_START = 2;

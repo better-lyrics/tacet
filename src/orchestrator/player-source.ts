@@ -11,7 +11,6 @@ function readState(videoId: unknown, duration: unknown): PlayerState | null {
   return { videoId, durationSeconds: duration };
 }
 
-// Better Lyrics names these song/artist/duration; only the identity matters here.
 function playerStateFromBetterLyrics(detail: unknown): PlayerState | null {
   if (typeof detail !== "object" || detail === null) return null;
   const record = detail as { videoId?: unknown; duration?: unknown };

@@ -31,7 +31,6 @@ describe("opensDownFor", () => {
 describe("computeCardPosition", () => {
   it("centres the card on the trigger, the deliberate deviation from positionSourceMenu", () => {
     const position = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, "bottom-right");
-    // trigger centre: 200 + 28 / 2 = 214, minus half the menu width (34) = 180
     expect(position.left).toBe(180);
   });
 
@@ -58,7 +57,6 @@ describe("computeCardPosition", () => {
     it("clamps to the 8px viewport edge when the trigger sits near the left edge", () => {
       const leftTrigger = { ...triggerRect, left: 0 };
       const position = computeCardPosition(leftTrigger, anchorRect, menuSize, viewport, "bottom-left");
-      // naive centre: 0 + 14 - 34 = -20, clamped to 8
       expect(position.left).toBe(8);
     });
 

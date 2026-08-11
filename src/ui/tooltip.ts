@@ -10,7 +10,6 @@ const NOTE_CLASS = "blyrics-mix-tip__note";
 const NOTE_SHOWN_CLASS = "is-shown";
 
 const OPEN_DELAY_MS = 120;
-// The safety window: leaving and returning inside it never closes the card.
 const CLOSE_DELAY_MS = 160;
 const ROLL_MS = 320;
 const TOOLTIP_GAP_PX = 14;

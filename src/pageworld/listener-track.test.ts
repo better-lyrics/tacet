@@ -52,11 +52,6 @@ describe("listenerTrackId", () => {
   });
 
   describe("regressions", () => {
-    // The reported defect: a fade into trackB, an abort, and then the pipeline
-    // reloading trackA's stems against a player that had not yet renamed
-    // itself. Every check downstream compared trackA to a player still saying
-    // trackA, agreed they matched, and started the wrong song at the new
-    // track's playhead.
     it("regression: the track we faded out of is not the listener's track mid advance", () => {
       const answer = listenerTrackId({ playerVideoId: "trackA", advance: ADVANCE });
       expect(answer).toBe("trackB");

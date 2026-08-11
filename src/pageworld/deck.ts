@@ -52,8 +52,6 @@ interface LoadedStems {
   vocals: AudioBuffer;
   instrumental: AudioBuffer;
   durationSeconds: number;
-  // Measured once at load. Scanning the buffer per describe() call is millions
-  // of operations, and describe() is on the probe path.
   vocalsRms: number;
   instrumentalRms: number;
   combinedPeak: number;
@@ -149,8 +147,6 @@ function createDeck(deps: DeckDeps): Deck {
       instrumental.disconnect();
       vocalsSource = null;
       instrumentalSource = null;
-      // Reaching the end of the buffer and being stopped early both leave the
-      // deck silent, and only one of them is worth recovering from.
       finished = true;
     };
   }
@@ -198,9 +194,6 @@ function createDeck(deps: DeckDeps): Deck {
     instrumentalSource.buffer = loaded.instrumental;
     vocalsSource.connect(vocalsGainNode);
     instrumentalSource.connect(instrumentalGainNode);
-    // Without this the deck reports itself as playing for ever once the buffer
-    // runs out, and positionNow() counts past the end of the track, which reads
-    // to anything downstream as a track with negative time remaining.
     releaseWhenEnded(vocalsSource, instrumentalSource);
     vocalsSource.start(when, offsetSeconds);
     instrumentalSource.start(when, offsetSeconds);
@@ -213,8 +206,6 @@ function createDeck(deps: DeckDeps): Deck {
   function positionNow(): number {
     if (instrumentalSource === null || loaded === null) return Number.NaN;
     const elapsed = startedAtOffsetSeconds + (context.currentTime - startedAtContextTime);
-    // onended releases the sources, but it lands on a task queue, so the clamp
-    // is what stops a late callback reading as negative time remaining.
     return Math.min(elapsed, loaded.durationSeconds);
   }
 

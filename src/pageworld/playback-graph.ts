@@ -17,16 +17,8 @@ const logger = createLogger("page");
 interface PlaybackGraphDeps {
   context: AudioContext;
   source: MediaElementAudioSourceNode;
-  // Which track the listener is on, answered for the moment rather than read
-  // off the player, which keeps naming the previous track for several seconds
-  // after a transition. Null means genuinely unknown, which reads as "no
-  // opinion" rather than "a different track".
   playerTrackId(): string | null;
-  // True while a track change this graph asked for has not reached the player
-  // yet. In that window a transport event is ours, not the listener's.
   ownAdvanceLanding(): boolean;
-  // A fade can be unwound from a transport listener the caller never sees, and
-  // the bookkeeping it moved across has to move back.
   onCrossfadeAborted?(videoId: string | null, reason: string): void;
 }
 
@@ -82,7 +74,6 @@ interface PlaybackGraph {
   recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }>;
   isEngaged(): boolean;
   dispose(): void;
-  // What actually reached Web Audio, not what the pipeline believes it sent.
   describe(): GraphState;
 }
 
@@ -91,10 +82,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   // -- Stem path: the deck, then the listener's own volume, then out ----------
 
-  // Both paths meet here rather than at the destination, so a tap on it hears
-  // what the listener hears. Reading the stem path alone cannot tell a stopped
-  // deck from a graph that has handed back to the original, and those two
-  // sound nothing alike.
   const masterNode = context.createGain();
   masterNode.connect(context.destination);
 
@@ -118,10 +105,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   source.connect(originalGainNode);
   originalGainNode.connect(masterNode);
 
-  // The one writer of the original's gain. Assigning `.value` is defined as
-  // scheduling at the current time, so an assignment landing inside a ramp
-  // someone else scheduled is undefined at best and throws at worst. Cancelling
-  // first makes every write win outright, whoever scheduled what before it.
   function setOriginalGain(value: number): void {
     originalGainNode.gain.cancelScheduledValues(context.currentTime);
     originalGainNode.gain.value = value;
@@ -134,7 +117,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let lastStart: StemStart | null = null;
   let driftSuppressedUntilContextTime = 0;
 
-  // Followed directly, rather than being told about the transport.
   const element = source.mediaElement;
 
   function syncListenerVolume(): void {
@@ -152,10 +134,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     },
   });
 
-  // Unmuting the original is the fallback for every refusal, so it is one
-  // operation rather than a gain assignment repeated per caller. It reports
-  // whether it changed anything, which is what stops a polled caller logging
-  // the same refusal every second.
   function handBackToOriginal(reason: string): boolean {
     if (originalGainNow() === 1) return false;
     logger.warn(`handing back to the original, ${reason}`);
@@ -186,20 +164,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     deck().setMixLevel(currentMixLevel);
   }
 
-  // The transition's own midpoint advance makes YouTube emit a pause, so an
-  // unqualified abort here tears down the fade that fired it. The suppression
-  // is narrowed to a fade still in flight during our own advance: outside that
-  // pair, a pause is the listener's and still stops the deck.
   function stopDeck(): void {
     if (isCrossfading() && deps.ownAdvanceLanding()) return;
     if (abortCrossfade("the listener paused mid fade")) return;
     deck().stop();
   }
 
-  // Unlike play and playing, which the transition's own advance fires, a seek
-  // during a fade is always the listener's: nothing here seeks until the fade
-  // is over. Ignoring it leaves the fade running from a position they have
-  // already left.
   function onSeeked(): void {
     if (abortCrossfade("the listener seeked mid fade")) return;
     syncToElement();
@@ -207,13 +177,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function syncToElement(): void {
     if (!deck().hasStems() || bypass.isBypassed()) return;
-    // A crossfade owns both decks' timelines, and the player clock still
-    // belongs to the outgoing track, so drift correction would fight it. The
-    // same holds for the moment after it, while the player is being seeked to
-    // meet the deck. Suppression covers drift only, never a deck that has
-    // stopped: this listener is also the path that restarts one, and blocking
-    // it outright turned the moment after a fade into silence that nothing
-    // recovered from.
     if (isCrossfading()) return;
     if (deck().isPlaying() && context.currentTime < driftSuppressedUntilContextTime) return;
     if (element.paused) {
@@ -256,7 +219,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     setOriginalGain(0);
     bypass.exitBypass();
     attachTransportListeners();
-    // Start where the listener actually is, not at the beginning of the track.
     if (!element.paused) startSourcesAtPlayhead();
   }
 
@@ -265,17 +227,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     deck().setMixLevel(mixLevel);
   }
 
-  // After a transition the stems keep their identity across the track change,
-  // so the engagement state machine reads "hold" and has no reason to touch
-  // the deck. If a transport event stopped it in the meantime, nothing else
-  // would ever start it again, and the listener just gets silence. This is the
-  // one polled path that notices.
-  //
-  // A timer is weak evidence, unlike a transport event, so a deck that simply
-  // ran out is not restarted: the stems end a fraction before the element
-  // does, and restarting on that made every natural track end look like a
-  // stall. It still has to be answered, though, because a deck holding less
-  // than the whole track leaves the original silenced with nothing playing.
   function recoverIfStopped(): boolean {
     if (bypass.isBypassed() || isCrossfading()) return false;
     if (!deck().hasStems() || deck().isPlaying()) return false;
@@ -340,17 +291,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     return { kind: "scheduled", startsAt, endsAt };
   }
 
-  // A fade that never completes leaves both decks holding a ramp and the
-  // wrong one active, so unwinding it is one operation rather than a recovery
-  // per caller.
   function abortCrossfade(reason: string): boolean {
     if (!isCrossfading() || crossfade === null) return false;
     logger.warn(`crossfade aborted, ${reason}`);
 
     const abandoned = crossfade.videoId;
-    // Handing back to the outgoing deck is right only while the player is
-    // still on the outgoing track. Once our advance has landed, that deck
-    // holds the track the listener has already left.
     const advanceLanded = abandoned !== null && deps.playerTrackId() === abandoned;
     if (!advanceLanded) activeDeck = crossfade.outgoingDeck;
     crossfade = null;
@@ -366,9 +311,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   // -- Diagnostic tap ---------------------------------------------------------
 
-  // A parallel branch into a silenced gain, so a late callback can only cost
-  // recorded frames, never audible ones. The count is returned so a short
-  // recording can be told from a stalled one.
   const RECORD_BUFFER_FRAMES = 16384;
 
   function recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }> {

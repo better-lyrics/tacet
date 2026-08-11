@@ -18,7 +18,6 @@ function expectFade(cue: TransitionCue): { kind: "fade"; startInSeconds: number;
   return cue;
 }
 
-// fade + poll: the cue is asked one poll early so it can delay the start.
 const FADE_AT = playing.fadeSeconds + POLL;
 const DECODE_AT = FADE_AT + DECODE_LEAD_SECONDS;
 
@@ -67,9 +66,6 @@ describe("decideTransitionCue", () => {
   });
 
   describe("a stage that lands late", () => {
-    // The reported failure, verbatim: "no transition into AMCwYdTJ_PE, the
-    // staged track was still encoded with 5.3 s left". Decoding is measured at
-    // 633 ms worst case, so five seconds is ample for a shorter fade.
     it("regression: decodes rather than skipping when a track stages past the fade point", () => {
       expect(decideTransitionCue({ ...playing, remainingSeconds: 5.3, staged: "encoded" })).toEqual({ kind: "decode" });
     });

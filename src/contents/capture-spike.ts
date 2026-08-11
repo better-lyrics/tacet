@@ -62,7 +62,6 @@ function onAudioChunk(mimeType: string, bytes: Uint8Array): void {
   const videoId = listenedVideoId();
   if (videoId !== null && accumulator.setActiveVideoId(videoId)) {
     log(`capture reset for videoId=${videoId}`);
-    // A reset re-arms retention, so a stood-down track stands down again.
     if (stoodDownVideoIds.has(videoId)) accumulator.standDown();
   }
 
@@ -82,7 +81,6 @@ const capture = installSourceBufferCapture({ isAdPlaying: isAdPlayingHere, onAud
 
 const workerAssignment = readWorkerAssignment(window.location.search);
 
-// Catches an element autoplaying from its attribute without calling play().
 const SILENCE_SWEEP_MS = 250;
 
 if (workerAssignment) {
@@ -170,7 +168,6 @@ function logStaleElement(videoId: string, element: HTMLVideoElement): void {
   );
 }
 
-// Waiting for "ended" would make a track singable only on a second listen.
 function isFullyBuffered(element: HTMLVideoElement): boolean {
   if (!Number.isFinite(element.duration) || element.duration <= 0) return false;
   if (element.buffered.length === 0) return false;
@@ -356,7 +353,6 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
   prefetchStateByVideoId.set(videoId, "running");
 
   window.setTimeout(() => {
-    // The cache probe answers in this window; a hit needs no player at all.
     if (stoodDownVideoIds.has(videoId)) {
       log(`prefetch skipped for videoId=${videoId}, its stems are already cached`);
       prefetchStateByVideoId.set(videoId, "done");
@@ -440,7 +436,6 @@ function respondToCapturedAudioRequest(videoId: string): void {
   const initSegments = countInitSegments(chunks);
   if (initSegments > 1) log(`capture saw ${initSegments} initializations for videoId=${videoId}, keeping the first`);
   const bytes = concatenateChunks(planFirstPlusMedia(chunks));
-  // Read before the transfer detaches the buffer, which otherwise logs 0.
   const byteLength = bytes.byteLength;
   const message: CapturedAudioMessage = {
     type: "blk-captured-audio",

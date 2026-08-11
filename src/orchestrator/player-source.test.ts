@@ -1,7 +1,6 @@
 import { durationForTrack, playerStateFromBetterLyrics, playerStateFromOwnBridge } from "@/orchestrator/player-source";
 import { describe, expect, it } from "vitest";
 
-// A real blyrics-send-player-time detail, trimmed to the fields read here.
 function betterLyricsDetail(overrides: Record<string, unknown> = {}): unknown {
   return {
     currentTime: 26.06,

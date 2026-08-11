@@ -51,7 +51,6 @@ export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
   fraction: number;
-  // The two are paced by different things and the tooltip must say which.
   source: DownloadSource;
 }
 

@@ -20,7 +20,6 @@ describe("selectPlaybackElement", () => {
   it("the decoy sorting first in the DOM does not win", () => {
     const decoy = candidate("bls-video", 0, false);
     const real = candidate("real-player", 4096, true);
-    // decoy is listed first, exactly like document order on the real page.
     expect(selectPlaybackElement([decoy, real])).toBe(real);
   });
 

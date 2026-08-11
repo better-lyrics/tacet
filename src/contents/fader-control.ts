@@ -55,7 +55,6 @@ function markAvailable(button: HTMLButtonElement): void {
 
 function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
   const button = control.button;
-  // The shimmer, not a grey-out, is the working state. Grey reads as broken.
   control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
@@ -123,7 +122,6 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
     setCrossfadeSeconds: seconds => pipeline?.setCrossfadeSeconds(seconds),
     destroy() {
       mount.disconnect();
-      // First, since it is what hands the audio back to the original.
       pipeline?.destroy();
       tooltip.destroy();
       control.destroy();

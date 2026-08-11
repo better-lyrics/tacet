@@ -101,7 +101,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let observedTrack: PlayerState | null = null;
   const reacquiredVideoIds = new Set<string>();
 
-  // Unlike every later transition, the initial state never reaches setState below, so it is announced here.
   options.onStateChange(state);
 
   function setState(next: KaraokeState): void {
@@ -120,10 +119,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     doneReceived = false;
   }
 
-  // Armed by the page world when a fade is scheduled and disarmed the moment
-  // the track change it causes arrives. The timer is the backstop: a fade that
-  // never lands must not leave the next natural advance looking like a
-  // completed transition, which reports engaged with nothing in the deck.
   function armCrossfade(videoId: string, durationSeconds: number): void {
     disarmCrossfade();
     crossfadingInto = videoId;
@@ -258,7 +253,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     log(`sending captured audio for ${videoId}: ${bytes.byteLength} bytes as ${chunks.length} chunk(s)`);
 
     for (let index = 0; index < chunks.length; index++) {
-      if (videoId !== state.videoId && videoId !== prefetchVideoId) return; // superseded mid-send
+      if (videoId !== state.videoId && videoId !== prefetchVideoId) return;
       const message: CaptureChunkMessage = {
         type: "blk-capture-chunk",
         videoId,
@@ -399,12 +394,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           instrumental: instrumental.channels,
           sampleRate: vocals.sampleRate,
         };
-        // Read before posting: the transfer detaches these buffers, and a
-        // length read afterwards is always zero.
         const frames = vocals.channels[0]?.length ?? 0;
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
         postToPageWorld(message, transfer);
-        // The page world owns the samples now, so the Opus is dead weight.
         staged = null;
         log(`handed ${videoId} to the idle deck, ${frames} frames`);
       })
@@ -419,7 +411,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       stageStemChunk(message);
       return;
     }
-    if (message.videoId !== state.videoId) return; // stale: superseded by a track change
+    if (message.videoId !== state.videoId) return;
 
     if (message.stem === "vocals") {
       vocalsAssembler ??= createChunkAssembler();
@@ -500,7 +492,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function onRuntimeMessage(message: unknown): void {
     if (isCacheHitMessage(message)) {
       if (isStagingTarget(message.videoId)) {
-        // The probe itself delivers the stems, so staging picks them up next.
         log(`next track ${message.videoId} is already separated, staging it`);
         return;
       }

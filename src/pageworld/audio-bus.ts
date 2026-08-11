@@ -27,8 +27,6 @@ function isBlyricsAudioBus(value: unknown): value is BlyricsAudioBus {
   ) {
     return false;
   }
-  // A source can only be connected inside the context that created it, so a bus
-  // whose parts came from different graphs would throw on the first connect.
   if (!sourceBelongsToBus(bus as unknown as BlyricsAudioBus)) {
     logger.error("a published bus has a source that does not belong to its context and element, ignoring it");
     return false;
@@ -77,7 +75,6 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
     logger.warn("the bus holds a different element, building one for this one");
   }
 
-  // Already ours from an earlier graph: reuse rather than re-claim.
   const claimedSource = sourceByElement.get(element);
   if (claimedSource) {
     const context = claimedSource.context as AudioContext;

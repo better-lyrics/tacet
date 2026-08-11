@@ -10,7 +10,6 @@ function declaredResources(): string[] {
   return manifest.manifest.web_accessible_resources.flatMap((entry: { resources: string[] }) => entry.resources);
 }
 
-// Every `../src/<dir>/...` a worker imports has to survive the copy.
 function directoriesWorkersImport(): Set<string> {
   const workersDir = join(ROOT, "workers");
   const directories = new Set<string>();

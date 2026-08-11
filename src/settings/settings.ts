@@ -26,7 +26,6 @@ function isFaderPlacement(value: unknown): value is FaderPlacement {
 
 // -- Crossfade length ------------------------------------------------------------
 
-// Zero is the off switch, so the listener can keep hard cuts.
 const CROSSFADE_PRESETS_SECONDS: readonly number[] = [0, 4, 6, 8, 12];
 const MAX_CROSSFADE_SECONDS = 20;
 
