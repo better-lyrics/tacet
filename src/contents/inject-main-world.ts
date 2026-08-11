@@ -436,6 +436,7 @@ function releaseSpentStaging(): void {
 function askWhatComesNext(): void {
   const listening = playerTrackId();
   if (listening === null || Date.now() < nextTrackAskedUntilMs) return;
+  if (isAdPlaying(document)) return;
 
   const remaining = remainingForCue(cueClock(cachedGraph));
   if (!Number.isFinite(remaining) || remaining > WARM_NEXT_WITHIN_SECONDS) return;
