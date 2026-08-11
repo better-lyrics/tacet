@@ -603,6 +603,10 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           log(`next track ${videoId} acquired, held for a crossfade but not separated`);
           return;
         }
+        if (state.status !== "engaged" && state.status !== "failed") {
+          log(`next track ${videoId} acquired, waiting for ${state.videoId} to finish before separating it`);
+          return;
+        }
         log(`next track ${videoId} acquired, separating it ahead of time`);
         const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
         window.postMessage(request, window.location.origin);
