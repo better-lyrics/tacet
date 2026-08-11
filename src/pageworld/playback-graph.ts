@@ -16,7 +16,7 @@ import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("page");
 
-const PAUSE_SETTLE_MS = 300;
+const PAUSE_SETTLE_MS = 600;
 
 interface PlaybackGraphDeps {
   context: AudioContext;
@@ -312,11 +312,14 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function recoverIfStopped(): boolean {
     if (bypass.isBypassed() || isCrossfading()) return false;
+
+    if (element.paused) {
+      if (deck().isPlaying()) deck().stop();
+      return handBackToOriginal("the listener is paused, so nothing should be held silent");
+    }
+
     if (deck().isPlaying()) return false;
-
     if (!deck().hasStems()) return handBackToOriginal("no deck holds anything to play");
-    if (element.paused) return handBackToOriginal("nothing is playing and the listener is paused");
-
     if (deck().hasFinished()) return handBackToOriginal("the stems ran out before the track did");
 
     logger.warn("the deck stopped while the track kept playing, restarting it at the playhead");
