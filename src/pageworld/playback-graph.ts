@@ -257,15 +257,23 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function onSeeked(): void {
-    if (!deps.consumeOwnSeek() && abortCrossfade("the listener seeked mid fade")) return;
-    syncToElement();
+    if (deps.consumeOwnSeek()) {
+      syncToElement(false);
+      return;
+    }
+    if (abortCrossfade("the listener seeked mid fade")) return;
+    syncToElement(true);
   }
 
-  function syncToElement(): void {
+  function onTransport(): void {
+    syncToElement(false);
+  }
+
+  function syncToElement(listenerSeeked: boolean): void {
     if (!deck().hasStems() || bypass.isBypassed()) return;
     if (isCrossfading()) return;
-    if (deck().isPlaying() && context.currentTime < driftSuppressedUntilContextTime) return;
-    if (deck().isPlaying() && deps.ownAdvanceRecent()) return;
+    if (deck().isPlaying() && !listenerSeeked && context.currentTime < driftSuppressedUntilContextTime) return;
+    if (deck().isPlaying() && !listenerSeeked && deps.ownAdvanceRecent()) return;
     if (element.paused) {
       if (deps.ownAdvanceRecent()) return;
       deck().stop();
@@ -282,11 +290,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function attachTransportListeners(): void {
     if (transportAttached) return;
     transportAttached = true;
-    element.addEventListener("play", syncToElement);
-    element.addEventListener("playing", syncToElement);
+    element.addEventListener("play", onTransport);
+    element.addEventListener("playing", onTransport);
     element.addEventListener("pause", stopDeck);
     element.addEventListener("seeked", onSeeked);
-    element.addEventListener("ratechange", syncToElement);
+    element.addEventListener("ratechange", onTransport);
   }
 
   function loadStems(
@@ -483,11 +491,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
     if (!transportAttached) return;
     transportAttached = false;
-    element.removeEventListener("play", syncToElement);
-    element.removeEventListener("playing", syncToElement);
+    element.removeEventListener("play", onTransport);
+    element.removeEventListener("playing", onTransport);
     element.removeEventListener("pause", stopDeck);
     element.removeEventListener("seeked", onSeeked);
-    element.removeEventListener("ratechange", syncToElement);
+    element.removeEventListener("ratechange", onTransport);
   }
 
   function describe(): GraphState {
