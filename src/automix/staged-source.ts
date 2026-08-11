@@ -62,5 +62,20 @@ function decideStagedSource(input: StagedSourceInput): StagedSourceChoice {
   return { kind: "take" };
 }
 
-export { decideStagedSource };
-export type { HeldSource, OfferedSource, StagedKind, StagedSourceChoice, StagedSourceInput };
+// -- When what is staged stops being worth holding ---------------------------
+
+interface SpentStagingInput {
+  stagedVideoId: string | null;
+  nextTrackVideoId: string | null;
+  listenerVideoId: string | null;
+}
+
+function isStagingSpent(input: SpentStagingInput): boolean {
+  const { stagedVideoId, nextTrackVideoId, listenerVideoId } = input;
+  if (stagedVideoId === null) return false;
+  if (listenerVideoId !== null && stagedVideoId === listenerVideoId) return true;
+  return nextTrackVideoId !== null && stagedVideoId !== nextTrackVideoId;
+}
+
+export { decideStagedSource, isStagingSpent };
+export type { HeldSource, OfferedSource, SpentStagingInput, StagedKind, StagedSourceChoice, StagedSourceInput };

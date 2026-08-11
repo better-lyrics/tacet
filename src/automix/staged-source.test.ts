@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideStagedSource } from "@/automix/staged-source";
+import { decideStagedSource, isStagingSpent } from "@/automix/staged-source";
 import type { StagedKind, StagedSourceInput } from "@/automix/staged-source";
 import type { StagedState } from "@/automix/transition-cue";
 
@@ -242,6 +242,57 @@ describe("decideStagedSource", () => {
         offered: { videoId: "trackB", kind: "mix" },
       };
       expect(decideStagedSource(second).kind).toBe("keep");
+    });
+  });
+});
+
+describe("isStagingSpent", () => {
+  it("holds staging that still points at the next track", () => {
+    expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: "b", listenerVideoId: "a" })).toBe(false);
+  });
+
+  it("drops staging once the listener is on the track it staged", () => {
+    expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: "c", listenerVideoId: "b" })).toBe(true);
+  });
+
+  it("drops staging the queue has moved past", () => {
+    expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: "c", listenerVideoId: "a" })).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("has nothing to drop when nothing is staged", () => {
+      expect(isStagingSpent({ stagedVideoId: null, nextTrackVideoId: "c", listenerVideoId: "a" })).toBe(false);
+    });
+
+    it("keeps staging while the next track is unknown, since a fade may still want it", () => {
+      expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: null, listenerVideoId: "a" })).toBe(false);
+    });
+
+    it("keeps staging while the listener's track is unreadable and the queue still agrees", () => {
+      expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: "b", listenerVideoId: null })).toBe(false);
+    });
+
+    it("drops staging the queue moved past even when the listener is unreadable", () => {
+      expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: "c", listenerVideoId: null })).toBe(true);
+    });
+  });
+
+  describe("invariants", () => {
+    it("never drops staging that matches both the next track and a different listener track", () => {
+      for (const listener of ["a", "x", null]) {
+        expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: "b", listenerVideoId: listener })).toBe(false);
+      }
+    });
+
+    it("is a pure decision, since reconcile asks it every tick", () => {
+      const input = { stagedVideoId: "b", nextTrackVideoId: "c", listenerVideoId: "a" };
+      expect(isStagingSpent(input)).toBe(isStagingSpent(input));
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a natural advance with separation off releases the staged mix rather than retaining it", () => {
+      expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: null, listenerVideoId: "b" })).toBe(true);
     });
   });
 });
