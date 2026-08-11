@@ -152,7 +152,7 @@ function reconfirmIfPossible(track: LoadedTrack): void {
     playerVideoId: snapshot?.videoId ?? null,
     stemsVideoId: track.videoId,
     elementDurationSeconds: element?.duration ?? Number.NaN,
-    stemDurationSeconds: track.durationSeconds,
+    clockDurationSeconds: snapshot?.durationSeconds ?? Number.NaN,
   });
   if (decision === "confirmed") awaitingReconfirmation = false;
 }

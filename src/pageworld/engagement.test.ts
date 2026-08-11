@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { RECONFIRM_DURATION_TOLERANCE_S, decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
+import { DURATION_AGREEMENT_S } from "@/capture/settled-duration";
+import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementInput, ReconfirmInput } from "@/pageworld/engagement";
 
 function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
@@ -166,7 +167,7 @@ describe("reconfirmAfterEmptied", () => {
     playerVideoId: "DJCB1ZlseJ8",
     stemsVideoId: "DJCB1ZlseJ8",
     elementDurationSeconds: 215.1,
-    stemDurationSeconds: 215.1,
+    clockDurationSeconds: 215.1,
     ...overrides,
   });
 
@@ -192,6 +193,21 @@ describe("reconfirmAfterEmptied", () => {
     it("regression: refuses the next track while the player still names the last", () => {
       expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 213 }))).toBe("unconfirmed");
     });
+
+    it("regression: confirms stems that came out shorter than the track they belong to", () => {
+      // 48 kHz Opus stems of a 219.4 s track measured 211.0 s. Judging the
+      // element against the stems rejected that for ever, and the listener got
+      // the whole track unseparated.
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 219.4, clockDurationSeconds: 219.4 }))).toBe(
+        "confirmed"
+      );
+    });
+
+    it("regression: confirms an element carrying a gapless append", () => {
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 430, clockDurationSeconds: 215.1 }))).toBe(
+        "confirmed"
+      );
+    });
   });
 
   describe("edge cases", () => {
@@ -205,11 +221,15 @@ describe("reconfirmAfterEmptied", () => {
       expect(reconfirmAfterEmptied(input({ elementDurationSeconds: Number.POSITIVE_INFINITY }))).toBe("unconfirmed");
     });
 
-    it("allows the drift a re-decode introduces, either way", () => {
-      const edge = RECONFIRM_DURATION_TOLERANCE_S;
-      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 + edge }))).toBe("confirmed");
+    it("refuses a clock that has not settled on a track yet", () => {
+      expect(reconfirmAfterEmptied(input({ clockDurationSeconds: Number.NaN }))).toBe("unconfirmed");
+      expect(reconfirmAfterEmptied(input({ clockDurationSeconds: 0 }))).toBe("unconfirmed");
+    });
+
+    it("allows the drift a re-decode introduces", () => {
+      const edge = DURATION_AGREEMENT_S;
       expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 - edge }))).toBe("confirmed");
-      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 + edge + 0.01 }))).toBe("unconfirmed");
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 - edge - 0.01 }))).toBe("unconfirmed");
     });
   });
 
