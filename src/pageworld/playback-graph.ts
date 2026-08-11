@@ -1,6 +1,7 @@
 // -- Playback graph ----------------------------------------------------------
 
 import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
+import type { OutgoingSource } from "@/automix/crossfade-gate";
 import { CROSSFADE_CURVE_STEPS, equalPowerCurve } from "@/automix/transition";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
@@ -45,7 +46,9 @@ interface MixCrossfadeRequest extends CrossfadeTiming {
 
 type CrossfadeRequest = StemsCrossfadeRequest | MixCrossfadeRequest;
 
-type CrossfadeResult = { kind: "scheduled"; startsAt: number; endsAt: number } | { kind: "refused"; reason: string };
+type CrossfadeResult =
+  | { kind: "scheduled"; startsAt: number; endsAt: number; outgoing: "deck" | "original" }
+  | { kind: "refused"; reason: string };
 
 interface GraphState {
   engaged: boolean;
@@ -68,6 +71,7 @@ interface GraphState {
   listenerGain: number;
   activeDeck: 0 | 1;
   crossfading: boolean;
+  outgoingSource: OutgoingSource;
   decks: [DeckState, DeckState];
 }
 
@@ -120,7 +124,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     createDeck({ context, output: listenerVolumeNode, onFinished: () => onDeckFinished(1) }),
   ];
   let activeDeck: 0 | 1 = 0;
-  let crossfade: { outgoingDeck: 0 | 1; endsAtContextTime: number; videoId: string | null } | null = null;
+  let crossfade: {
+    outgoingDeck: 0 | 1;
+    outgoingFrom: "deck" | "original";
+    endsAtContextTime: number;
+    videoId: string | null;
+  } | null = null;
   decks[1].setGain(0);
 
   const deck = (): Deck => decks[activeDeck];
@@ -136,6 +145,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     originalGainNode.gain.cancelScheduledValues(context.currentTime);
     originalGainNode.gain.value = value;
   }
+
+  function rampOriginalOut(startsAt: number, durationSeconds: number): void {
+    originalGainNode.gain.cancelScheduledValues(context.currentTime);
+    originalGainNode.gain.setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "out"), startsAt, durationSeconds);
+  }
+
   const originalGainNow = (): number => originalGainNode.gain.value;
   setOriginalGain(1);
 
@@ -171,6 +186,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function onDeckFinished(index: 0 | 1): void {
     if (index !== activeDeck || isCrossfading() || bypass.isBypassed()) return;
     handBackToOriginal("the deck reached the end of its audio before the track did");
+  }
+
+  function outgoingSource(): OutgoingSource {
+    if (!bypass.isBypassed() && deck().isPlaying()) return "deck";
+    if (!element.paused && originalGainNow() > 0) return "original";
+    return "none";
   }
 
   function startSourcesAtPlayhead(): void {
@@ -287,13 +308,15 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   // -- Crossfade --------------------------------------------------------------
 
   function crossfadeTo(request: CrossfadeRequest): CrossfadeResult {
+    const outgoingFrom = outgoingSource();
     const gate = decideCrossfade({
       crossfading: isCrossfading(),
-      bypassed: bypass.isBypassed(),
-      outgoingPlaying: deck().isPlaying(),
+      outgoing: outgoingFrom,
       durationSeconds: request.durationSeconds,
     });
-    if (gate.kind === "refuse") return { kind: "refused", reason: gate.reason };
+    if (gate.kind === "refuse" || outgoingFrom === "none") {
+      return { kind: "refused", reason: gate.kind === "refuse" ? gate.reason : "nothing is playing to fade out of" };
+    }
 
     const incoming = idleDeck();
     if (!incoming.load(deckLoadFor(request))) {
@@ -317,20 +340,31 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     incoming.setGain(0);
     incoming.startAt(request.incomingOffsetSeconds ?? 0, startsAt);
 
-    outgoing
-      .gainParam()
-      .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "out"), startsAt, request.durationSeconds);
+    if (outgoingFrom === "deck") {
+      outgoing
+        .gainParam()
+        .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "out"), startsAt, request.durationSeconds);
+      outgoing.stopAt(endsAt);
+    } else {
+      rampOriginalOut(startsAt, request.durationSeconds);
+    }
     incoming
       .gainParam()
       .setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, "in"), startsAt, request.durationSeconds);
-    outgoing.stopAt(endsAt);
 
-    crossfade = { outgoingDeck: activeDeck, endsAtContextTime: endsAt, videoId: request.videoId ?? null };
+    crossfade = {
+      outgoingDeck: activeDeck,
+      outgoingFrom,
+      endsAtContextTime: endsAt,
+      videoId: request.videoId ?? null,
+    };
     activeDeck = activeDeck === 0 ? 1 : 0;
+    bypass.exitBypass();
+    attachTransportListeners();
     logger.log(
-      `crossfading over ${request.durationSeconds.toFixed(2)} s into a ${incomingState.kind}, deck ${activeDeck} takes over`
+      `crossfading over ${request.durationSeconds.toFixed(2)} s out of the ${outgoingFrom} into a ${incomingState.kind}, deck ${activeDeck} takes over`
     );
-    return { kind: "scheduled", startsAt, endsAt };
+    return { kind: "scheduled", startsAt, endsAt, outgoing: outgoingFrom };
   }
 
   function abortCrossfade(reason: string): boolean {
@@ -346,6 +380,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       each.setGain(1);
       each.stop();
     }
+    setOriginalGain(1);
     bypass.enterBypass();
     deps.onCrossfadeAborted?.(abandoned, reason);
     return true;
@@ -437,6 +472,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       listenerGain: listenerVolumeNode.gain.value,
       activeDeck,
       crossfading: isCrossfading(),
+      outgoingSource: outgoingSource(),
       decks: [decks[0].describe(), decks[1].describe()],
     };
   }

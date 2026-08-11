@@ -56,6 +56,7 @@ const ALIGN_SETTLE_MS = 700;
 const ALIGN_MAX_ATTEMPTS = 3;
 const ALIGN_TOLERANCE_SECONDS = 0.12;
 const OWN_ADVANCE_GRACE_MS = 20_000;
+const ORIGINAL_ADVANCE_LEAD_SECONDS = 0.15;
 
 let ownAdvanceUntilMs = 0;
 let advancingFromVideoId: string | null = null;
@@ -180,6 +181,8 @@ window.blkTransitionProbe = () => {
     pendingVideoId: pendingTrack?.videoId ?? null,
     activeDeck: state?.activeDeck ?? null,
     crossfading: state?.crossfading ?? null,
+    outgoingSource: state?.outgoingSource ?? null,
+    hasGraph: cachedGraph !== null,
     playerVideoId: playerTrackId(),
     activeDeckTrackId: active?.trackId ?? null,
     audibleTrackMatchesPlayer: active === null ? null : active.playing && active.trackId === playerTrackId(),
@@ -481,7 +484,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
   const incoming = stagedTrackFor(videoId);
   if (incoming === null) return;
 
-  const outgoingCeiling = fadeCeilingSeconds(cueClock(graph));
+  const outgoingCeiling = graph.describe().outgoingSource === "deck" ? fadeCeilingSeconds(cueClock(graph)) : Number.NaN;
   const audioSeconds = Number.isNaN(outgoingCeiling)
     ? incoming.durationSeconds
     : Math.min(incoming.durationSeconds, outgoingCeiling);
@@ -526,16 +529,21 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     if (!graph.describe().crossfading) return;
     postToWindow({ type: "blk-crossfade-started", videoId, durationSeconds: clamped.seconds, kind: incoming.kind });
   }, startsInMs);
-  setTimeout(
-    () => {
-      if (!graph.describe().crossfading) return;
-      ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
-      advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
-      advancingIntoVideoId = videoId;
-      if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
-    },
-    startsInMs + (clamped.seconds / 2) * 1000
-  );
+  const advanceAfterMs =
+    result.outgoing === "deck"
+      ? (clamped.seconds / 2) * 1000
+      : Math.max(0, clamped.seconds - ORIGINAL_ADVANCE_LEAD_SECONDS) * 1000;
+  setTimeout(() => {
+    if (!graph.describe().crossfading) return;
+    ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
+    advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
+    advancingIntoVideoId = videoId;
+    if (advancingFromVideoId === videoId) {
+      logger.log(`the player reached ${videoId} on its own, not advancing it again`);
+      return;
+    }
+    if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
+  }, startsInMs + advanceAfterMs);
   setTimeout(
     () => alignPlayerToDeck(graph, videoId, generation, 0),
     startsInMs + clamped.seconds * 1000 + ALIGN_DELAY_MS
@@ -678,6 +686,25 @@ function targetPosition(track: LoadedTrack): TargetPosition {
   return target === cachedElement ? "same" : "other";
 }
 
+function tendCrossfadeGraph(): void {
+  if (cachedGraph !== null) {
+    if (cachedElement?.isConnected) return;
+    logger.warn("the element the crossfade graph was bound to went away, tearing it down");
+    discardGraph();
+    return;
+  }
+  if (crossfadeSeconds <= 0 || acquiring !== null) return;
+  if (playerTrackId() === null || isAdPlaying(document)) return;
+
+  const element = playerVideoElement(document);
+  if (!element?.isConnected || decodedBytes(element) === 0) return;
+
+  logger.log("acquiring the audio bus so a crossfade can run without stems");
+  acquiring = buildGraph(element).finally(() => {
+    acquiring = null;
+  });
+}
+
 function reconcile(): void {
   if (cachedGraph) {
     stageMixIfUseful(cachedGraph);
@@ -685,7 +712,10 @@ function reconcile(): void {
   }
 
   const track = pendingTrack;
-  if (!track) return;
+  if (!track) {
+    tendCrossfadeGraph();
+    return;
+  }
 
   reconfirmIfPossible(track);
 

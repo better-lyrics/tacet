@@ -1,17 +1,22 @@
 import { SILENCE_RMS, clampFadeToAudio, decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
-import type { CrossfadeGateInput, IncomingStems } from "@/automix/crossfade-gate";
+import type { CrossfadeGateInput, IncomingStems, OutgoingSource } from "@/automix/crossfade-gate";
 import { describe, expect, it } from "vitest";
 
 const ready: CrossfadeGateInput = {
   crossfading: false,
-  bypassed: false,
-  outgoingPlaying: true,
+  outgoing: "deck",
   durationSeconds: 16,
 };
+
+const SOURCES: OutgoingSource[] = ["deck", "original", "none"];
 
 describe("decideCrossfade", () => {
   it("allows a crossfade when a deck is playing and nothing is in flight", () => {
     expect(decideCrossfade(ready)).toEqual({ kind: "allow" });
+  });
+
+  it("allows a crossfade out of the unseparated original, which is the only source without stems", () => {
+    expect(decideCrossfade({ ...ready, outgoing: "original" })).toEqual({ kind: "allow" });
   });
 
   describe("edge cases", () => {
@@ -21,12 +26,8 @@ describe("decideCrossfade", () => {
       expect(gate).toMatchObject({ reason: expect.stringContaining("already in flight") });
     });
 
-    it("refuses while the graph is bypassed to the original", () => {
-      expect(decideCrossfade({ ...ready, bypassed: true }).kind).toBe("refuse");
-    });
-
     it("refuses when nothing is playing to fade out of", () => {
-      expect(decideCrossfade({ ...ready, outgoingPlaying: false }).kind).toBe("refuse");
+      expect(decideCrossfade({ ...ready, outgoing: "none" }).kind).toBe("refuse");
     });
 
     it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("refuses a duration of %s", duration => {
@@ -42,8 +43,7 @@ describe("decideCrossfade", () => {
     it("reports in-flight before every other reason, since it is the least recoverable", () => {
       const gate = decideCrossfade({
         crossfading: true,
-        bypassed: true,
-        outgoingPlaying: false,
+        outgoing: "none",
         durationSeconds: -1,
       });
       expect(gate).toMatchObject({ reason: expect.stringContaining("already in flight") });
@@ -52,8 +52,7 @@ describe("decideCrossfade", () => {
     it("always explains itself when it refuses", () => {
       const refusals: CrossfadeGateInput[] = [
         { ...ready, crossfading: true },
-        { ...ready, bypassed: true },
-        { ...ready, outgoingPlaying: false },
+        { ...ready, outgoing: "none" },
         { ...ready, durationSeconds: 0 },
       ];
       for (const input of refusals) {
@@ -62,11 +61,41 @@ describe("decideCrossfade", () => {
         expect(gate.reason.length).toBeGreaterThan(0);
       }
     });
+
+    it("refuses every source once a fade is already in flight", () => {
+      for (const outgoing of SOURCES) {
+        expect(decideCrossfade({ ...ready, outgoing, crossfading: true }).kind).toBe("refuse");
+      }
+    });
+
+    it("judges only the source and never the presence of stems", () => {
+      for (const outgoing of SOURCES) {
+        const expected = outgoing === "none" ? "refuse" : "allow";
+        expect(decideCrossfade({ ...ready, outgoing }).kind).toBe(expected);
+      }
+    });
+
+    it("is a pure decision, since the cue asks it once per poll", () => {
+      for (const outgoing of SOURCES) {
+        const input: CrossfadeGateInput = { ...ready, outgoing };
+        expect(decideCrossfade(input)).toEqual(decideCrossfade(input));
+      }
+    });
   });
 
   describe("regressions", () => {
     it("regression: an infinite duration is refused, not passed to setValueCurveAtTime", () => {
       expect(decideCrossfade({ ...ready, durationSeconds: Number.POSITIVE_INFINITY }).kind).toBe("refuse");
+    });
+
+    it("regression: a deck that ran out before the track did still fades, out of the original", () => {
+      expect(decideCrossfade({ ...ready, outgoing: "original" }).kind).toBe("allow");
+    });
+
+    it("regression: being handed back to the original is no longer a refusal on its own", () => {
+      expect(decideCrossfade({ crossfading: false, outgoing: "original", durationSeconds: 8 })).toEqual({
+        kind: "allow",
+      });
     });
   });
 });

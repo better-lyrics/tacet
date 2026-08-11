@@ -189,19 +189,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
 
-      const nextRequest: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
-
       if (landing === "keep-deck-and-reacquire") {
         log(`crossfaded into ${videoId} on unseparated audio, separating it while it plays`);
         dispatch({ type: "track-changed", videoId });
         probeCacheFor(videoId);
-        postToPageWorld(nextRequest);
+        requestNextPrefetch(videoId);
         return;
       }
 
       log(`crossfaded into ${videoId}, its stems are already in the deck`);
       dispatch({ type: "crossfaded", videoId });
-      postToPageWorld(nextRequest);
+      requestNextPrefetch(videoId);
       return;
     }
 
@@ -225,6 +223,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function clearCacheProbeTimer(): void {
     if (cacheProbeTimer !== null) clearTimeout(cacheProbeTimer);
     cacheProbeTimer = null;
+  }
+
+  function requestNextPrefetch(videoId: string): void {
+    const request: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
+    postToPageWorld(request);
   }
 
   function probeCacheFor(videoId: string): void {
@@ -337,13 +340,12 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     if (isCaptureReadyMessage(data)) {
       if (data.videoId === prefetchVideoId) {
-        log(`next track ${data.videoId} acquired, separating it ahead of time`);
-        const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId: data.videoId };
-        window.postMessage(request, window.location.origin);
+        maybeSeparateAhead(data.videoId);
         return;
       }
       log(`capture ready for ${data.videoId}`);
       dispatch({ type: "capture-ready", videoId: data.videoId });
+      if (data.videoId === state.videoId && prefetchVideoId === null) requestNextPrefetch(data.videoId);
       maybeAutoEngage(data.videoId);
       return;
     }
@@ -510,8 +512,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         dispatch({ type: "stems-loaded", videoId });
         postToPageWorld({ type: "blk-set-mix-level", mixLevel: pendingMixLevel });
         log(`karaoke engaged for ${videoId}`);
-        const nextRequest: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
-        postToPageWorld(nextRequest);
+        requestNextPrefetch(videoId);
       })
       .catch(error => {
         logError("failed to decode stems", error);
@@ -526,7 +527,10 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
       log(`cached stems found for ${message.videoId}, capture is not needed`);
-      if (message.videoId === state.videoId) clearCacheProbeTimer();
+      if (message.videoId === state.videoId) {
+        clearCacheProbeTimer();
+        if (prefetchVideoId === null) requestNextPrefetch(message.videoId);
+      }
       dispatch({ type: "cache-hit", videoId: message.videoId });
       postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
       finishStemsIfReady(message.videoId);
@@ -590,6 +594,21 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   // -- Auto separate -------------------------------------------------------
+
+  function maybeSeparateAhead(videoId: string): void {
+    loadSettingsFrom(chrome.storage.sync)
+      .then(settings => {
+        if (videoId !== prefetchVideoId) return;
+        if (!settings.autoSeparateEnabled && pendingMixLevel === NEUTRAL_MIX_LEVEL) {
+          log(`next track ${videoId} acquired, held for a crossfade but not separated`);
+          return;
+        }
+        log(`next track ${videoId} acquired, separating it ahead of time`);
+        const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
+        window.postMessage(request, window.location.origin);
+      })
+      .catch(error => logError("failed to read the auto-separate setting", error));
+  }
 
   function maybeAutoEngage(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
