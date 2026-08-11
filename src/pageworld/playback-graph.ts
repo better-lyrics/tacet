@@ -264,7 +264,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     if (!deck().hasStems() || bypass.isBypassed()) return;
     if (isCrossfading()) return;
     if (deck().isPlaying() && context.currentTime < driftSuppressedUntilContextTime) return;
+    if (deck().isPlaying() && deps.ownAdvanceRecent()) return;
     if (element.paused) {
+      if (deps.ownAdvanceRecent()) return;
       deck().stop();
       return;
     }
