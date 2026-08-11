@@ -47,6 +47,7 @@ const ALIGN_TOLERANCE_SECONDS = 0.12;
 const OWN_ADVANCE_GRACE_MS = 20_000;
 
 let ownAdvanceUntilMs = 0;
+let advancingFromVideoId: string | null = null;
 
 interface LoadedStems {
   videoId: string;
@@ -106,7 +107,20 @@ function reconfirmIfPossible(stems: LoadedStems): void {
   if (decision === "confirmed") awaitingReconfirmation = false;
 }
 
+// A transition moves the stems onto the incoming track before the player gets
+// there, and the player can take several seconds to report the new videoId.
+// In that window the stems look stale to every check below, get released, and
+// the listener drops back to the unseparated track until the pipeline reloads
+// them. This is only true while the player is still on the track we faded out
+// of, so it cannot swallow a genuine skip.
+function advanceStillLanding(): boolean {
+  if (Date.now() >= ownAdvanceUntilMs || advancingFromVideoId === null) return false;
+  const snapshot = currentPlayerSnapshot(document);
+  return snapshot === null || snapshot.videoId === advancingFromVideoId;
+}
+
 function stemsAreStale(stems: LoadedStems): boolean {
+  if (advanceStillLanding()) return false;
   return awaitingReconfirmation || playerOnOtherTrack(stems);
 }
 
@@ -348,6 +362,7 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     () => {
       if (!graph.describe().crossfading) return;
       ownAdvanceUntilMs = Date.now() + OWN_ADVANCE_GRACE_MS;
+      advancingFromVideoId = currentPlayerSnapshot(document)?.videoId ?? null;
       if (!advanceToNextTrack(document)) logger.warn("the player would not advance, the fade will finish regardless");
     },
     startsInMs + (fadeSeconds / 2) * 1000
