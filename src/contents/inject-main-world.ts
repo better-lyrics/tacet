@@ -450,7 +450,7 @@ function stageMixIfUseful(): void {
   if (crossfadeSeconds <= 0) return;
   releaseSpentStaging();
   if (nextTrackVideoId !== null && nextTrackVideoId === playerTrackId()) nextTrackVideoId = null;
-  if (nextTrackVideoId === null) askWhatComesNext();
+  askWhatComesNext();
 
   const videoId = nextTrackVideoId;
   if (videoId === null || videoId === playerTrackId()) return;
