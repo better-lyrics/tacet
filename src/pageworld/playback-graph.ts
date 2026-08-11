@@ -116,8 +116,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   listenerVolumeNode.connect(masterNode);
 
   const decks: [Deck, Deck] = [
-    createDeck({ context, output: listenerVolumeNode }),
-    createDeck({ context, output: listenerVolumeNode }),
+    createDeck({ context, output: listenerVolumeNode, onFinished: () => onDeckFinished(0) }),
+    createDeck({ context, output: listenerVolumeNode, onFinished: () => onDeckFinished(1) }),
   ];
   let activeDeck: 0 | 1 = 0;
   let crossfade: { outgoingDeck: 0 | 1; endsAtContextTime: number; videoId: string | null } | null = null;
@@ -166,6 +166,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     logger.warn(`handing back to the original, ${reason}`);
     setOriginalGain(1);
     return true;
+  }
+
+  function onDeckFinished(index: 0 | 1): void {
+    if (index !== activeDeck || isCrossfading() || bypass.isBypassed()) return;
+    handBackToOriginal("the deck reached the end of its audio before the track did");
   }
 
   function startSourcesAtPlayhead(): void {

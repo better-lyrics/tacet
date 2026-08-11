@@ -5,6 +5,7 @@ import { gainsForMixLevel } from "@/pageworld/gain-law";
 interface DeckDeps {
   context: AudioContext;
   output: AudioNode;
+  onFinished?(): void;
 }
 
 type DeckKind = "stems" | "mix";
@@ -195,6 +196,7 @@ function createDeck(deps: DeckDeps): Deck {
       vocalsSource = null;
       instrumentalSource = null;
       finished = true;
+      deps.onFinished?.();
     };
   }
 
