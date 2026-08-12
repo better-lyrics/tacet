@@ -16,7 +16,9 @@
     "sync:ort": "cp node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm assets/ort/"
   },
   "dependencies": {
-    "plasmo": "0.90.5"
+    "@types/sortablejs": "^1.15.9",
+    "plasmo": "0.90.5",
+    "sortablejs": "^1.15.7"
   },
   "devDependencies": {
     "@biomejs/biome": "1.8.3",

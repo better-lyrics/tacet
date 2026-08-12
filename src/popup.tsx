@@ -1,5 +1,8 @@
 import "./popup.css";
 import tacetIconUrl from "data-base64:../assets/brand/logo.png";
+import Sortable from "sortablejs";
+import { sanitizeSourcePreferences } from "@/acquisition/sources";
+import type { SourcePreference } from "@/acquisition/sources";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { sizedArtworkUrl } from "@/capture/artwork-url";
 import { separationFill, separationText } from "@/orchestrator/separation-status";
@@ -16,6 +19,7 @@ import {
   toggleAbout,
 } from "@/settings/popup-tabs";
 import { createSelect } from "@/settings/select";
+import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
 import {
   CACHE_BUDGET_PRESETS_BYTES,
   CROSSFADE_PRESETS_SECONDS,
@@ -381,6 +385,102 @@ interface CacheReadout {
   element: HTMLElement;
   setStems(value: string): void;
   setModel(value: string): void;
+}
+
+// -- Sources panel -------------------------------------------------------------
+
+const DRAG_HANDLE_PATH =
+  "M9 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0 " +
+  "4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0M14 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0 4a1.5 " +
+  "1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0";
+
+interface SourcesPanel {
+  element: HTMLElement;
+  render(preferences: readonly SourcePreference[]): void;
+}
+
+function createSourcesPanel(
+  initial: readonly SourcePreference[],
+  onChange: (next: SourcePreference[]) => void
+): SourcesPanel {
+  const element = createElement("div", "blk-panel");
+  element.setAttribute("role", "tabpanel");
+
+  const heading = createElement("div", "blk-section");
+  const title = createElement("span", "blk-section__title");
+  title.textContent = "Where audio comes from";
+  const hint = createElement("span", "blk-section__hint");
+  hint.textContent =
+    "Tacet tries these in order and keeps the first one that can deliver the whole track. Drag to reorder.";
+  heading.append(title, hint);
+
+  const list = createElement("div", "blk-sources");
+  const warning = createElement("p", "blk-sources__warning");
+
+  let preferences: SourcePreference[] = sanitizeSourcePreferences(initial);
+
+  function commit(next: SourcePreference[]): void {
+    preferences = next;
+    onChange(preferences);
+    render(preferences);
+  }
+
+  function render(next: readonly SourcePreference[]): void {
+    preferences = sanitizeSourcePreferences(next);
+    list.replaceChildren();
+
+    for (const row of sourceRows(preferences)) {
+      const item = createElement("div", "blk-source");
+      item.dataset.sourceId = row.id;
+      item.classList.toggle("blk-source--off", !row.enabled);
+
+      const handle = createElement("span", "blk-source__handle");
+      handle.append(createFilledIcon(DRAG_HANDLE_PATH, 16));
+      handle.setAttribute("aria-hidden", "true");
+
+      const text = createElement("div", "blk-source__text");
+      const name = createElement("span", "blk-source__name");
+      name.id = nextLabelId();
+      name.textContent = row.label;
+      const detail = createElement("span", "blk-source__hint");
+      detail.textContent = row.hint;
+      text.append(name, detail);
+
+      const toggle = createElement("button", "blk-toggle");
+      toggle.type = "button";
+      toggle.setAttribute("role", "switch");
+      toggle.setAttribute("aria-labelledby", name.id);
+      toggle.setAttribute("aria-checked", String(row.enabled));
+      toggle.classList.toggle("blk-toggle--on", row.enabled);
+      toggle.addEventListener("click", () => commit(toggleSource(preferences, row.id)));
+
+      item.append(handle, text, toggle);
+      list.append(item);
+    }
+
+    const message = acquisitionWarning(preferences);
+    warning.textContent = message ?? "";
+    warning.hidden = message === null;
+  }
+
+  render(preferences);
+
+  new Sortable(list, {
+    animation: 150,
+    ghostClass: "blk-source--dragging",
+    forceFallback: true,
+    handle: ".blk-source__handle",
+    filter: ".blk-toggle",
+    preventOnFilter: false,
+    onEnd: event => {
+      const { oldIndex, newIndex } = event;
+      if (oldIndex === undefined || newIndex === undefined) return;
+      commit(moveSource(preferences, oldIndex, newIndex));
+    },
+  });
+
+  element.append(heading, list, warning);
+  return { element, render };
 }
 
 function createReadoutRow(labelText: string): { row: HTMLElement; value: HTMLElement } {
@@ -875,6 +975,14 @@ async function main(): Promise<void> {
   separationPanel.setAttribute("role", "tabpanel");
   separationPanel.append(autoSeparateToggle.row, modelVariantRow.row);
 
+  const sourcesPanel = createSourcesPanel(settings.sources, next => {
+    saveSettingsFrom(chrome.storage.sync, { sources: next }).catch(error => {
+      console.error(`${LOG_PREFIX} failed to save the source order`, error);
+      showStatus("Could not save that.");
+      sourcesPanel.render(settings.sources);
+    });
+  });
+
   const storagePanel = createElement("div", "blk-panel");
   storagePanel.setAttribute("role", "tabpanel");
   storagePanel.append(budgetSlider.row, cacheReadout.element, stemClearRow.row, modelClearRow.row);
@@ -882,6 +990,7 @@ async function main(): Promise<void> {
   const panels: Record<PopupTab | "about", HTMLElement> = {
     general: generalPanel,
     separation: separationPanel,
+    sources: sourcesPanel.element,
     storage: storagePanel,
     about: createAboutPanel(),
   };
@@ -889,6 +998,7 @@ async function main(): Promise<void> {
   const TAB_LABELS: Record<PopupTab, string> = {
     general: "General",
     separation: "Separation",
+    sources: "Sources",
     storage: "Storage",
   };
 

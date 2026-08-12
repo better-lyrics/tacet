@@ -1,6 +1,6 @@
 // -- Which panel the popup is showing ------------------------------------------
 
-const POPUP_TABS = ["general", "separation", "storage"] as const;
+const POPUP_TABS = ["general", "separation", "sources", "storage"] as const;
 
 type PopupTab = (typeof POPUP_TABS)[number];
 
