@@ -3,17 +3,17 @@
 import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
 import { CROSSFADE_CURVE_STEPS, equalPowerCurve, fadeCurve } from "@/automix/transition";
 import { audibleSource } from "@/pageworld/audible-source";
-import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
 import type { AudibleSource } from "@/pageworld/audible-source";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
-import { listenerGain } from "@/pageworld/gain-law";
-import { playerCurrentTime } from "@/pageworld/player-state";
-import { resolveStemStart } from "@/pageworld/stem-offset";
-import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
-import { decideDriftCorrection, DRIFT_SEEK_SETTLE_S } from "@/pageworld/stem-restart";
 import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
+import { listenerGain } from "@/pageworld/gain-law";
+import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
+import { playerCurrentTime } from "@/pageworld/player-state";
+import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
+import { resolveStemStart } from "@/pageworld/stem-offset";
 import type { StemStart } from "@/pageworld/stem-offset";
+import { DRIFT_SEEK_SETTLE_S, decideDriftCorrection } from "@/pageworld/stem-restart";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("page");
@@ -624,7 +624,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
       playerTime: playerCurrentTime(document),
       elementStalled: elementStalled(),
-    startOffset: lastStart?.kind === "start" ? lastStart.offsetSeconds : null,
+      startOffset: lastStart?.kind === "start" ? lastStart.offsetSeconds : null,
       startSource: lastStart?.kind === "start" ? lastStart.source : null,
       startRefusedBecause: lastStart?.kind === "bypass" ? lastStart.reason : null,
       listenerGain: listenerVolumeNode.gain.value,

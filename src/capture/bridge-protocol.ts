@@ -64,9 +64,6 @@ export interface RequestQueueTracksMessage {
   type: "blk-request-queue-tracks";
 }
 
-// Answered whether or not anything is being separated, because the section is
-// about the queue rather than about the pipeline. Both rows travel together
-// because they come from one read of the same queue.
 export interface QueueTrackNames {
   videoId: string;
   title: string | null;
@@ -80,10 +77,6 @@ export interface QueueTracksMessage {
   next: QueueTrackNames | null;
 }
 
-// Sent separately, and possibly seconds later, for the tracks with no square
-// cover of their own, because resolving an i.ytimg thumbnail means loading it.
-// blk-next-track is a retry signal for the prefetch gate, so it must not be
-// re-sent just to carry a picture.
 export interface TrackArtworkMessage {
   type: "blk-track-artwork";
   videoId: string;

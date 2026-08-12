@@ -37,13 +37,6 @@ import {
 } from "../workers/protocol2";
 
 // -- Popup: settings, storage and About ----------------------------------------
-//
-// Plain HTML/TS popup (Plasmo auto-detects src/popup.ts as the popup entry
-// and, since it is not a .tsx/.vue/.svelte file, ships it without a UI
-// framework). Preferences round-trip through chrome.storage.sync via
-// src/settings/storage.ts; cache byte totals and clears are read live from
-// IndexedDB by routing through src/background.ts to the offscreen document,
-// which is the only place that holds the connection (see workers/offscreen.ts).
 
 const LOG_PREFIX = "[BLK-POPUP]";
 
@@ -494,6 +487,10 @@ function createAboutPanel(): HTMLElement {
       body.textContent =
         "The model downloads once and is kept. Separated tracks are kept too, so hearing one again starts instantly. Both live under Storage, along with a budget and a way to clear them.";
     }),
+    createAboutSection("Crossfade", body => {
+      body.textContent =
+        "One track blends into the next instead of stopping dead. It does not wait on separation: with no stems to fade out of, the fade runs on the original audio. Set the length under General, or turn it off there.";
+    }),
     createAboutSection("Better Lyrics", body => {
       body.append(
         "Optional, but the two are built to sit together: with it installed the fader docks into the lyrics controls instead of the player bar. ",
@@ -520,14 +517,6 @@ function createAboutPanel(): HTMLElement {
 }
 
 // -- Playing, and coming up ------------------------------------------------------
-//
-// Which picture to show is settled in the page world and handed here already
-// resolved, the same division better-lyrics-shaders uses: its popup never
-// re-derives a URL from the DOM, it displays what the content script gives it.
-// What size to ask for is settled here, because only this side knows how big
-// the box is. The image is held at zero opacity until it reports a load, and
-// the element is replaced whenever the URL changes so a new track fades in
-// rather than swapping.
 
 const STATUS_POLL_MS = 1000;
 
@@ -564,9 +553,6 @@ function createArtworkThumb(sizePx: number): ArtworkThumb {
   };
 }
 
-// The fader's hover card roll, verbatim, so the popup and the on-page control
-// move the same way. Both lines share one grid cell and cross over rather than
-// stacking, which is what stops the row resizing under them.
 interface Roll {
   element: HTMLElement;
   render(text: string): void;
@@ -630,11 +616,6 @@ interface StatusSection {
   render(status: TrackStatus | null): void;
 }
 
-// A cache miss on the track coming up is not a verdict, it is the ordinary
-// state of a track the pipeline has not reached yet: separation runs one track
-// at a time and the next one is only warmed once this one has engaged. Saying
-// "not separated" read as a failure and, worse, never changed, because the
-// cache probe answers once. It flips to Ready when the ahead separation lands.
 function nextTrackState(track: StatusTrack): string {
   if (track.cached === null) return "";
   return track.cached ? "Ready" : "Queued";
@@ -686,8 +667,6 @@ function createStatusSection(): StatusSection {
       }
       element.hidden = false;
 
-      // A queue advance is the next row becoming the playing one, and only
-      // that lifts. A jump to an unrelated track is not an advance.
       const advanced = status.now !== null && status.now.videoId !== shownNowId && status.now.videoId === shownNextId;
 
       renderRow(now, status.now, separationText(status.separation));

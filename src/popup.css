@@ -1,5 +1,4 @@
-/* Bundled rather than relying on a local install, the same way Better Lyrics
-   Shaders does it. Licence in the NOTICE beside the file. */
+
 @font-face {
   font-family: "Satoshi";
   src: url("data-base64:../assets/fonts/Satoshi-Variable.woff2") format("woff2");
@@ -7,11 +6,6 @@
   font-style: normal;
   font-display: swap;
 }
-
-/* Ported from docs/mocks/option-c-wash.html. The palette, easing, radii and
-   type scale are Better Lyrics Shaders' own (popup/popup.css), so the two
-   extensions read as one family. The accent is Tacet's own mark colour and is
-   spent on fills, borders, focus rings and icons, never on text. */
 
 :root {
   --blk-bg: #26262a;
@@ -52,7 +46,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Chrome's popup ceiling. Fixed, so switching tabs never resizes the window. */
 .blk-popup {
   display: flex;
   flex-direction: column;
@@ -621,9 +614,6 @@ body {
   display: none;
 }
 
-/* Separation progress, drawn as the row's own background rather than as a bar,
-   so the accent carries information instead of decorating. It stays full at
-   Ready. Everything but the fill is lifted above it. */
 .blk-status__fill {
   position: absolute;
   left: 0;
@@ -675,8 +665,6 @@ body {
   border-radius: 4px;
 }
 
-/* Held at zero until the image reports a load, so a slow or missing cover
-   shows the placeholder underneath rather than a broken frame. */
 .blk-status__art {
   display: block;
   width: 100%;
@@ -727,11 +715,6 @@ body {
 }
 
 /* -- The state roll, taken from the fader's hover card ------------------------ */
-/*
-   Both lines share one grid cell so they cross over each other instead of
-   stacking and resizing the row, and the timing matches src/ui/fader.css, so
-   the popup and the on-page control move the same way.
-*/
 
 .blk-roll {
   display: grid;
@@ -788,10 +771,6 @@ body {
 
 /* -- About ------------------------------------------------------------------- */
 
-/* Cancels .blk-scroll's padding so the hero sits flush under the header and
-   goes full bleed. The inline padding is that padding plus .blk-row's, which
-   is what lines the mark up with the body copy beneath it. Keep the three
-   matched. */
 .blk-about__hero {
   position: relative;
   display: flex;

@@ -1,21 +1,6 @@
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 
 // -- The pipeline, said in three words -----------------------------------------
-//
-// The same KaraokeState the fader's hover card reads, rendered short enough to
-// sit at the end of a popup row. describeBusy in busy-tooltip.ts is the other
-// renderer of that state and stays a full sentence, because a hover card has
-// the room and this does not. Neither owns the state; KaraokeState does.
-
-// The bar and the text are deliberately two different quantities. The bar is
-// the separation's own progress and nothing else, so within a track it only
-// ever moves forward: flat at nothing while the audio is being acquired, the
-// segment count while stems are computed, held there through Finishing, full
-// at Ready. Driving it from whatever number the text happens to be showing
-// swept it backwards twice per track, once from the download's percentage to a
-// separation starting at zero, and once from the last segment to a Finishing
-// line that has no percentage at all. Measured on a real track: 95% to 0 over
-// 420ms, right at the finish line.
 interface SeparationStatus {
   label: string;
   percent: number | null;
@@ -35,8 +20,6 @@ function clampFraction(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-// Progress events only fire while stems are being computed, so this is zero
-// before separation starts and holds its last value for every stage after it.
 function segmentFraction(state: KaraokeState): number {
   return state.total > 0 ? clampFraction(state.processed / state.total) : 0;
 }

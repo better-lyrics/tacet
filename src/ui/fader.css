@@ -1,54 +1,14 @@
-/* Geometry ported from docs/mocks/2026-08-07-singalong-fader-v3.html and
-   docs/mocks/2026-08-07-singalong-mounts.html (better-lyrics repo); the
-   surface treatment from docs/mocks/option-c-wash.html. Every value here was
-   measured or deliberately chosen; see
-   docs/plans/2026-08-07-singalong-karaoke.md section 6 before changing
-   anything.
+:root {
+  --blk-accent: #f20c32;
+}
 
-   The card is opaque and carries no backdrop-filter. The 26px blur it used to
-   have was measured as expensive enough to starve frames and destabilise the
-   drag spring, so the flat surface is a performance decision as much as a
-   visual one. The hover card below keeps its own 12px blur, which is a much
-   smaller box and was never implicated.
-
-   The button and card carry Better Lyrics' own dock classes too
-   (blyrics-dock__control / --active, blyrics-dock__menu / --open), so a
-   user's theme layered on top of Better Lyrics can still restyle them. That
-   is the only reason those classes are attached at all: every rule below is
-   otherwise self-contained and does not require Better Lyrics, or any other
-   extension, to be installed.
-
-   Two consequences of that:
-   - Where Better Lyrics' own class carries conflicting geometry (its
-     .blyrics-dock__menu is sized for a scrollable text dropdown), a
-     compound selector such as .blyrics-mix.blyrics-dock__menu reasserts
-     ours at higher specificity, so it wins deterministically instead of
-     depending on which stylesheet the browser happens to cascade last.
-   - Every read of a Better Lyrics theme variable (--dock-pill-accent,
-     --ease, --dock-ease) carries a fallback, so nothing here breaks if Better
-     Lyrics is missing entirely, as in the player bar. The accent's fallback is
-     Tacet's own mark colour, #f20c32. It is inlined at each use site rather
-     than hoisted into one custom property because --dock-pill-accent is set by
-     Better Lyrics somewhere up the tree, and resolving it once on :root would
-     stop themes reaching it.
-
-   --bar modifier classes below carry only what genuinely differs by host:
-   the button's size and shape (28px pill vs. 40px circle) and the removal
-   of the tinted pill fill when engaged, matching YouTube Music's own
-   borderless, unpilled buttons. The fader card is identical in both hosts
-   and carries no --bar variant. */
-
-/* Registered so it can be transitioned. Gecko drops @property from a
-   stylesheet cross-origin to the document, so this must live in the same
-   sheet as the rule that uses it, never injected from elsewhere. */
 @property --glyph-o {
   syntax: "<number>";
   inherits: true;
   initial-value: 0;
 }
 
-/* -- The control's own button. Styled to the dock when hosted there, to the
-      player bar when not, but it is one element either way. ---------------- */
+/* -- The control's own button --------------------------------------------- */
 .blyrics-sing {
   position: relative;
   display: inline-flex;
@@ -75,29 +35,19 @@
   scale: 0.96;
 }
 .blyrics-sing:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, #f20c32);
+  outline: 2px solid var(--dock-pill-accent, var(--blk-accent));
   outline-offset: 2px;
 }
 .blyrics-sing--active {
-  color: color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, #fff);
+  color: color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, #fff);
   background-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, transparent),
-    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 22%, transparent)
+    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, transparent),
+    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 22%, transparent)
   );
   box-shadow: inset rgba(255, 255, 255, 0.18) 0 1px 0 0;
 }
 
-/* Better Lyrics' own .blyrics-dock__control carries the same box model, but
-   this compound selector has higher specificity than its single-class rule,
-   so ours wins deterministically regardless of which stylesheet the browser
-   happens to cascade last, or whether a future Better Lyrics release
-   changes its own control's dimensions or interaction colors. Single-class
-   .blyrics-dock__control and .blyrics-dock__control--active have the same
-   specificity as our own single-class rules above, so which one wins a
-   conflicting property is otherwise a coin flip decided by load order; the
-   compound selectors below remove that coin flip for every state a real
-   Better Lyrics stylesheet defines. */
 .blyrics-sing.blyrics-dock__control {
   display: inline-flex;
   align-items: center;
@@ -115,40 +65,21 @@
   color: hsla(0, 0%, 100%, 0.95);
 }
 .blyrics-sing.blyrics-dock__control:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, #f20c32);
+  outline: 2px solid var(--dock-pill-accent, var(--blk-accent));
   outline-offset: 2px;
 }
-/* Three classes, not two: blyrics-dock__control--active is toggled
-   unconditionally regardless of host (see fader.ts), so a two-class
-   .blyrics-sing.blyrics-dock__control--active would also match the player
-   bar button whenever it is engaged. Requiring blyrics-dock__control too
-   keeps this scoped to the dock. */
+
 .blyrics-sing.blyrics-dock__control.blyrics-dock__control--active {
-  color: color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, #fff);
+  color: color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, #fff);
   background-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 45%, transparent),
-    color-mix(in srgb, var(--dock-pill-accent, #f20c32) 22%, transparent)
+    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, transparent),
+    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 22%, transparent)
   );
   box-shadow: inset rgba(255, 255, 255, 0.18) 0 1px 0 0;
 }
 
-/* -- Player bar fallback: only what differs from the dock pill. YouTube
-      Music's own buttons in that bar are bigger, borderless and unpilled,
-      so the control matches that instead of carrying dock styling into a
-      bar. Everything else (background, hover, focus-visible, transition)
-      is inherited from .blyrics-sing above, which already falls back to a
-      literal value when Better Lyrics is absent.
-
-      Compounded with .blyrics-sing rather than bare .blyrics-sing--bar: the
-      commit() step in fader.ts toggles blyrics-dock__control--active
-      unconditionally regardless of host (see the comment there), so in the
-      player bar this button carries that class too even though it never
-      carries blyrics-dock__control itself. A real Better Lyrics stylesheet
-      styling that bare class at the same specificity as a bare
-      .blyrics-sing--bar would then win the player bar's color by load
-      order alone; the compound closes that gap the same way the dock
-      compounds above do. ---------------------------------------------- */
+/* -- Player bar fallback -------------------------------------------------- */
 .blyrics-sing.blyrics-sing--bar {
   width: 36px;
   height: 36px;
@@ -159,7 +90,7 @@
   background-color: transparent;
   background-image: none;
   box-shadow: none;
-  color: color-mix(in srgb, var(--dock-pill-accent, #f20c32) 40%, #fff);
+  color: color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 40%, #fff);
 }
 .blyrics-sing--bar .blyrics-sing__glyph--busy > span {
   width: 24px;
@@ -192,9 +123,7 @@
   width: 16px;
   height: 16px;
   opacity: var(--glyph-o);
-  /* Fallback for the standalone case: Better Lyrics owns
-     --blyrics-shimmer-gradient, and without it the shimmer is invisible.
-     Neutral, never the accent, because accent reads as engaged not working. */
+  
   background: var(
       --blyrics-shimmer-gradient,
       linear-gradient(110deg, hsla(0, 0%, 100%, 0.35) 0%, hsla(0, 0%, 100%, 0.95) 50%, hsla(0, 0%, 100%, 0.35) 100%)
@@ -214,15 +143,7 @@
   }
 }
 
-/* -- Fader card -------------------------------------------------------------
-   Lives in <body> at position: fixed, exactly like the shipped source and
-   offset menus. The dock pill has backdrop-filter, which makes it a
-   backdrop root, so a card nested inside it could only blur against the
-   dock. Positioned from the trigger's screen rect, it samples the page.
-   Identical in both hosts: a 60px vertical fader is a different shape than
-   Better Lyrics' own general-purpose dropdown regardless of where it is
-   mounted, so this carries its own complete chrome rather than reusing or
-   duplicating .blyrics-dock__menu's. */
+/* -- Fader card ----------------------------------------------------------- */
 .blyrics-mix {
   position: fixed;
   z-index: 2147483000;
@@ -233,8 +154,7 @@
   border-radius: 20px;
   background-color: hsl(220, 3%, 13%);
   box-shadow: rgba(0, 0, 0, 0.5) 0 8px 24px 0;
-  /* Same enter and exit as the shipped .blyrics-dock__menu: a 6px rise and
-     a fade over 160ms. No scale, no blur. */
+  
   opacity: 0;
   visibility: hidden;
   transform: translateY(6px);
@@ -242,23 +162,13 @@
   transition-duration: 160ms;
   transition-timing-function: var(--dock-ease, cubic-bezier(0.4, 0, 0.2, 1));
 }
-/* Compounded with .blyrics-mix for the same reason .blyrics-sing.blyrics-sing--bar
-   is above: setOpen() in fader.ts toggles blyrics-dock__menu--open
-   unconditionally regardless of host, so the player bar's card carries that
-   class too. A bare .blyrics-mix--open would tie in specificity with a real
-   Better Lyrics rule styling that bare class and could lose it on load
-   order. */
+
 .blyrics-mix.blyrics-mix--open {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
 }
 
-/* Better Lyrics' own .blyrics-dock__menu is sized and padded for a
-   scrollable text dropdown (min-width 160px, max-height 240px). This
-   compound selector has higher specificity than its single-class rule, so
-   our geometry wins deterministically regardless of which stylesheet the
-   browser happens to cascade last. */
 .blyrics-mix.blyrics-dock__menu {
   min-width: 0;
   max-height: none;
@@ -282,18 +192,10 @@
   cursor: grabbing;
 }
 .blyrics-mix-track:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, #f20c32);
+  outline: 2px solid var(--dock-pill-accent, var(--blk-accent));
   outline-offset: 3px;
 }
 
-/* Three concentric steps, so the clearance around the moving parts is the
-   same on all four sides instead of only on the inline axis.
-     card  20 - 6 padding  -> track 14
-     track 14 - 3 padding  -> well  11  (the inline gap that was already right)
-     well  11 - 2 padding  -> fill and handle 9
-   A taller handle is what lets the radius climb: at 18px it takes the full
-   9px, which is exactly half its height, so it is a true capsule and still
-   nests into the clip's 9px corner rather than being flush. */
 .blyrics-mix-well {
   position: absolute;
   inset: 3px;
@@ -311,19 +213,17 @@
   left: 0;
   right: 0;
   border-radius: 9px;
-  background: var(--dock-pill-accent, #f20c32);
+  background: var(--dock-pill-accent, var(--blk-accent));
 }
 .blyrics-mix-thumb {
   position: absolute;
   left: 0;
   right: 0;
   height: 18px;
-  /* Fully opaque. At 94% the fill underneath tinted it gold as it passed. */
+  
   border-radius: 9px;
   background-color: hsl(0, 0%, 96%);
-  /* Thrown away from whichever end the handle is nearest, because that is
-     the side with track left to catch it. Driven from the springed
-     position, so it swings as the handle travels. */
+  
   box-shadow: rgba(0, 0, 0, 0.45) 0 var(--shadow-y, 0px) 6px -1px;
   transform: translateY(-50%) scale(var(--thumb-scale, 0.85));
   opacity: var(--thumb-opacity, 0);
@@ -337,8 +237,6 @@
   --thumb-opacity: 1;
 }
 
-/* No label at rest. It appears on the far side from the dock only while the
-   value is moving, then leaves. Out of flow, so it never resizes the card. */
 .blyrics-mix-readout {
   position: absolute;
   left: 50%;
@@ -411,18 +309,11 @@
   }
 }
 
-/* -- Hover card -------------------------------------------------------------
-   Replaces the native title, which never showed: the states worth explaining
-   are the ones where the control is unavailable, and a disabled button fires no
-   pointer events. Motion approved from dev/tooltip-preview.html: the departing
-   line lifts a tenth of its height, shrinks to 0.86 and blurs to 5px, and the
-   arriving line resolves out of the same softness from below. */
+/* -- Hover card ----------------------------------------------------------- */
 .blyrics-mix-tip {
   position: fixed;
   z-index: 10000;
-  /* The ruler carries the same padding, so the width measured off it is the
-     card's outer width: the number written to the card is also the one the
-     card is positioned against. */
+  
   box-sizing: border-box;
   padding: 8px 11px;
   border-radius: 10px;
@@ -445,8 +336,6 @@
   opacity: 1;
 }
 
-/* One grid cell for both lines, so they cross over each other rather than
-   stacking and pushing the card open. */
 .blyrics-mix-tip__stack {
   display: grid;
   height: 16px;
@@ -457,8 +346,6 @@
   transform-origin: 50% 50%;
 }
 
-/* Second row, so the stage and its percentage stay readable while armed
-   rather than being replaced by the promise. */
 .blyrics-mix-tip__note {
   display: flex;
   align-items: flex-end;
@@ -485,7 +372,6 @@
   pointer-events: none;
 }
 
-/* Tabular, so the card does not twitch between 9% and 62%. */
 .blyrics-mix-tip__pct {
   font-variant-numeric: tabular-nums;
 }
@@ -521,10 +407,6 @@
   }
 }
 
-/* The corridor. The card is a fixed-position sibling of the dock, so the gap
-   between the two is neither, and crossing it read as leaving both: the dock
-   collapsed and took the open card with it. This extends the card's hit area
-   over that gap without moving anything visible. */
 .blyrics-mix::before {
   content: "";
   position: absolute;
@@ -535,12 +417,7 @@
   z-index: -1;
 }
 
-/* -- Crossfade wipe -------------------------------------------------------
-   A band fills the control left to right, reaches full width at the handover,
-   then erases left to right back to nothing. The leading edge is the right
-   border while filling and the left border while erasing, so the motion never
-   reverses. It never rests filled, which is what keeps it distinct from the
-   engaged pill. --fade-ms is written by the control when a fade is scheduled. */
+/* -- Crossfade wipe ------------------------------------------------------- */
 .blyrics-sing__wipe {
   position: absolute;
   inset: 0;
@@ -553,7 +430,7 @@
   inset: 0 100% 0 0;
   background: color-mix(
     in srgb,
-    var(--dock-pill-accent, #f20c32) 42%,
+    var(--dock-pill-accent, var(--blk-accent)) 42%,
     transparent
   );
   border-right: 1.5px solid hsla(0, 0%, 100%, 0.9);
@@ -592,7 +469,7 @@
     inset: 0;
     background: color-mix(
       in srgb,
-      var(--dock-pill-accent, #f20c32) 24%,
+      var(--dock-pill-accent, var(--blk-accent)) 24%,
       transparent
     );
     border-color: transparent;

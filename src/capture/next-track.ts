@@ -85,11 +85,6 @@ function readQueueItemText(element: PolymerQueueItem): { title: string | null; a
 }
 
 // -- Square album art ----------------------------------------------------------
-//
-// Every queue row carries its own square cover as a googleusercontent ladder
-// running 60 to 544. The widest is taken because the size parameter is
-// rewritten to the box being drawn anyway, and a wide base is the one that
-// still looks right if a future row arrives without one.
 
 function widestThumbnailUrl(thumbnails: Thumbnail[] | undefined): string | null {
   if (!Array.isArray(thumbnails)) return null;

@@ -1,17 +1,4 @@
 // -- YouTube thumbnail resolution ----------------------------------------------
-//
-// The square cover on a queue row is always preferred, and this module is only
-// the fallback for a track that has none. Ported from better-lyrics-shaders,
-// contents/lib/kawarpManager.ts (getHqFallbackUrl, placeholderCache,
-// resolveImageUrl), so the two extensions land on the same picture. The
-// semantics worth keeping exactly:
-//   - a URL that is not an i.ytimg thumbnail is returned untouched and is not
-//     cached, because there is nothing to probe
-//   - maxresdefault does not exist for every video, and YouTube answers with a
-//     120x90 default placeholder rather than a 404, so the size is the only
-//     way to tell. That exact size means fall back to hqdefault
-//   - a load error resolves to the original URL and is deliberately not
-//     cached, so a transient failure does not stick for the session
 
 const PLACEHOLDER_WIDTH = 120;
 const PLACEHOLDER_HEIGHT = 90;
@@ -76,10 +63,6 @@ function createArtworkResolver(loadImageSize: LoadImageSize): ArtworkResolver {
 }
 
 // -- Asking for the size actually being drawn ----------------------------------
-//
-// googleusercontent serves any size the URL asks for, so a 20px thumb asks for
-// 40px rather than downscaling the 544px cover the queue happens to name.
-// Anything without that parameter, ytimg included, is left alone.
 
 const SIZE_PARAMETER_PATTERN = /=w\d+-h\d+/;
 

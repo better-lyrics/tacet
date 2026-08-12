@@ -1,14 +1,4 @@
 // -- What the popup's status section shows -------------------------------------
-//
-// One owner, because three places contribute to the same two records and none
-// of them knows the whole of it: the page world names the tracks and carries
-// their square artwork, the ytimg fallback resolves later and out of band, and
-// the pipeline learns from a cache probe whether a track is already separated.
-// Each field keeps its last known value, so a partial update never blanks a row.
-//
-// A track keeps what is already known about it when it moves between the two
-// slots, which is what lets a queue advance promote the next row into the
-// playing row without its artwork flickering away and loading again.
 
 interface StatusTrack {
   videoId: string;

@@ -84,10 +84,6 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 }
 
 // -- Master switch ---------------------------------------------------------
-//
-// The pipeline's state sits at module scope because the popup asks for it from
-// outside the mount, and it is nulled on unmount so the popup can tell a
-// pipeline that is doing nothing from one that is not there at all.
 
 let latest: KaraokeState | null = null;
 
@@ -182,10 +178,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 // -- Track status ------------------------------------------------------------
-//
-// Fed by the page world, which is the only side that can read the queue's
-// Polymer data. Requested on demand rather than pushed, so nothing is read
-// while the popup is closed.
 
 window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
@@ -211,11 +203,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return undefined;
   }
 
-  // Answered even with no pipeline running, so the popup can hide the section
-  // rather than wait out a timeout.
   if (isGetTrackStatusCommand(message)) {
-    // Answered from the last known record, then refreshed for the popup's next
-    // poll. The world hop is asynchronous and this reply cannot wait for it.
     const tracks = trackStatusStore.get();
     sendResponse({
       type: "blk-track-status",
