@@ -20,6 +20,7 @@ const logger = createLogger("page");
 
 const PAUSE_SETTLE_MS = 600;
 const SWAP_SECONDS = 0.12;
+const ELEMENT_STALL_SECONDS = 2;
 const PAUSE_CHECK_ATTEMPTS = 20;
 
 interface PlaybackGraphDeps {
@@ -79,6 +80,7 @@ interface GraphState {
   stemsPlaying: boolean;
   elementTime: number;
   playerTime: number;
+  elementStalled: boolean;
   startOffset: number | null;
   startSource: string | null;
   startRefusedBecause: string | null;
@@ -181,8 +183,22 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let transportAttached = false;
   let lastStart: StemStart | null = null;
   let driftSuppressedUntilContextTime = 0;
+  let lastElementTime = Number.NaN;
+  let elementMovedAtContextTime = 0;
 
   const element = source.mediaElement;
+
+  function noteElementProgress(): void {
+    if (element.currentTime === lastElementTime) return;
+    lastElementTime = element.currentTime;
+    elementMovedAtContextTime = context.currentTime;
+  }
+
+  function elementStalled(): boolean {
+    if (element.paused) return false;
+    if (!Number.isFinite(lastElementTime)) return false;
+    return context.currentTime - elementMovedAtContextTime > ELEMENT_STALL_SECONDS;
+  }
 
   function suppressDrift(seconds: number): void {
     const until = context.currentTime + Math.max(0, seconds);
@@ -319,6 +335,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       playerPositionSeconds: playerCurrentTime(document),
       listenerSeeked,
       originalGain: originalGainNow(),
+      elementStalled: elementStalled(),
     });
     if (correction.kind === "hold") return;
     if (correction.kind === "restart-deck") {
@@ -412,6 +429,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function recoverIfStopped(): boolean {
+    noteElementProgress();
     if (bypass.isBypassed() || isCrossfading()) return false;
 
     if (element.paused && !deps.ownAdvanceRecent()) {
@@ -605,7 +623,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       stemsPlaying: deckState.playing,
       elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
       playerTime: playerCurrentTime(document),
-      startOffset: lastStart?.kind === "start" ? lastStart.offsetSeconds : null,
+      elementStalled: elementStalled(),
+    startOffset: lastStart?.kind === "start" ? lastStart.offsetSeconds : null,
       startSource: lastStart?.kind === "start" ? lastStart.source : null,
       startRefusedBecause: lastStart?.kind === "bypass" ? lastStart.reason : null,
       listenerGain: listenerVolumeNode.gain.value,

@@ -227,6 +227,7 @@ window.blkTransitionProbe = () => {
     deckDurations: state ? state.decks.map(deck => +deck.durationSeconds.toFixed(2)) : null,
     listenerGain: state?.listenerGain ?? null,
     originalGain: state?.originalGain ?? null,
+    elementStalled: state?.elementStalled ?? null,
     deckPositions: state ? state.decks.map(deck => +deck.positionSeconds.toFixed(3)) : null,
     deckGains: state ? state.decks.map(deck => +deck.deckGain.toFixed(4)) : null,
     playerTime: state ? +state.playerTime.toFixed(3) : null,

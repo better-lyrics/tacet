@@ -97,6 +97,34 @@ describe("edge cases", () => {
   });
 });
 
+describe("a stalled element", () => {
+  const stalled = { ...audible, elementStalled: true };
+
+  it("holds both clocks rather than moving either one", () => {
+    expect(decideDriftCorrection({ ...stalled, playerPositionSeconds: 50, stemPositionSeconds: 215 }).kind).toBe(
+      "hold"
+    );
+  });
+
+  it("holds even for drift small enough to seek away", () => {
+    expect(decideDriftCorrection({ ...stalled, playerPositionSeconds: 10.6 }).kind).toBe("hold");
+  });
+
+  it("still follows the listener, who is the one thing worth interrupting a stall for", () => {
+    const decision = decideDriftCorrection({ ...stalled, playerPositionSeconds: 90, listenerSeeked: true });
+    expect(decision.kind).toBe("restart-deck");
+  });
+
+  it("still starts a deck that is not playing at all", () => {
+    expect(decideDriftCorrection({ ...stalled, hasActiveSources: false }).kind).toBe("restart-deck");
+  });
+
+  it("regression: a stalled stream does not rewind the listener to where the player froze", () => {
+    const decision = decideDriftCorrection({ ...stalled, playerPositionSeconds: 49.9, stemPositionSeconds: 213.5 });
+    expect(decision.kind).not.toBe("restart-deck");
+  });
+});
+
 describe("invariants", () => {
   it("is symmetric in the direction of drift", () => {
     for (const delta of [0.05, 0.5, 5]) {

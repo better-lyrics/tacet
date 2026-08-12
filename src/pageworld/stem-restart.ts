@@ -15,6 +15,7 @@ interface DriftInput {
   playerPositionSeconds: number;
   listenerSeeked: boolean;
   originalGain: number;
+  elementStalled?: boolean;
   toleranceSeconds?: number;
   seekLimitSeconds?: number;
 }
@@ -30,6 +31,7 @@ function decideDriftCorrection(input: DriftInput): DriftCorrection {
   if (Math.abs(drift) <= tolerance) return { kind: "hold" };
 
   if (input.listenerSeeked) return { kind: "restart-deck", reason: "the listener seeked and expects the jump" };
+  if (input.elementStalled === true) return { kind: "hold" };
   if (input.originalGain > 0) {
     return { kind: "restart-deck", reason: "the listener is on the original, so seeking it would be heard" };
   }
