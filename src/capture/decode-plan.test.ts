@@ -1,5 +1,5 @@
-import { concatenateChunks, countInitSegments, planFirstPlusMedia, planNaiveConcat } from "@/capture/decode-plan";
 import type { CaptureChunk } from "@/capture/accumulator";
+import { concatenateChunks, countInitSegments, planFirstPlusMedia, planNaiveConcat } from "@/capture/decode-plan";
 import { describe, expect, it } from "vitest";
 
 function chunk(fill: number, isInitSegment: boolean, length = 4): CaptureChunk {
@@ -23,13 +23,13 @@ describe("planNaiveConcat", () => {
 });
 
 describe("planFirstPlusMedia", () => {
-  it("keeps the first chunk and drops later init segments, keeping later media", () => {
+  it("keeps the first chunk and the media that belongs to it, up to the next init segment", () => {
     const first = chunk(1, true);
     const media1 = chunk(2, false);
     const reinit = chunk(3, true);
     const media2 = chunk(4, false);
 
-    expect(planFirstPlusMedia([first, media1, reinit, media2])).toEqual([first.bytes, media1.bytes, media2.bytes]);
+    expect(planFirstPlusMedia([first, media1, reinit, media2])).toEqual([first.bytes, media1.bytes]);
   });
 
   it("keeps the first chunk even when it is not tagged as an init segment", () => {
@@ -55,6 +55,29 @@ describe("planFirstPlusMedia", () => {
       const reinit2 = chunk(3, true);
 
       expect(planFirstPlusMedia([first, reinit1, reinit2])).toEqual([first.bytes]);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: stops at a re-initialization so a second track's media is never appended", () => {
+      const trackOneInit = chunk(1, true);
+      const trackOneMedia = chunk(2, false);
+      const trackTwoInit = chunk(3, true);
+      const trackTwoMedia = chunk(4, false);
+
+      expect(planFirstPlusMedia([trackOneInit, trackOneMedia, trackTwoInit, trackTwoMedia])).toEqual([
+        trackOneInit.bytes,
+        trackOneMedia.bytes,
+      ]);
+    });
+
+    it("regression: keeps nothing after the boundary however much media follows it", () => {
+      const init = chunk(1, true);
+      const media = chunk(2, false);
+      const reinit = chunk(3, true);
+      const later = [chunk(4, false), chunk(5, false), chunk(6, false)];
+
+      expect(planFirstPlusMedia([init, media, reinit, ...later])).toEqual([init.bytes, media.bytes]);
     });
   });
 });

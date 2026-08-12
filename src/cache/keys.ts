@@ -2,7 +2,7 @@ import { ALIASES_STORE_NAME, openDB } from "@/cache/idb";
 
 // -- Content hashing -----------------------------------------------------------------
 
-const SEPARATION_VERSION = "htdemucs-fp32:v1";
+const SEPARATION_VERSION = "htdemucs-fp32:v2";
 
 async function computeContentKey(bytes: BufferSource): Promise<string> {
   const audioDigest = await crypto.subtle.digest("SHA-256", bytes);
