@@ -1,3 +1,4 @@
+import { isAdPlaying } from "@/capture/ad-state";
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import { readPlayerDuration, readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
@@ -9,8 +10,12 @@ interface PlayerSnapshot {
   durationSeconds: number;
 }
 
-function readPlayerSnapshot(player: YtPlayer | null, clockDurationSeconds = Number.NaN): PlayerSnapshot | null {
-  if (!player) return null;
+function readPlayerSnapshot(
+  player: YtPlayer | null,
+  clockDurationSeconds = Number.NaN,
+  adPlaying = false
+): PlayerSnapshot | null {
+  if (!player || adPlaying) return null;
 
   const videoData = readVideoData(player);
   if (!videoData || videoData.isAd === true) return null;
@@ -24,7 +29,11 @@ function readPlayerSnapshot(player: YtPlayer | null, clockDurationSeconds = Numb
 
 function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {
   const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
-  return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null, readClockDuration(doc));
+  return readPlayerSnapshot(
+    player ? (player as unknown as YtPlayer) : null,
+    readClockDuration(doc),
+    isAdPlaying(doc)
+  );
 }
 
 function playerCurrentTime(doc: Document): number {

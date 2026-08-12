@@ -6,7 +6,6 @@ interface SlicePlan {
 
 const DEFAULT_WORKER_COUNT = 4;
 
-// Below this a slice costs more in player startup than it saves in transfer.
 const MIN_SLICE_SECONDS = 30;
 
 function workerCountFor(durationSeconds: number, maxWorkers: number): number {

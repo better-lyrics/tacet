@@ -15,6 +15,7 @@ interface KaraokeState {
 
 type KaraokeEvent =
   | { type: "track-changed"; videoId: string }
+  | { type: "crossfaded"; videoId: string }
   | { type: "reacquire"; videoId: string }
   | { type: "capture-ready"; videoId: string }
   | { type: "cache-hit"; videoId: string }
@@ -41,6 +42,10 @@ function initialKaraokeState(videoId: string): KaraokeState {
 function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeState {
   if (event.type === "track-changed") {
     return event.videoId === state.videoId ? state : initialKaraokeState(event.videoId);
+  }
+
+  if (event.type === "crossfaded") {
+    return { ...initialKaraokeState(event.videoId), status: "engaged" };
   }
 
   if (event.videoId !== state.videoId) return state;

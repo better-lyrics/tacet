@@ -5,9 +5,6 @@ interface SpringProfile {
   damping: number;
 }
 
-// -- Stiffness is bounded by MAX_STEP_SECONDS, not by taste: semi-implicit
-// -- Euler diverges past roughly 2/sqrt(stiffness), capping drag near 950.
-// -- Every profile here is held against that limit by a test. ----------------
 const SPRING_PROFILES: Record<SpringMode, SpringProfile> = {
   drag: { stiffness: 600, damping: 49 },
   settle: { stiffness: 200, damping: 17 },

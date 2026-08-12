@@ -21,6 +21,19 @@ describe("readPlayerSnapshot", () => {
     expect(readPlayerSnapshot(playerReporting({ video_id: "abc123", isAd: true }, 20))).toBeNull();
   });
 
+  it("refuses an ad the player does not admit to, on the page's own signal", () => {
+    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 237), 46, true)).toBeNull();
+  });
+
+  it("regression: an ad's clock is never returned as the next track's length", () => {
+    const duringAnAdBlock = readPlayerSnapshot(playerReporting({ video_id: "oodQMZLjoBU", isAd: null }, 237), 46, true);
+    expect(duringAnAdBlock).toBeNull();
+    expect(readPlayerSnapshot(playerReporting({ video_id: "oodQMZLjoBU" }, 237), 237, false)).toEqual({
+      videoId: "oodQMZLjoBU",
+      durationSeconds: 237,
+    });
+  });
+
   it("refuses a player that has not loaded a track yet", () => {
     expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 0))).toBeNull();
   });

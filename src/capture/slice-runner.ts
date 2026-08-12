@@ -14,10 +14,8 @@ const PLAYER_READY_TIMEOUT_MS = 60_000;
 const PLAYER_READY_CAP_MS = 300_000;
 const PLAYER_POLL_MS = 500;
 
-// Never seek into the final seconds; see the header for why.
 const END_OF_TRACK_GUARD_S = 15;
 
-// Larger than any estimate refinement, so it means different media entirely.
 const DURATION_CHANGE_S = 2;
 
 const MAX_RESTARTS = 2;
@@ -32,7 +30,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// YouTube Music runs a second, silent <video> when Shaders' animated art is on.
 function audibleVideo(doc: Document): HTMLVideoElement | null {
   const candidates = Array.from(doc.querySelectorAll("video"));
   return (
@@ -90,8 +87,8 @@ async function runSliceCapture(
     }
     try {
       video.currentTime = target;
-    } catch {
-      // The player can reject a seek while re-initialising; the next poll retries.
+    } catch (error) {
+      log(`seek to ${target.toFixed(1)}s rejected, the next poll retries: ${String(error)}`);
     }
   };
   const stopPlayback = (): void => {
@@ -101,15 +98,12 @@ async function runSliceCapture(
     }
     try {
       video.pause();
-    } catch {
-      // Not fatal: the loop only needs the buffered edge to keep growing.
+    } catch (error) {
+      log(`pause rejected, the buffered edge keeps growing regardless: ${String(error)}`);
     }
   };
 
-  // Establish the stream, then stop playing. Everything after this is seeking.
-  void video.play().catch(() => {
-    // Autoplay can refuse transiently; the loop below does not depend on it.
-  });
+  void video.play().catch(error => log(`play rejected in the worker frame: ${String(error)}`));
   const initDeadline = Date.now() + PLAYBACK_INIT_TIMEOUT_MS;
   while (Date.now() < initDeadline && video.buffered.length === 0) await sleep(200);
   stopPlayback();
@@ -199,7 +193,6 @@ async function runSliceCapture(
 
   const reachedSeconds = Math.max(reached, bufferedRangeEnd(video.buffered, video.currentTime));
 
-  // Always report, even empty: a silent worker holds the pool to its timeout.
   const chunks = accumulator.getChunks();
   if (chunks.length === 0) logError(`worker slice ${assignment.index} captured nothing`, new Error("no chunks"));
 
@@ -218,7 +211,6 @@ async function runSliceCapture(
     mimeType: accumulator.getStats().mimeTypes[0] ?? "audio/webm",
     bytes: bytes.buffer,
   };
-  // Read the size before posting: the transfer detaches the buffer.
   const byteLength = bytes.byteLength;
   window.parent.postMessage(message, window.location.origin, [bytes.buffer]);
   log(

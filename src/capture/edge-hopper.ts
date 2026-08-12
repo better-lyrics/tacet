@@ -13,7 +13,6 @@ type HopDecision =
   | { action: "wait" }
   | { action: "give-up" };
 
-// The edge lands on segment boundaries, so it never matches the request exactly.
 const COMPLETE_EPSILON_S = 0.6;
 const ADVANCE_EPSILON_S = 0.3;
 const NUDGE_S = 0.1;

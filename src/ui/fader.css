@@ -534,3 +534,67 @@
   bottom: -14px;
   z-index: -1;
 }
+
+/* -- Crossfade wipe -------------------------------------------------------
+   A band fills the control left to right, reaches full width at the handover,
+   then erases left to right back to nothing. The leading edge is the right
+   border while filling and the left border while erasing, so the motion never
+   reverses. It never rests filled, which is what keeps it distinct from the
+   engaged pill. --fade-ms is written by the control when a fade is scheduled. */
+.blyrics-sing__wipe {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.blyrics-sing__wipe > i {
+  position: absolute;
+  inset: 0 100% 0 0;
+  background: color-mix(
+    in srgb,
+    var(--dock-pill-accent, #f20c32) 42%,
+    transparent
+  );
+  border-right: 1.5px solid hsla(0, 0%, 100%, 0.9);
+  border-left: 1.5px solid transparent;
+  animation: blyrics-sing-wipe var(--fade-ms, 8000ms) linear forwards;
+}
+@keyframes blyrics-sing-wipe {
+  0% {
+    left: 0;
+    right: 100%;
+    border-right-color: hsla(0, 0%, 100%, 0.9);
+    border-left-color: transparent;
+  }
+  48% {
+    left: 0;
+    right: 0;
+    border-right-color: hsla(0, 0%, 100%, 0.9);
+    border-left-color: transparent;
+  }
+  52% {
+    left: 0;
+    right: 0;
+    border-right-color: transparent;
+    border-left-color: hsla(0, 0%, 100%, 0.9);
+  }
+  100% {
+    left: 100%;
+    right: 0;
+    border-right-color: transparent;
+    border-left-color: hsla(0, 0%, 100%, 0.9);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blyrics-sing__wipe > i {
+    animation: none;
+    inset: 0;
+    background: color-mix(
+      in srgb,
+      var(--dock-pill-accent, #f20c32) 24%,
+      transparent
+    );
+    border-color: transparent;
+  }
+}

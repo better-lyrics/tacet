@@ -21,9 +21,9 @@ interface YtPlayer {
   setAutonavState?: (state: number) => void;
   setLoopVideo?: (enabled: boolean) => void;
   clearQueue?: () => void;
+  nextVideo?: () => void;
 }
 
-// YT.PlayerState.PLAYING
 const PLAYER_STATE_PLAYING = 1;
 
 function getYtPlayer(doc: Document): YtPlayer | null {
@@ -77,7 +77,21 @@ function isPlaying(player: YtPlayer): boolean {
   }
 }
 
+function advanceToNextTrack(doc: Document): boolean {
+  const player = getYtPlayer(doc);
+  if (!player) return false;
+  return callSafely("nextVideo", player.nextVideo && (() => player.nextVideo?.()));
+}
+
+function seekPlayerTo(doc: Document, seconds: number): boolean {
+  const player = getYtPlayer(doc);
+  if (!player || !Number.isFinite(seconds) || seconds < 0) return false;
+  return callSafely("seekTo", player.seekTo && (() => player.seekTo?.(seconds, true)));
+}
+
 export {
+  advanceToNextTrack,
+  seekPlayerTo,
   getYtPlayer,
   suppressAutoAdvance,
   callSafely,

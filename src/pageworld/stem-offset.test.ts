@@ -4,7 +4,23 @@ import { OFFSET_TOLERANCE_S, resolveStemStart } from "@/pageworld/stem-offset";
 const STEMS = 200;
 
 function resolve(playerTimeSeconds: number, elementTimeSeconds: number, stemDurationSeconds = STEMS) {
-  return resolveStemStart({ playerTimeSeconds, elementTimeSeconds, stemDurationSeconds });
+  return resolveStemStart({
+    playerTimeSeconds,
+    elementTimeSeconds,
+    stemDurationSeconds,
+    deckTrackId: "trackA",
+    playerTrackId: "trackA",
+  });
+}
+
+function resolveIdentity(deckTrackId: string | null, playerTrackId: string | null) {
+  return resolveStemStart({
+    playerTimeSeconds: 12,
+    elementTimeSeconds: 12,
+    stemDurationSeconds: STEMS,
+    deckTrackId,
+    playerTrackId,
+  });
 }
 
 describe("resolveStemStart", () => {
@@ -20,7 +36,57 @@ describe("resolveStemStart", () => {
     expect(resolve(Number.NaN, 42)).toEqual({ kind: "start", offsetSeconds: 42, source: "element" });
   });
 
+  describe("track identity", () => {
+    it("starts when the deck holds the track the player is on", () => {
+      expect(resolveIdentity("trackA", "trackA").kind).toBe("start");
+    });
+
+    it("bypasses when the deck holds a different track than the player", () => {
+      const start = resolveIdentity("trackA", "trackB");
+      expect(start.kind).toBe("bypass");
+      if (start.kind !== "bypass") return;
+      expect(start.reason).toContain("trackA");
+      expect(start.reason).toContain("trackB");
+    });
+
+    it("starts when the deck has no identity, so the self test still works", () => {
+      expect(resolveIdentity(null, "trackB").kind).toBe("start");
+    });
+
+    it("starts when the player has no identity, so a track change in flight is not punished", () => {
+      expect(resolveIdentity("trackA", null).kind).toBe("start");
+    });
+
+    it("starts when neither side has an identity", () => {
+      expect(resolveIdentity(null, null).kind).toBe("start");
+    });
+
+    it("refuses identity before anything else, so a mismatch is never masked by a clock fault", () => {
+      const start = resolveStemStart({
+        playerTimeSeconds: Number.NaN,
+        elementTimeSeconds: Number.NaN,
+        stemDurationSeconds: 0,
+        deckTrackId: "trackA",
+        playerTrackId: "trackB",
+      });
+      expect(start.kind).toBe("bypass");
+      if (start.kind !== "bypass") return;
+      expect(start.reason).toContain("trackB");
+    });
+  });
+
   describe("regressions", () => {
+    it("regression: the previous track's stems are not restarted at the current track's playhead", () => {
+      const start = resolveStemStart({
+        playerTimeSeconds: 1.83,
+        elementTimeSeconds: 1.83,
+        stemDurationSeconds: 314.89,
+        deckTrackId: "previousTrack",
+        playerTrackId: "currentTrack",
+      });
+      expect(start.kind).toBe("bypass");
+    });
+
     it("regression: a gapless append no longer starts the stems 221s in", () => {
       const start = resolve(5.32, 226.84, 314.89);
       expect(start).toEqual({ kind: "start", offsetSeconds: 5.32, source: "player" });

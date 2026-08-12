@@ -117,12 +117,10 @@ interface Spectrogram {
 function reflectPad(signal: Float32Array, padLeft: number, padRight: number): Float32Array {
   const out = new Float32Array(signal.length + padLeft + padRight);
   out.set(signal, padLeft);
-  // Left reflect: out[padLeft - 1 - i] = signal[1 + i]  (mirror around index 0)
   for (let i = 0; i < padLeft; i++) {
     const src = i + 1;
     out[padLeft - 1 - i] = signal[src < signal.length ? src : signal.length - 1];
   }
-  // Right reflect: out[padLeft + signal.length + i] = signal[signal.length - 2 - i]
   for (let i = 0; i < padRight; i++) {
     const src = signal.length - 2 - i;
     out[padLeft + signal.length + i] = signal[src >= 0 ? src : 0];
@@ -131,9 +129,7 @@ function reflectPad(signal: Float32Array, padLeft: number, padRight: number): Fl
 }
 
 interface StftOptions {
-  /** Center-pad the signal (reflect, n_fft/2 each side) before framing. Default true. */
   center?: boolean;
-  /** Divide each complex coefficient by sqrt(n_fft). Default false. */
   normalized?: boolean;
 }
 
@@ -169,7 +165,6 @@ function stft(signal: Float32Array, opts: StftOptions = {}): Spectrogram {
 }
 
 interface IstftOptions {
-  /** Invert coefficients produced with normalized=true. Default false. */
   normalized?: boolean;
 }
 

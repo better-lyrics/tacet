@@ -20,7 +20,6 @@ describe("geometry constants", () => {
   it("pins the concentric measurements exactly as specified", () => {
     expect(TRACK_HEIGHT_PX).toBe(146);
     expect(CLIP_HEIGHT_PX).toBe(136);
-    // 9 / 136 * 100, the handle's half-height as a percentage of travel.
     expect(THUMB_INSET_PERCENT).toBeCloseTo(6.617647058823529, 9);
   });
 });

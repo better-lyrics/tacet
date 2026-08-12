@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   isCaptureReadyMessage,
   isCaptureStandDownMessage,
+  isPartialCaptureMessage,
+  isPrefetchedAudioMessage,
+  isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
+  isRequestPrefetchedAudioMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
@@ -11,7 +15,10 @@ import {
 import type {
   CaptureReadyMessage,
   CaptureStandDownMessage,
+  PartialCaptureMessage,
+  PrefetchedAudioMessage,
   RequestPrefetchMessage,
+  RequestPrefetchedAudioMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   RequestCapturedAudioMessage,
@@ -143,6 +150,161 @@ describe("capture bridge protocol", () => {
     it("rejects coverage numbers that are not numbers", () => {
       expect(isSliceCapturedMessage(sliceCaptured({ reachedSeconds: "215" as unknown as number }))).toBe(false);
       expect(isSliceCapturedMessage(sliceCaptured({ trackDurationSeconds: null as unknown as number }))).toBe(false);
+    });
+  });
+
+  describe("blk-request-prefetched-audio and blk-prefetched-audio", () => {
+    const request: RequestPrefetchedAudioMessage = { type: "blk-request-prefetched-audio", videoId: "abc123" };
+    const reply = (overrides: Partial<PrefetchedAudioMessage> = {}): Record<string, unknown> => ({
+      type: "blk-prefetched-audio",
+      videoId: "abc123",
+      bytes: new Uint8Array([1, 2, 3, 4]).buffer,
+      ...overrides,
+    });
+
+    it("accepts the pair it was written for", () => {
+      expect(isRequestPrefetchedAudioMessage(request)).toBe(true);
+      expect(isPrefetchedAudioMessage(reply())).toBe(true);
+    });
+
+    it("round-trips the reply with its buffer transferred, not copied", () => {
+      const bytes = new Uint8Array([9, 8, 7]).buffer;
+      const message: PrefetchedAudioMessage = { type: "blk-prefetched-audio", videoId: "abc123", bytes };
+
+      const cloned = structuredClone(message, { transfer: [bytes] });
+
+      expect(isPrefetchedAudioMessage(cloned)).toBe(true);
+      if (!isPrefetchedAudioMessage(cloned)) throw new Error("guard rejected its own message");
+      expect(Array.from(new Uint8Array(cloned.bytes))).toEqual([9, 8, 7]);
+      expect(bytes.byteLength).toBe(0);
+    });
+
+    describe("edge cases", () => {
+      it("rejects null, undefined and primitives", () => {
+        for (const guard of [isRequestPrefetchedAudioMessage, isPrefetchedAudioMessage]) {
+          for (const value of [null, undefined, 0, "", [], true, { foo: "bar" }]) expect(guard(value)).toBe(false);
+        }
+      });
+
+      it.each([
+        ["a wrong type", { ...request, type: "blk-request-prefetched" }],
+        ["a missing videoId", { type: "blk-request-prefetched-audio" }],
+        ["a non-string videoId", { ...request, videoId: 7 }],
+      ])("rejects a request with %s", (_case, malformed) => {
+        expect(isRequestPrefetchedAudioMessage(malformed)).toBe(false);
+      });
+
+      it.each([
+        ["a wrong type", reply({ type: "blk-prefetched" as PrefetchedAudioMessage["type"] })],
+        ["a missing videoId", { type: "blk-prefetched-audio", bytes: new ArrayBuffer(4) }],
+        ["a non-string videoId", reply({ videoId: 7 as unknown as string })],
+        ["missing bytes", { type: "blk-prefetched-audio", videoId: "abc123" }],
+        ["bytes that are a plain array", reply({ bytes: [1, 2, 3] as unknown as ArrayBuffer })],
+        [
+          "bytes that are a view rather than a buffer",
+          reply({ bytes: new Uint8Array([1, 2]) as unknown as ArrayBuffer }),
+        ],
+      ])("rejects a reply with %s", (_case, malformed) => {
+        expect(isPrefetchedAudioMessage(malformed)).toBe(false);
+      });
+
+      it("accepts an empty buffer, since judging the bytes is the decoder's job", () => {
+        expect(isPrefetchedAudioMessage(reply({ bytes: new ArrayBuffer(0) }))).toBe(true);
+      });
+    });
+
+    describe("invariants", () => {
+      const others: { name: string; message: unknown }[] = [
+        { name: "blk-request-captured-audio", message: { type: "blk-request-captured-audio", videoId: "abc123" } },
+        {
+          name: "blk-captured-audio",
+          message: {
+            type: "blk-captured-audio",
+            videoId: "abc123",
+            mimeType: "audio/webm",
+            bytes: new ArrayBuffer(4),
+          },
+        },
+        {
+          name: "blk-captured-audio-unavailable",
+          message: { type: "blk-captured-audio-unavailable", videoId: "abc123", reason: "nothing held" },
+        },
+        { name: "blk-capture-ready", message: { type: "blk-capture-ready", videoId: "abc123" } },
+        { name: "blk-request-prefetch", message: { type: "blk-request-prefetch", videoId: "abc123" } },
+        { name: "blk-request-next-prefetch", message: { type: "blk-request-next-prefetch", videoId: "abc123" } },
+        { name: "blk-capture-stand-down", message: { type: "blk-capture-stand-down", videoId: "abc123" } },
+        { name: "blk-slice-captured", message: sliceCaptured() },
+      ];
+
+      it.each(others)("neither new guard accepts $name", ({ message }) => {
+        expect(isRequestPrefetchedAudioMessage(message)).toBe(false);
+        expect(isPrefetchedAudioMessage(message)).toBe(false);
+      });
+
+      it("the new messages match no existing guard, so a relay can dispatch on the first hit", () => {
+        const existing = [
+          isRequestCapturedAudioMessage,
+          isCapturedAudioMessage,
+          isCapturedAudioUnavailableMessage,
+          isCaptureReadyMessage,
+          isRequestPrefetchMessage,
+          isRequestNextPrefetchMessage,
+          isCaptureStandDownMessage,
+          isSliceCapturedMessage,
+        ];
+        for (const guard of existing) {
+          expect(guard(request)).toBe(false);
+          expect(guard(reply())).toBe(false);
+        }
+      });
+
+      it("the request and the reply stay distinct despite sharing a videoId", () => {
+        expect(isPrefetchedAudioMessage(request)).toBe(false);
+        expect(isRequestPrefetchedAudioMessage(reply())).toBe(false);
+      });
+    });
+
+    describe("regressions", () => {
+      it("regression: the reply carries no mimeType, since decodeAudioData sniffs the container", () => {
+        expect(isPrefetchedAudioMessage(reply())).toBe(true);
+        expect("mimeType" in reply()).toBe(false);
+      });
+
+      it("regression: a reply without a videoId is rejected, so a caller never binds bytes to the wrong track", () => {
+        expect(isPrefetchedAudioMessage({ type: "blk-prefetched-audio", bytes: new ArrayBuffer(4) })).toBe(false);
+      });
+    });
+  });
+});
+
+describe("blk-partial-capture", () => {
+  const partial: PartialCaptureMessage = {
+    type: "blk-partial-capture",
+    videoId: "AMCwYdTJ_PE",
+    coveredSeconds: 56.6,
+    trackSeconds: 237,
+  };
+
+  it("accepts a short capture announcement", () => {
+    expect(isPartialCaptureMessage(partial)).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("rejects one missing either clock, since a fade cannot be sized without them", () => {
+      expect(isPartialCaptureMessage({ type: "blk-partial-capture", videoId: "a", trackSeconds: 237 })).toBe(false);
+      expect(isPartialCaptureMessage({ type: "blk-partial-capture", videoId: "a", coveredSeconds: 56.6 })).toBe(false);
+    });
+
+    it("rejects one without a videoId, so bytes are never bound to the wrong track", () => {
+      expect(isPartialCaptureMessage({ ...partial, videoId: undefined })).toBe(false);
+    });
+  });
+
+  describe("invariants", () => {
+    it("is never mistaken for capture-ready, which is the one that sends a track off to be separated", () => {
+      expect(isCaptureReadyMessage(partial)).toBe(false);
+      const ready: CaptureReadyMessage = { type: "blk-capture-ready", videoId: partial.videoId };
+      expect(isPartialCaptureMessage(ready)).toBe(false);
     });
   });
 });

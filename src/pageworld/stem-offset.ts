@@ -8,6 +8,8 @@ interface StemStartInput {
   playerTimeSeconds: number;
   elementTimeSeconds: number;
   stemDurationSeconds: number;
+  deckTrackId: string | null;
+  playerTrackId: string | null;
 }
 
 function usable(value: number): boolean {
@@ -15,7 +17,11 @@ function usable(value: number): boolean {
 }
 
 function resolveStemStart(input: StemStartInput): StemStart {
-  const { playerTimeSeconds, elementTimeSeconds, stemDurationSeconds } = input;
+  const { playerTimeSeconds, elementTimeSeconds, stemDurationSeconds, deckTrackId, playerTrackId } = input;
+
+  if (deckTrackId !== null && playerTrackId !== null && deckTrackId !== playerTrackId) {
+    return { kind: "bypass", reason: `the deck holds ${deckTrackId} and the player is on ${playerTrackId}` };
+  }
 
   if (!Number.isFinite(stemDurationSeconds) || stemDurationSeconds <= 0) {
     return { kind: "bypass", reason: "the stems have no duration" };

@@ -49,7 +49,6 @@ function computeCommit(v: number): CommitFrame {
   };
 }
 
-// One subject throughout, so the words say what the control actually does.
 function labelForValue(v: number): string {
   if (v <= -KARAOKE_THRESHOLD) return "Karaoke";
   if (v < -REST) return "Vocals down";

@@ -21,7 +21,7 @@ import {
 } from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
 import { TrackPipeline } from "./track-pipeline.js";
-import { createLogger } from "../src/shared/logger.js";
+import { createLogger, setLoggingEnabled } from "../src/shared/logger.js";
 
 const logger = createLogger("offscreen");
 
@@ -61,6 +61,7 @@ let currentModelChoice: ModelChoice = {
 let modelChoiceReceived = false;
 
 function applySettings(settings: Settings, model: ModelChoice): void {
+  setLoggingEnabled(settings.debugLoggingEnabled);
   currentCacheBudgetBytes = settings.cacheBudgetBytes;
   currentModelChoice = model;
   modelChoiceReceived = true;

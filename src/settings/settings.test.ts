@@ -5,7 +5,10 @@ import {
   DEFAULT_SETTINGS,
   MAX_CACHE_BUDGET_BYTES,
   MIN_CACHE_BUDGET_BYTES,
+  CROSSFADE_PRESETS_SECONDS,
+  MAX_CROSSFADE_SECONDS,
   isValidCacheBudgetBytes,
+  isValidCrossfadeSeconds,
   sanitizeSettings,
   shouldEvictForNewBudget,
 } from "@/settings/settings";
@@ -124,6 +127,8 @@ describe("sanitizeSettings", () => {
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: "fp16" as const,
       faderPlacement: "bar" as const,
+      crossfadeSeconds: 6,
+      debugLoggingEnabled: false,
     };
     expect(sanitizeSettings(valid)).toEqual(valid);
   });
@@ -175,6 +180,49 @@ describe("sanitizeSettings", () => {
 
   it("ignores an array input", () => {
     expect(sanitizeSettings([1, 2, 3])).toEqual(DEFAULT_SETTINGS);
+  });
+
+  describe("crossfade length", () => {
+    it("keeps a length inside the range, including the zero that means off", () => {
+      for (const seconds of [0, 0.5, 4, 8, MAX_CROSSFADE_SECONDS]) {
+        expect(sanitizeSettings({ crossfadeSeconds: seconds }).crossfadeSeconds).toBe(seconds);
+      }
+    });
+
+    it("falls back to the default for anything out of range or the wrong type", () => {
+      for (const value of [-1, MAX_CROSSFADE_SECONDS + 0.1, Number.NaN, Number.POSITIVE_INFINITY, "8", null, {}]) {
+        expect(sanitizeSettings({ crossfadeSeconds: value }).crossfadeSeconds).toBe(DEFAULT_SETTINGS.crossfadeSeconds);
+      }
+    });
+  });
+});
+
+// -- isValidCrossfadeSeconds --------------------------------------------------
+
+describe("isValidCrossfadeSeconds", () => {
+  it("accepts every preset the popup can offer", () => {
+    for (const seconds of CROSSFADE_PRESETS_SECONDS) expect(isValidCrossfadeSeconds(seconds)).toBe(true);
+  });
+
+  it("accepts the bounds themselves", () => {
+    expect(isValidCrossfadeSeconds(0)).toBe(true);
+    expect(isValidCrossfadeSeconds(MAX_CROSSFADE_SECONDS)).toBe(true);
+  });
+
+  it("rejects anything that could reach setValueCurveAtTime and throw", () => {
+    for (const value of [-0.001, MAX_CROSSFADE_SECONDS + 0.001, Number.NaN, Number.POSITIVE_INFINITY, "8", null]) {
+      expect(isValidCrossfadeSeconds(value)).toBe(false);
+    }
+  });
+
+  it("offers off as the first preset, so it is reachable without a keyboard", () => {
+    expect(CROSSFADE_PRESETS_SECONDS[0]).toBe(0);
+  });
+
+  it("keeps every preset inside the bound the page world enforces", () => {
+    for (const seconds of CROSSFADE_PRESETS_SECONDS) {
+      expect(seconds).toBeLessThanOrEqual(MAX_CROSSFADE_SECONDS);
+    }
   });
 });
 

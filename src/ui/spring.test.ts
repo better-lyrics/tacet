@@ -178,7 +178,6 @@ describe("createSpring", () => {
       expect(midFlightX).toBeGreaterThan(0);
       expect(midFlightX).toBeLessThan(1);
 
-      // A single frame is still pending; retargeting must not queue a second one.
       expect(queue.pendingCount).toBe(1);
       spring.set(-1, "drag");
       expect(queue.pendingCount).toBe(1);

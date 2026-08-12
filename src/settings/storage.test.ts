@@ -40,6 +40,8 @@ describe("loadSettingsFrom", () => {
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: "fp16",
       faderPlacement: DEFAULT_SETTINGS.faderPlacement,
+      crossfadeSeconds: DEFAULT_SETTINGS.crossfadeSeconds,
+      debugLoggingEnabled: DEFAULT_SETTINGS.debugLoggingEnabled,
     });
   });
 
@@ -68,6 +70,8 @@ describe("saveSettingsFrom", () => {
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: DEFAULT_SETTINGS.modelVariant,
       faderPlacement: DEFAULT_SETTINGS.faderPlacement,
+      crossfadeSeconds: DEFAULT_SETTINGS.crossfadeSeconds,
+      debugLoggingEnabled: DEFAULT_SETTINGS.debugLoggingEnabled,
     });
   });
 

@@ -52,7 +52,6 @@ describe("computeMagspec", () => {
 
     const out = computeMagspec(tone(freq, sampleRate));
 
-    // Channel 0 is L_real. Sum |coeff| across time frames per freq bin.
     const energyPerBin = new Float32Array(NUM_FREQ_BINS);
     for (let f = 0; f < NUM_FREQ_BINS; f++) {
       let s = 0;
