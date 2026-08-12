@@ -5,17 +5,17 @@ import type {
   CaptureReadyMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
-  ComingUpTrackMessage,
   DownloadProgressMessage,
-  NextTrackArtworkMessage,
   NextTrackMessage,
+  QueueTracksMessage,
+  TrackArtworkMessage,
 } from "@/capture/bridge-protocol";
 import {
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
-  isRequestComingUpMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
+  isRequestQueueTracksMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs } from "@/capture/capture-coverage";
@@ -24,8 +24,8 @@ import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capt
 import { bufferedRangeEnd } from "@/capture/edge-hopper";
 import { type CapturedSlice, FRAME_ID_PREFIX, captureTrackInSlices } from "@/capture/frame-pool";
 import { log, logError } from "@/capture/log";
-import { nextTrackInQueue, readQueueItems } from "@/capture/next-track";
-import type { NextTrack } from "@/capture/next-track";
+import { currentTrackInQueue, nextTrackInQueue, readQueueItems } from "@/capture/next-track";
+import type { QueueTrack } from "@/capture/next-track";
 import { decidePrefetch } from "@/capture/prefetch-gate";
 import { videoIdsToRelease } from "@/capture/prefetch-retention";
 import { settledTrackDuration } from "@/capture/settled-duration";
@@ -466,33 +466,38 @@ function standDownFor(videoId: string): void {
   log(`capture stood down for videoId=${videoId}, dropped ${retainedBefore} retained chunk(s)`);
 }
 
-// The artwork is resolved here rather than in the popup because only this
-// world can probe an image against music.youtube.com, and because the answer
-// is memoised for the life of the tab either way.
+// -- The queue's own artwork, and the fallback for rows without it -------------
+//
+// A queue row carries its own square cover, which is the picture we want and
+// the one Better Lyrics Shaders shows for the same track. The ytimg resolver
+// below is only for a row that arrived without one, and it runs here rather
+// than in the popup because only this world can probe an image against
+// music.youtube.com.
+
 const artworkResolver = createArtworkResolver(loadImageSizeInPage);
 
 // Asked for by the popup rather than pushed, so the queue is only read while
-// somebody is looking at it. The artwork follows separately because resolving
-// it means loading it.
-function answerComingUpRequest(): void {
-  const next = nextTrackInQueue(readQueueItems(document), listenedVideoId());
-  if (!next) return;
-
-  const message: ComingUpTrackMessage = {
-    type: "blk-coming-up-track",
-    videoId: next.videoId,
-    title: next.title,
-    artist: next.artist,
-  };
-  window.postMessage(message, window.location.origin);
-  postNextTrackArtwork(next.videoId);
+// somebody is looking at it.
+function answerQueueTracksRequest(): void {
+  const items = readQueueItems(document);
+  const listened = listenedVideoId();
+  postQueueTracks(currentTrackInQueue(items, listened), nextTrackInQueue(items, listened));
 }
 
-function postNextTrackArtwork(videoId: string): void {
+function postQueueTracks(now: QueueTrack | null, next: QueueTrack | null): void {
+  const message: QueueTracksMessage = { type: "blk-queue-tracks", now, next };
+  window.postMessage(message, window.location.origin);
+
+  for (const track of [now, next]) {
+    if (track && track.artworkUrl === null) resolveFallbackArtwork(track.videoId);
+  }
+}
+
+function resolveFallbackArtwork(videoId: string): void {
   artworkResolver
     .resolve(albumArtUrlForVideoId(videoId))
     .then(artworkUrl => {
-      const artwork: NextTrackArtworkMessage = { type: "blk-next-track-artwork", videoId, artworkUrl };
+      const artwork: TrackArtworkMessage = { type: "blk-track-artwork", videoId, artworkUrl };
       window.postMessage(artwork, window.location.origin);
     })
     .catch(error => {
@@ -500,16 +505,9 @@ function postNextTrackArtwork(videoId: string): void {
     });
 }
 
-function announceNextTrack(next: NextTrack): void {
-  const message: NextTrackMessage = {
-    type: "blk-next-track",
-    videoId: next.videoId,
-    title: next.title,
-    artist: next.artist,
-  };
+function announceNextTrack(next: QueueTrack): void {
+  const message: NextTrackMessage = { type: "blk-next-track", videoId: next.videoId };
   window.postMessage(message, window.location.origin);
-
-  postNextTrackArtwork(next.videoId);
 }
 
 window.addEventListener("message", event => {
@@ -522,14 +520,16 @@ window.addEventListener("message", event => {
   }
 
   if (isRequestNextPrefetchMessage(data) && runsOrchestration) {
-    const next = nextTrackInQueue(readQueueItems(document), data.videoId);
+    const items = readQueueItems(document);
+    const next = nextTrackInQueue(items, data.videoId);
+    postQueueTracks(currentTrackInQueue(items, data.videoId), next);
     if (!next) {
       log(`no next track in the queue after ${data.videoId}`);
       return;
     }
     announceNextTrack(next);
   }
-  if (isRequestComingUpMessage(data) && runsOrchestration) answerComingUpRequest();
+  if (isRequestQueueTracksMessage(data) && runsOrchestration) answerQueueTracksRequest();
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
 });
 

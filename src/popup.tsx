@@ -1,6 +1,8 @@
 import "./popup.css";
 import tacetIconUrl from "data-base64:../assets/brand/logo.png";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
+import { sizedArtworkUrl } from "@/capture/artwork-url";
+import { separationFill, separationText } from "@/orchestrator/separation-status";
 import { formatBytes } from "@/settings/format-bytes";
 import {
   POPUP_TABS,
@@ -19,14 +21,14 @@ import { extensionVersion } from "@/shared/version";
 import {
   type ClearModelCacheCommand,
   type ClearStemCacheCommand,
-  type ComingUpMessage,
   type GetCacheStatusCommand,
-  type GetComingUpCommand,
+  type GetTrackStatusCommand,
   type HasBetterLyricsCommand,
+  type TrackStatusMessage,
   isBetterLyricsPresenceMessage,
   isCacheStatusMessage,
   isClearCacheResultMessage,
-  isComingUpMessage,
+  isTrackStatusMessage,
 } from "../workers/protocol2";
 
 // -- Popup: settings, storage and About ----------------------------------------
@@ -480,88 +482,202 @@ function createAboutPanel(): HTMLElement {
   return panel;
 }
 
-// -- Coming up ------------------------------------------------------------------
+// -- Playing, and coming up ------------------------------------------------------
 //
-// Artwork is resolved in the page world and handed here already correct, the
-// same division better-lyrics-shaders uses: its popup never re-derives a URL
-// from the DOM, it displays what the content script gives it. The image is
-// held at zero opacity behind a placeholder until it reports a load, and the
-// element is replaced whenever the URL changes so a new track fades in rather
-// than swapping instantly.
+// Which picture to show is settled in the page world and handed here already
+// resolved, the same division better-lyrics-shaders uses: its popup never
+// re-derives a URL from the DOM, it displays what the content script gives it.
+// What size to ask for is settled here, because only this side knows how big
+// the box is. The image is held at zero opacity until it reports a load, and
+// the element is replaced whenever the URL changes so a new track fades in
+// rather than swapping.
 
-const COMING_UP_POLL_MS = 2000;
+const STATUS_POLL_MS = 1000;
 
-type ComingUpTrack = NonNullable<ComingUpMessage["track"]>;
+const NOW_ART_PX = 34;
+const NEXT_ART_PX = 20;
 
-interface ComingUpBand {
+type StatusTrack = NonNullable<TrackStatusMessage["now"]>;
+type TrackStatus = Pick<TrackStatusMessage, "now" | "next" | "separation">;
+
+interface ArtworkThumb {
   element: HTMLElement;
-  render(track: ComingUpTrack | null): void;
+  render(url: string | null): void;
 }
 
-function comingUpState(track: ComingUpTrack): string {
-  if (track.cached === null) return "";
-  return track.cached ? "Ready" : "Not separated";
-}
-
-function createComingUpBand(): ComingUpBand {
-  const element = createElement("div", "blk-upnext");
-  element.hidden = true;
-
-  const thumb = createElement("span", "blk-upnext__thumb");
-  const label = createElement("span", "blk-upnext__label");
-  label.textContent = "Coming up";
-  const title = createElement("span", "blk-upnext__title");
-  const artist = createElement("span", "blk-upnext__artist");
-  const state = createElement("span", "blk-upnext__state");
-  element.append(thumb, label, title, artist, state);
-
-  let shownArtworkUrl: string | null = null;
-
-  function renderArtwork(url: string | null): void {
-    if (url === shownArtworkUrl) return;
-    shownArtworkUrl = url;
-    if (url === null) {
-      thumb.replaceChildren();
-      return;
-    }
-    const image = createElement("img", "blk-upnext__art");
-    image.alt = "";
-    image.addEventListener("load", () => image.classList.add("blk-upnext__art--ready"), { once: true });
-    image.src = url;
-    thumb.replaceChildren(image);
-  }
+function createArtworkThumb(sizePx: number): ArtworkThumb {
+  const element = createElement("span", "blk-status__thumb");
+  let shown: string | null = null;
 
   return {
     element,
-    render(track) {
-      if (track === null) {
-        element.hidden = true;
-        renderArtwork(null);
+    render(url) {
+      if (url === shown) return;
+      shown = url;
+      if (url === null) {
+        element.replaceChildren();
         return;
       }
-      element.hidden = false;
-      title.textContent = track.title ?? "Next track";
-      artist.textContent = track.artist ?? "";
-      state.textContent = comingUpState(track);
-      renderArtwork(track.artworkUrl);
+      const image = createElement("img", "blk-status__art");
+      image.alt = "";
+      image.addEventListener("load", () => image.classList.add("blk-status__art--ready"), { once: true });
+      image.src = sizedArtworkUrl(url, sizePx);
+      element.replaceChildren(image);
     },
   };
 }
 
-async function readComingUp(): Promise<ComingUpTrack | null> {
-  const command: GetComingUpCommand = { type: "blk-get-coming-up" };
+// The fader's hover card roll, verbatim, so the popup and the on-page control
+// move the same way. Both lines share one grid cell and cross over rather than
+// stacking, which is what stops the row resizing under them.
+interface Roll {
+  element: HTMLElement;
+  render(text: string): void;
+}
+
+function createRoll(): Roll {
+  const element = createElement("span", "blk-roll");
+  let shown: string | null = null;
+
+  return {
+    element,
+    render(text) {
+      if (text === shown) return;
+      shown = text;
+
+      const previous = element.querySelector(`.blk-roll__line:not(.blk-roll__line--leaving)`);
+      if (previous) {
+        previous.classList.remove("blk-roll__line--entering");
+        previous.classList.add("blk-roll__line--leaving");
+        previous.addEventListener("animationend", () => previous.remove(), { once: true });
+      }
+      if (text === "") return;
+
+      const line = createElement("span", "blk-roll__line blk-roll__line--entering");
+      line.textContent = text;
+      line.addEventListener("animationend", () => line.classList.remove("blk-roll__line--entering"), { once: true });
+      element.append(line);
+    },
+  };
+}
+
+interface StatusRow {
+  element: HTMLElement;
+  artwork: ArtworkThumb;
+  title: HTMLElement;
+  roll: Roll;
+  replay(): void;
+}
+
+function createStatusRow(modifier: string, artPx: number): StatusRow {
+  const element = createElement("div", `blk-status__row blk-status__row--${modifier}`);
+  const artwork = createArtworkThumb(artPx);
+  const title = createElement("span", "blk-status__title");
+  const roll = createRoll();
+
+  return {
+    element,
+    artwork,
+    title,
+    roll,
+    replay() {
+      element.classList.remove("blk-status__row--promoted");
+      void element.offsetWidth;
+      element.classList.add("blk-status__row--promoted");
+    },
+  };
+}
+
+interface StatusSection {
+  element: HTMLElement;
+  render(status: TrackStatus | null): void;
+}
+
+function nextTrackState(track: StatusTrack): string {
+  if (track.cached === null) return "";
+  return track.cached ? "Ready" : "Not separated";
+}
+
+function createStatusSection(): StatusSection {
+  const element = createElement("div", "blk-status");
+  element.hidden = true;
+
+  const now = createStatusRow("now", NOW_ART_PX);
+  const fill = createElement("span", "blk-status__fill");
+  const nowText = createElement("span", "blk-status__text");
+  const nowArtist = createElement("span", "blk-status__artist");
+  nowText.append(now.title, nowArtist);
+  now.element.append(fill, now.artwork.element, nowText, now.roll.element);
+
+  const next = createStatusRow("next", NEXT_ART_PX);
+  const nextLabel = createElement("span", "blk-status__label");
+  nextLabel.textContent = "Next";
+  const nextText = createElement("span", "blk-status__text");
+  nextText.append(next.title);
+  next.element.append(next.artwork.element, nextLabel, nextText, next.roll.element);
+
+  element.append(now.element, next.element);
+
+  let shownNowId: string | null = null;
+  let shownNextId: string | null = null;
+
+  function renderRow(row: StatusRow, track: StatusTrack | null, state: string): void {
+    row.element.hidden = track === null;
+    if (track === null) {
+      row.artwork.render(null);
+      row.roll.render("");
+      return;
+    }
+    row.title.textContent = track.title ?? "Unknown track";
+    row.roll.render(state);
+    row.artwork.render(track.artworkUrl);
+  }
+
+  return {
+    element,
+    render(status) {
+      if (status === null || (status.now === null && status.next === null)) {
+        element.hidden = true;
+        shownNowId = null;
+        shownNextId = null;
+        return;
+      }
+      element.hidden = false;
+
+      // A queue advance is the next row becoming the playing one, and only
+      // that lifts. A jump to an unrelated track is not an advance.
+      const advanced = status.now !== null && status.now.videoId !== shownNowId && status.now.videoId === shownNextId;
+
+      renderRow(now, status.now, separationText(status.separation));
+      nowArtist.textContent = status.now?.artist ?? "";
+      fill.style.width = `${(separationFill(status.separation) * 100).toFixed(2)}%`;
+
+      renderRow(next, status.next, status.next === null ? "" : nextTrackState(status.next));
+
+      if (advanced) {
+        now.replay();
+        next.replay();
+      }
+      shownNowId = status.now?.videoId ?? null;
+      shownNextId = status.next?.videoId ?? null;
+    },
+  };
+}
+
+async function readTrackStatus(): Promise<TrackStatus | null> {
+  const command: GetTrackStatusCommand = { type: "blk-get-track-status" };
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return null;
 
   try {
     const response = await chrome.tabs.sendMessage(tab.id, command);
-    if (!isComingUpMessage(response)) {
-      console.error(`${LOG_PREFIX} unexpected coming-up reply`, response);
+    if (!isTrackStatusMessage(response)) {
+      console.error(`${LOG_PREFIX} unexpected track status reply`, response);
       return null;
     }
-    return response.track;
+    return response;
   } catch (error) {
-    console.debug(`${LOG_PREFIX} no YouTube Music tab answered the coming-up probe`, error);
+    console.debug(`${LOG_PREFIX} no YouTube Music tab answered the track status probe`, error);
     return null;
   }
 }
@@ -718,19 +834,19 @@ async function main(): Promise<void> {
     scroll.scrollTop = 0;
   }
 
-  const comingUpBand = createComingUpBand();
+  const statusSection = createStatusSection();
 
-  root.append(header, tabs, scroll, comingUpBand.element, footer);
+  root.append(header, statusSection.element, tabs, scroll, footer);
   document.body.append(root);
   render();
 
-  function refreshComingUp(): void {
-    readComingUp()
-      .then(track => comingUpBand.render(track))
-      .catch(error => console.error(`${LOG_PREFIX} failed to read the coming-up track`, error));
+  function refreshStatus(): void {
+    readTrackStatus()
+      .then(status => statusSection.render(status))
+      .catch(error => console.error(`${LOG_PREFIX} failed to read the track status`, error));
   }
-  refreshComingUp();
-  setInterval(refreshComingUp, COMING_UP_POLL_MS);
+  refreshStatus();
+  setInterval(refreshStatus, STATUS_POLL_MS);
 
   async function refreshCacheStatus(): Promise<void> {
     const command: GetCacheStatusCommand = { type: "blk-get-cache-status" };

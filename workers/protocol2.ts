@@ -242,35 +242,44 @@ export function isBetterLyricsPresenceMessage(data: unknown): data is BetterLyri
   );
 }
 
-// -- Coming up probe (popup -> the tab's fader control) ------------------------
+// -- Track status probe (popup -> the tab's fader control) ---------------------
 
-export interface GetComingUpCommand {
-  type: "blk-get-coming-up";
+export interface GetTrackStatusCommand {
+  type: "blk-get-track-status";
 }
 
-export interface ComingUpMessage {
-  type: "blk-coming-up";
-  // null whenever there is nothing to show: no queue, sing-along off, or the
-  // pipeline has not been told about a next track yet.
-  track: {
-    videoId: string;
-    title: string | null;
-    artist: string | null;
-    artworkUrl: string | null;
-    cached: boolean | null;
-  } | null;
+export interface StatusTrackRecord {
+  videoId: string;
+  title: string | null;
+  artist: string | null;
+  artworkUrl: string | null;
+  cached: boolean | null;
 }
 
-export function isGetComingUpCommand(data: unknown): data is GetComingUpCommand {
-  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-coming-up";
+export interface TrackStatusMessage {
+  type: "blk-track-status";
+  // Either row is null whenever there is nothing to show there: no queue, no
+  // YouTube Music tab, or nothing after the track playing.
+  now: StatusTrackRecord | null;
+  next: StatusTrackRecord | null;
+  // null whenever no pipeline is running, which is the whole of sing-along
+  // being switched off.
+  separation: { label: string; percent: number | null; complete: boolean } | null;
 }
 
-export function isComingUpMessage(data: unknown): data is ComingUpMessage {
+export function isGetTrackStatusCommand(data: unknown): data is GetTrackStatusCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-track-status";
+}
+
+function isStatusTrackRecord(value: unknown): value is StatusTrackRecord | null {
+  if (value === null) return true;
+  return typeof value === "object" && typeof (value as { videoId?: unknown }).videoId === "string";
+}
+
+export function isTrackStatusMessage(data: unknown): data is TrackStatusMessage {
   if (typeof data !== "object" || data === null) return false;
-  if ((data as { type?: unknown }).type !== "blk-coming-up") return false;
-  const track = (data as { track?: unknown }).track;
-  if (track === null) return true;
-  return typeof track === "object" && typeof (track as { videoId?: unknown }).videoId === "string";
+  if ((data as { type?: unknown }).type !== "blk-track-status") return false;
+  return isStatusTrackRecord((data as { now?: unknown }).now) && isStatusTrackRecord((data as { next?: unknown }).next);
 }
 
 // -- Settings relay (offscreen has no chrome.storage) --------------------------

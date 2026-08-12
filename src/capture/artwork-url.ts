@@ -1,9 +1,10 @@
 // -- YouTube thumbnail resolution ----------------------------------------------
 //
-// Ported from better-lyrics-shaders, contents/lib/kawarpManager.ts
-// (getVideoIdFromUrl, getHqFallbackUrl, placeholderCache, resolveImageUrl), so
-// the two extensions show the same artwork for the same track. The semantics
-// worth keeping exactly:
+// The square cover on a queue row is always preferred, and this module is only
+// the fallback for a track that has none. Ported from better-lyrics-shaders,
+// contents/lib/kawarpManager.ts (getHqFallbackUrl, placeholderCache,
+// resolveImageUrl), so the two extensions land on the same picture. The
+// semantics worth keeping exactly:
 //   - a URL that is not an i.ytimg thumbnail is returned untouched and is not
 //     cached, because there is nothing to probe
 //   - maxresdefault does not exist for every video, and YouTube answers with a
@@ -74,6 +75,19 @@ function createArtworkResolver(loadImageSize: LoadImageSize): ArtworkResolver {
   };
 }
 
+// -- Asking for the size actually being drawn ----------------------------------
+//
+// googleusercontent serves any size the URL asks for, so a 20px thumb asks for
+// 40px rather than downscaling the 544px cover the queue happens to name.
+// Anything without that parameter, ytimg included, is left alone.
+
+const SIZE_PARAMETER_PATTERN = /=w\d+-h\d+/;
+
+function sizedArtworkUrl(url: string, cssPixels: number): string {
+  const edge = Math.max(1, Math.round(cssPixels * 2));
+  return url.replace(SIZE_PARAMETER_PATTERN, `=w${edge}-h${edge}`);
+}
+
 function loadImageSizeInPage(url: string): Promise<LoadedSize | null> {
   return new Promise(resolve => {
     const image = new Image();
@@ -91,6 +105,7 @@ export {
   isThumbnailUrl,
   isPlaceholderThumbnail,
   createArtworkResolver,
+  sizedArtworkUrl,
   loadImageSizeInPage,
 };
 export type { ArtworkResolver, LoadImageSize, LoadedSize };

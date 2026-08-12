@@ -595,37 +595,89 @@ body {
   color: var(--blk-text);
 }
 
-/* -- Coming up --------------------------------------------------------------- */
+/* -- Playing, and coming up --------------------------------------------------- */
 
-.blk-upnext {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.blk-status {
   flex: none;
-  padding: 9px 14px;
-  background: var(--blk-bg);
-  border-top: 1px solid var(--blk-line);
+  padding: 8px 12px 10px;
 }
 
-.blk-upnext[hidden] {
+.blk-status[hidden] {
   display: none;
 }
 
-.blk-upnext__thumb {
+.blk-status__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--blk-l1);
+}
+
+.blk-status__row[hidden] {
+  display: none;
+}
+
+/* Separation progress, drawn as the row's own background rather than as a bar,
+   so the accent carries information instead of decorating. It stays full at
+   Ready. Everything but the fill is lifted above it. */
+.blk-status__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--blk-accent) 26%, transparent),
+    color-mix(in srgb, var(--blk-accent) 12%, transparent)
+  );
+  transition: width 420ms var(--blk-ease);
+}
+
+.blk-status__row > *:not(.blk-status__fill) {
+  position: relative;
+}
+
+.blk-status__row--next {
+  margin-top: 2px;
+  background: transparent;
+}
+
+.blk-status__row--promoted {
+  animation: blk-promote 340ms var(--blk-ease);
+}
+
+@keyframes blk-promote {
+  from {
+    transform: translateY(9px);
+    opacity: 0;
+  }
+}
+
+.blk-status__thumb {
   position: relative;
   display: block;
   flex: none;
-  width: 22px;
-  height: 22px;
-  margin-right: 3px;
-  border-radius: 4px;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
   background: var(--blk-l2);
   overflow: hidden;
 }
 
-/* Held at zero until the image reports a load, so a slow or missing thumbnail
+.blk-status__row--next .blk-status__thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+/* Held at zero until the image reports a load, so a slow or missing cover
    shows the placeholder underneath rather than a broken frame. */
-.blk-upnext__art {
+.blk-status__art {
   display: block;
   width: 100%;
   height: 100%;
@@ -634,40 +686,104 @@ body {
   transition: opacity 500ms ease-in;
 }
 
-.blk-upnext__art--ready {
+.blk-status__art--ready {
   opacity: 1;
 }
 
-.blk-upnext__label {
-  flex: none;
-  font-size: 11.5px;
-  color: var(--blk-text-3);
+.blk-status__text {
+  flex: 1;
+  min-width: 0;
 }
 
-.blk-upnext__title {
-  flex: 0 1 auto;
-  min-width: 0;
+.blk-status__title {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--blk-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--blk-text);
 }
 
-.blk-upnext__artist {
-  flex: none;
-  font-size: 11.5px;
-  color: var(--blk-text-3);
-}
-
-.blk-upnext__state {
-  flex: none;
-  margin-left: auto;
-  padding-left: 10px;
+.blk-status__artist {
+  display: block;
   font-size: 11px;
   color: var(--blk-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blk-status__row--next .blk-status__title {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--blk-text-2);
+}
+
+.blk-status__label {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--blk-text-3);
+}
+
+/* -- The state roll, taken from the fader's hover card ------------------------ */
+/*
+   Both lines share one grid cell so they cross over each other instead of
+   stacking and resizing the row, and the timing matches src/ui/fader.css, so
+   the popup and the on-page control move the same way.
+*/
+
+.blk-roll {
+  display: grid;
+  flex: none;
+  justify-items: end;
+  text-align: right;
+}
+
+.blk-roll__line {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+  transform-origin: 100% 50%;
+  font-size: 11px;
+  color: var(--blk-text-2);
   font-variant-numeric: tabular-nums;
+}
+
+.blk-roll__line--leaving {
+  animation: blk-tip-out 320ms var(--blk-ease) forwards;
+}
+
+.blk-roll__line--entering {
+  animation: blk-tip-in 320ms var(--blk-ease) backwards;
+}
+
+@keyframes blk-tip-out {
+  to {
+    transform: translateY(-10%) scale(0.86);
+    filter: blur(5px);
+    opacity: 0;
+  }
+}
+
+@keyframes blk-tip-in {
+  from {
+    transform: translateY(10%) scale(0.86);
+    filter: blur(5px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blk-status__row--promoted,
+  .blk-roll__line--leaving,
+  .blk-roll__line--entering {
+    animation-duration: 1ms;
+  }
+
+  .blk-status__fill,
+  .blk-status__art {
+    transition-duration: 1ms;
+  }
 }
 
 /* -- About ------------------------------------------------------------------- */

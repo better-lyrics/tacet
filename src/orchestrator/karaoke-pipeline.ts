@@ -12,7 +12,6 @@ import {
   isDownloadProgressMessage,
   isNextTrackMessage,
 } from "@/capture/bridge-protocol";
-import { comingUpStore } from "@/orchestrator/coming-up-store";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import {
@@ -23,6 +22,7 @@ import {
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
+import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import type { LoadStemsMessage, SetMixLevelMessage, StopStemsMessage } from "@/pageworld/protocol";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
@@ -219,7 +219,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isNextTrackMessage(data)) {
-      comingUpStore.setTrack({ videoId: data.videoId, title: data.title ?? null, artist: data.artist ?? null });
       if (data.videoId === state.videoId) return;
       prefetchVideoId = data.videoId;
       log(`next up is ${data.videoId}, checking whether it needs separating`);
@@ -343,7 +342,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function onRuntimeMessage(message: unknown): void {
     if (isCacheHitMessage(message)) {
-      comingUpStore.setCached(message.videoId, true);
+      trackStatusStore.setCached(message.videoId, true);
       if (message.videoId === prefetchVideoId) {
         log(`next track ${message.videoId} is already separated`);
         prefetchVideoId = null;
@@ -357,7 +356,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isCacheMissMessage(message)) {
-      comingUpStore.setCached(message.videoId, false);
+      trackStatusStore.setCached(message.videoId, false);
       if (message.videoId === prefetchVideoId) {
         log(`next track ${message.videoId} is not separated yet, warming it`);
         postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });

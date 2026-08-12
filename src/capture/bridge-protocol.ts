@@ -40,28 +40,34 @@ export interface RequestNextPrefetchMessage {
 export interface NextTrackMessage {
   type: "blk-next-track";
   videoId: string;
-  title?: string | null;
-  artist?: string | null;
 }
 
-export interface RequestComingUpMessage {
-  type: "blk-request-coming-up";
+export interface RequestQueueTracksMessage {
+  type: "blk-request-queue-tracks";
 }
 
-// Answered whether or not anything is being separated, because the band is
-// about the queue rather than about the pipeline.
-export interface ComingUpTrackMessage {
-  type: "blk-coming-up-track";
+// Answered whether or not anything is being separated, because the section is
+// about the queue rather than about the pipeline. Both rows travel together
+// because they come from one read of the same queue.
+export interface QueueTrackNames {
   videoId: string;
   title: string | null;
   artist: string | null;
+  artworkUrl: string | null;
 }
 
-// Sent separately, and possibly seconds later, because resolving a thumbnail
-// means loading it. blk-next-track is a retry signal for the prefetch gate, so
-// it must not be re-sent just to carry a picture.
-export interface NextTrackArtworkMessage {
-  type: "blk-next-track-artwork";
+export interface QueueTracksMessage {
+  type: "blk-queue-tracks";
+  now: QueueTrackNames | null;
+  next: QueueTrackNames | null;
+}
+
+// Sent separately, and possibly seconds later, for the tracks with no square
+// cover of their own, because resolving an i.ytimg thumbnail means loading it.
+// blk-next-track is a retry signal for the prefetch gate, so it must not be
+// re-sent just to carry a picture.
+export interface TrackArtworkMessage {
+  type: "blk-track-artwork";
   videoId: string;
   artworkUrl: string;
 }
@@ -162,24 +168,30 @@ export function isNextTrackMessage(data: unknown): data is NextTrackMessage {
   );
 }
 
-export function isRequestComingUpMessage(data: unknown): data is RequestComingUpMessage {
-  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-request-coming-up";
+export function isRequestQueueTracksMessage(data: unknown): data is RequestQueueTracksMessage {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-request-queue-tracks";
 }
 
-export function isComingUpTrackMessage(data: unknown): data is ComingUpTrackMessage {
+function isQueueTrackNames(value: unknown): value is QueueTrackNames | null {
+  if (value === null) return true;
+  return typeof value === "object" && typeof (value as { videoId?: unknown }).videoId === "string";
+}
+
+export function isQueueTracksMessage(data: unknown): data is QueueTracksMessage {
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === "blk-coming-up-track" &&
-    typeof (data as { videoId?: unknown }).videoId === "string"
+    (data as { type?: unknown }).type === "blk-queue-tracks" &&
+    isQueueTrackNames((data as { now?: unknown }).now) &&
+    isQueueTrackNames((data as { next?: unknown }).next)
   );
 }
 
-export function isNextTrackArtworkMessage(data: unknown): data is NextTrackArtworkMessage {
+export function isTrackArtworkMessage(data: unknown): data is TrackArtworkMessage {
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === "blk-next-track-artwork" &&
+    (data as { type?: unknown }).type === "blk-track-artwork" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     typeof (data as { artworkUrl?: unknown }).artworkUrl === "string"
   );

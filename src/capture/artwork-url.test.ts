@@ -6,6 +6,7 @@ import {
   hqFallbackUrl,
   isPlaceholderThumbnail,
   isThumbnailUrl,
+  sizedArtworkUrl,
 } from "@/capture/artwork-url";
 import { describe, expect, it } from "vitest";
 
@@ -124,6 +125,52 @@ describe("artwork url", () => {
     it("regression: an hqdefault url that is itself a placeholder is not rewritten in a loop", async () => {
       const loader = countingLoader({ [HQ]: PLACEHOLDER });
       await expect(createArtworkResolver(loader.load).resolve(HQ)).resolves.toBe(HQ);
+    });
+  });
+});
+
+const SQUARE = "https://yt3.googleusercontent.com/X6tIdGPzwnsjdEauBFK5kq=w544-h544-l90-rj";
+
+describe("sizedArtworkUrl", () => {
+  describe("happy path", () => {
+    it("asks for twice the box being drawn", () => {
+      expect(sizedArtworkUrl(SQUARE, 34)).toBe(
+        "https://yt3.googleusercontent.com/X6tIdGPzwnsjdEauBFK5kq=w68-h68-l90-rj"
+      );
+      expect(sizedArtworkUrl(SQUARE, 20)).toBe(
+        "https://yt3.googleusercontent.com/X6tIdGPzwnsjdEauBFK5kq=w40-h40-l90-rj"
+      );
+    });
+
+    it("keeps everything after the size, which is what makes it a square crop", () => {
+      expect(sizedArtworkUrl(SQUARE, 34).endsWith("-l90-rj")).toBe(true);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("leaves a url without a size parameter alone", () => {
+      expect(sizedArtworkUrl(MAXRES, 34)).toBe(MAXRES);
+    });
+
+    it("rounds a fractional box up to a whole pixel", () => {
+      expect(sizedArtworkUrl(SQUARE, 17.5)).toContain("=w35-h35");
+    });
+
+    it("never asks for a zero-pixel image", () => {
+      expect(sizedArtworkUrl(SQUARE, 0)).toContain("=w1-h1");
+      expect(sizedArtworkUrl(SQUARE, -8)).toContain("=w1-h1");
+    });
+  });
+
+  describe("invariants", () => {
+    it("is idempotent at the same size", () => {
+      const once = sizedArtworkUrl(SQUARE, 34);
+      expect(sizedArtworkUrl(once, 34)).toBe(once);
+    });
+
+    it("rewrites from any rung of the ladder to the same answer", () => {
+      const small = SQUARE.replace("=w544-h544", "=w60-h60");
+      expect(sizedArtworkUrl(small, 34)).toBe(sizedArtworkUrl(SQUARE, 34));
     });
   });
 });
