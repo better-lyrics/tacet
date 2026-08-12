@@ -45,6 +45,39 @@ export interface CaptureChunkMessage {
   data: string;
 }
 
+export interface ObservedRequestsCommand {
+  type: "blk-observed-requests-please";
+}
+
+export interface ObservedRequestRecord {
+  at: number;
+  url: string;
+  method: string;
+  bodyBytes: number;
+  body: string;
+}
+
+export interface ObservedRequestsMessage {
+  type: "blk-observed-requests";
+  counts: Record<string, number>;
+  requests: ObservedRequestRecord[];
+}
+
+export function isObservedRequestsCommand(data: unknown): data is ObservedRequestsCommand {
+  return (
+    typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-observed-requests-please"
+  );
+}
+
+export function isObservedRequestsMessage(data: unknown): data is ObservedRequestsMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-observed-requests" &&
+    Array.isArray((data as { requests?: unknown }).requests)
+  );
+}
+
 export interface AcquireTrackCommand {
   type: "blk-acquire-track";
   videoId: string;

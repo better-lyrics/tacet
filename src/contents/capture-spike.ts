@@ -729,8 +729,18 @@ window.blkMintUrlProbe = async (videoId: string) => {
 
 window.blkCaptureProbe = () => {
   const videoId = listenedVideoId();
+  const stats = accumulator.getStats();
   return {
     videoId,
+    accumulator: {
+      videoId: stats.videoId,
+      totalBytes: stats.totalBytes,
+      appendCount: stats.appendCount,
+      retainedChunkCount: stats.retainedChunkCount,
+      initSegmentCount: stats.initSegmentCount,
+      hitCap: stats.hitCap,
+      stoodDown: stats.stoodDown,
+    },
     prefetchState: videoId ? prefetchStateByVideoId.get(videoId) ?? null : null,
     hiddenPlayerOwnsCurrent: videoId ? hiddenPlayerOwns(videoId) : false,
     attempts: videoId ? prefetchAttemptsByVideoId.get(videoId) ?? 0 : 0,
