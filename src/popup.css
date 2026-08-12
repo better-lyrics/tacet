@@ -555,11 +555,9 @@ body {
 
 .blk-cache__title {
   flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--blk-text-3);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--blk-text-2);
 }
 
 .blk-cache__row {
