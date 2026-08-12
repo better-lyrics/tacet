@@ -458,7 +458,7 @@ function createAboutPanel(): HTMLElement {
   const name = createElement("h2", "blk-about__name");
   name.textContent = "Tacet";
   const tagline = createElement("p", "blk-about__tagline");
-  tagline.textContent = "Vocals separated on your own machine.";
+  tagline.textContent = "Playback controls, on your own machine.";
   heroText.append(name, tagline);
   hero.append(mark, heroText);
 
@@ -477,9 +477,17 @@ function createAboutPanel(): HTMLElement {
     hero,
     createAboutSection("What it is", body => {
       body.textContent =
-        "Tacet lifts the voice out of whatever is playing on YouTube Music and gives you a fader to set how much of it comes back. All the way down is karaoke. Anywhere in between is a guide vocal.";
+        "Tacet sits inside YouTube Music and adds the controls the player does not have. Today that means a fader that lifts the voice out of a track, and a crossfade that stops songs ending cold. More will follow.";
     }),
-    createAboutSection("Where the work happens", body => {
+    createAboutSection("Sing-along", body => {
+      body.textContent =
+        "The fader runs from the song as recorded down to the instrumental on its own. All the way down is karaoke. Anywhere in between is a guide vocal.";
+    }),
+    createAboutSection("Crossfade", body => {
+      body.textContent =
+        "One track blends into the next instead of stopping dead. It does not wait on separation: with no stems to fade out of, the fade runs on the original audio. Set the length under General, or turn it off there.";
+    }),
+    createAboutSection("Where the separation happens", body => {
       body.textContent =
         "On your own GPU, in your own browser, and nowhere else. The track is captured as it plays, cut into short segments, and run through htdemucs on WebGPU. No audio ever leaves the machine.";
     }),
@@ -487,10 +495,7 @@ function createAboutPanel(): HTMLElement {
       body.textContent =
         "The model downloads once and is kept. Separated tracks are kept too, so hearing one again starts instantly. Both live under Storage, along with a budget and a way to clear them.";
     }),
-    createAboutSection("Crossfade", body => {
-      body.textContent =
-        "One track blends into the next instead of stopping dead. It does not wait on separation: with no stems to fade out of, the fade runs on the original audio. Set the length under General, or turn it off there.";
-    }),
+
     createAboutSection("Better Lyrics", body => {
       body.append(
         "Optional, but the two are built to sit together: with it installed the fader docks into the lyrics controls instead of the player bar. ",

@@ -5,7 +5,7 @@
 <h1 align="center">Tacet</h1>
 
 <p align="center">
-  Vocal separation for YouTube Music, running entirely in your browser.
+  A playback layer for YouTube Music, running entirely in your browser.
 </p>
 
 <p align="center">
@@ -14,12 +14,11 @@
   <a href="https://github.com/better-lyrics/tacet/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/better-lyrics/tacet/release.yml?label=build&color=black" alt="Build" /></a>
 </p>
 
-Tacet splits whatever you are listening to into vocals and instrumental, then
-gives you a fader that runs from the song as recorded down to the instrumental
-on its own. Take the vocal all the way out for karaoke, or stop part way and
-keep a guide vocal under you. It runs
-[htdemucs](https://github.com/adefossez/demucs) on WebGPU, so your music never
-leaves your machine.
+Tacet runs inside the YouTube Music page and adds playback controls the player
+does not have. Today that means pulling the vocal out of a track so you can fade
+it down to nothing for karaoke, and blending one song into the next instead of
+letting it stop dead. More will follow. All of it happens on your own machine,
+and none of your audio leaves the browser.
 
 > [!WARNING]
 > Tacet is not on any extension store, and probably will not be. It works by
@@ -33,13 +32,21 @@ leaves your machine.
 > Tacet mounts its control straight into the Better Lyrics dock when that is
 > installed, and the three are built to sit together in the same player.
 
-## Features
+## What it does
 
-- A vertical fader that takes the vocal down, all the way out, or anywhere in between
-- Separation happens on your machine, on the GPU, with nothing uploaded
-- Tracks are separated ahead of you, so the fader is usually ready before you reach for it
-- Stems are cached, so a song you have played before is instant
-- Follows the player: pause, seek and skip all stay in sync
+### Sing-along
+
+Tacet splits the track into vocals and instrumental and gives you a vertical
+fader between them. All the way down is karaoke. Anywhere in between is a guide
+vocal. Tracks are separated ahead of you, so the fader is usually ready before
+you reach for it, and stems are cached, so a song you have played before starts
+instantly. Pause, seek and skip all stay in sync.
+
+### Crossfade
+
+One track blends into the next instead of stopping dead. It does not wait on
+separation: with no stems to fade out of, the fade runs on the original audio.
+Set the length in the popup, or turn it off there.
 
 ## Install
 
@@ -71,18 +78,29 @@ the next page load.
 
 ## Settings
 
+The popup groups these under General, Separation and Storage.
+
 | Setting | Default | What it does |
 |---|---|---|
 | Sing-along | on | The master switch |
-| Separate automatically | on | Gets each track ready before you touch the fader |
+| Crossfade | 8s | Blends the end of one track into the start of the next |
+| Fader position | Lyrics dock | Where the control sits when Better Lyrics is installed |
+| Console logging | off | Prints what the extension is doing, for debugging |
+| Start separating automatically | on | Gets each track ready before you touch the fader |
+| Model precision | Full | Half is a smaller download that sounds much the same |
 | Cache budget | 250 MB | How many separated songs to keep |
 
 ## How it works
 
 The extension captures the audio the player is already streaming, decodes it,
-and runs htdemucs over it in an offscreen document. The two stems come back as
-Opus, get cached in IndexedDB, and play through a pair of gain nodes that follow
-the player's own transport. The fader just moves those gains.
+and runs [htdemucs](https://github.com/adefossez/demucs) over it in an offscreen
+document. The two stems come back as Opus, get cached in IndexedDB, and play
+through a pair of gain nodes that follow the player's own transport. The fader
+just moves those gains.
+
+Crossfade needs the next track early, so Tacet fetches and decodes it before the
+current one ends and lets the two overlap for a few seconds. If stems are ready
+it fades between those. If not it fades the originals.
 
 ## Development
 
