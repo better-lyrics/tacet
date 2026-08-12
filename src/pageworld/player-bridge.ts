@@ -1,4 +1,3 @@
-import { isAdPlaying } from "@/capture/ad-state";
 import { BETTER_LYRICS_PLAYER_EVENT } from "@/orchestrator/player-source";
 import { currentPlayerSnapshot } from "@/pageworld/player-state";
 import type { PlayerSnapshot } from "@/pageworld/player-state";
@@ -29,14 +28,12 @@ interface PlayerStateMessage {
 
 interface PublishInput {
   snapshot: PlayerSnapshot | null;
-  adPlaying: boolean;
   betterLyricsPublishing: boolean;
 }
 
 function shouldPublishPlayerState(input: PublishInput): boolean {
   if (input.betterLyricsPublishing) return false;
-  if (input.snapshot === null) return false;
-  return !input.adPlaying;
+  return input.snapshot !== null;
 }
 
 function startPlayerBridge(): () => void {
@@ -44,7 +41,7 @@ function startPlayerBridge(): () => void {
 
   function publish(): void {
     const snapshot = currentPlayerSnapshot(document);
-    if (!shouldPublishPlayerState({ snapshot, adPlaying: isAdPlaying(document), betterLyricsPublishing })) return;
+    if (!shouldPublishPlayerState({ snapshot, betterLyricsPublishing })) return;
     if (snapshot === null) return;
     const message: PlayerStateMessage = {
       type: "blk-player-state",
