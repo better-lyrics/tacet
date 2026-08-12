@@ -1,6 +1,6 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
-import { nextSource, sanitizeSourceOrder } from "@/acquisition/sources";
+import { enabledOrder, nextSource, sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import {
@@ -632,7 +632,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
         if (climb.inFlight || climb.exhausted) return;
 
-        const order = sanitizeSourceOrder(settings.sourceOrder);
+        const order = enabledOrder(sanitizeSourcePreferences(settings.sources));
         for (;;) {
           const source = nextSource({ order, playingTrack: true, tried: climb.tried });
           if (!source) {

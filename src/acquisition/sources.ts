@@ -50,15 +50,39 @@ function reaches(id: SourceId, playingTrack: boolean): boolean {
   return playingTrack || sourceById(id).reach === "any-track";
 }
 
-// -- The order the listener asked for --------------------------------------------
+// -- What the listener asked for, which is one value ------------------------------
 
-function sanitizeSourceOrder(raw: unknown): SourceId[] {
-  const named = Array.isArray(raw) ? raw.filter(isSourceId) : [];
-  const order: SourceId[] = [];
-  for (const id of [...named, ...SOURCE_IDS]) {
-    if (!order.includes(id)) order.push(id);
+interface SourcePreference {
+  id: SourceId;
+  enabled: boolean;
+}
+
+function readPreference(raw: unknown): SourcePreference | null {
+  if (isSourceId(raw)) return { id: raw, enabled: true };
+  if (typeof raw !== "object" || raw === null) return null;
+  const record = raw as Record<string, unknown>;
+  if (!isSourceId(record.id)) return null;
+  return { id: record.id, enabled: record.enabled !== false };
+}
+
+function sanitizeSourcePreferences(raw: unknown): SourcePreference[] {
+  const preferences: SourcePreference[] = [];
+  const seen = new Set<SourceId>();
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    const preference = readPreference(entry);
+    if (!preference || seen.has(preference.id)) continue;
+    seen.add(preference.id);
+    preferences.push(preference);
   }
-  return order;
+  for (const id of SOURCE_IDS) {
+    if (seen.has(id)) continue;
+    preferences.push({ id, enabled: true });
+  }
+  return preferences;
+}
+
+function enabledOrder(preferences: readonly SourcePreference[]): SourceId[] {
+  return preferences.filter(preference => preference.enabled).map(preference => preference.id);
 }
 
 // -- The ladder ------------------------------------------------------------------
@@ -78,5 +102,5 @@ function nextSource(input: LadderInput): SourceId | null {
   return null;
 }
 
-export { SOURCES, SOURCE_IDS, isSourceId, nextSource, reaches, sanitizeSourceOrder, sourceById };
-export type { LadderInput, SourceId, SourceDefinition, SourceReach };
+export { SOURCES, SOURCE_IDS, enabledOrder, isSourceId, nextSource, reaches, sanitizeSourcePreferences, sourceById };
+export type { LadderInput, SourceId, SourceDefinition, SourcePreference, SourceReach };

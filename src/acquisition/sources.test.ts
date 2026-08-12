@@ -5,7 +5,8 @@ import {
   isSourceId,
   nextSource,
   reaches,
-  sanitizeSourceOrder,
+  enabledOrder,
+  sanitizeSourcePreferences,
   sourceById,
 } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
@@ -99,25 +100,35 @@ describe("nextSource", () => {
   });
 });
 
-describe("sanitizeSourceOrder", () => {
+describe("sanitizeSourcePreferences", () => {
+  const ids = (raw: unknown) => sanitizeSourcePreferences(raw).map(preference => preference.id);
+
   it("keeps the order the listener stated", () => {
-    expect(sanitizeSourceOrder(["hidden-player", "player-capture", "direct-fetch"])).toEqual([
-      "hidden-player",
-      "player-capture",
-      "direct-fetch",
-    ]);
+    expect(
+      ids([
+        { id: "hidden-player", enabled: true },
+        { id: "player-capture", enabled: true },
+        { id: "direct-fetch", enabled: true },
+      ])
+    ).toEqual(["hidden-player", "player-capture", "direct-fetch"]);
+  });
+
+  it("carries enablement alongside the order", () => {
+    expect(sanitizeSourcePreferences([{ id: "direct-fetch", enabled: false }])[0]).toEqual({
+      id: "direct-fetch",
+      enabled: false,
+    });
   });
 
   describe("edge cases", () => {
     it("falls back to the registry order for anything unusable", () => {
-      expect(sanitizeSourceOrder(undefined)).toEqual([...SOURCE_IDS]);
-      expect(sanitizeSourceOrder(null)).toEqual([...SOURCE_IDS]);
-      expect(sanitizeSourceOrder("direct-fetch")).toEqual([...SOURCE_IDS]);
-      expect(sanitizeSourceOrder({})).toEqual([...SOURCE_IDS]);
+      for (const raw of [undefined, null, "direct-fetch", {}]) {
+        expect(ids(raw)).toEqual([...SOURCE_IDS]);
+      }
     });
 
     it("drops names it does not recognise", () => {
-      expect(sanitizeSourceOrder(["torrent", "player-capture", 7])).toEqual([
+      expect(ids(["torrent", { id: "player-capture" }, 7])).toEqual([
         "player-capture",
         "hidden-player",
         "direct-fetch",
@@ -125,24 +136,65 @@ describe("sanitizeSourceOrder", () => {
     });
 
     it("keeps the first mention of a repeated source", () => {
-      expect(sanitizeSourceOrder(["player-capture", "player-capture", "direct-fetch"])).toEqual([
+      expect(ids([{ id: "player-capture" }, { id: "player-capture" }, { id: "direct-fetch" }])).toEqual([
         "player-capture",
         "direct-fetch",
         "hidden-player",
       ]);
     });
+
+    it("reads a bare list of ids, which is what was stored before enablement existed", () => {
+      expect(sanitizeSourcePreferences(["direct-fetch", "hidden-player"])).toEqual([
+        { id: "direct-fetch", enabled: true },
+        { id: "hidden-player", enabled: true },
+        { id: "player-capture", enabled: true },
+      ]);
+    });
+
+    it("treats a missing enabled flag as on rather than off", () => {
+      expect(sanitizeSourcePreferences([{ id: "direct-fetch" }])[0].enabled).toBe(true);
+    });
   });
 
   describe("invariants", () => {
     it("always answers with every registered source, whatever it was given", () => {
-      for (const raw of [undefined, [], ["direct-fetch"], ["nonsense"], ["player-capture", "player-capture"]]) {
-        const order = sanitizeSourceOrder(raw);
-        expect([...order].sort()).toEqual([...SOURCE_IDS].sort());
+      for (const raw of [undefined, [], ["direct-fetch"], ["nonsense"], [{ id: "player-capture", enabled: false }]]) {
+        expect([...ids(raw)].sort()).toEqual([...SOURCE_IDS].sort());
       }
     });
 
+    it("a source appended to fill a gap is never silently disabled", () => {
+      const filled = sanitizeSourcePreferences([{ id: "direct-fetch", enabled: false }]);
+      expect(filled.filter(preference => preference.id !== "direct-fetch").every(p => p.enabled)).toBe(true);
+    });
+
     it("regression: an order naming one source still leaves the others to fall back on", () => {
-      expect(sanitizeSourceOrder(["direct-fetch"])).toHaveLength(SOURCE_IDS.length);
+      expect(sanitizeSourcePreferences(["direct-fetch"])).toHaveLength(SOURCE_IDS.length);
+    });
+  });
+});
+
+describe("enabledOrder", () => {
+  it("keeps only what the listener left on, in their order", () => {
+    expect(
+      enabledOrder([
+        { id: "direct-fetch", enabled: true },
+        { id: "hidden-player", enabled: false },
+        { id: "player-capture", enabled: true },
+      ])
+    ).toEqual(["direct-fetch", "player-capture"]);
+  });
+
+  describe("edge cases", () => {
+    it("answers with nothing when every source is off", () => {
+      expect(enabledOrder(SOURCE_IDS.map(id => ({ id, enabled: false })))).toEqual([]);
+    });
+  });
+
+  describe("invariants", () => {
+    it("never invents a source that was not in the preferences", () => {
+      const order = enabledOrder([{ id: "direct-fetch", enabled: true }]);
+      expect(order).toEqual(["direct-fetch"]);
     });
   });
 });
