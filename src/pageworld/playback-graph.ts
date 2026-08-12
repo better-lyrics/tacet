@@ -2,7 +2,6 @@
 
 import { decideCrossfade, judgeIncomingStems } from "@/automix/crossfade-gate";
 import { CROSSFADE_CURVE_STEPS, equalPowerCurve, fadeCurve } from "@/automix/transition";
-import type { FadeShape } from "@/automix/transition";
 import { audibleSource } from "@/pageworld/audible-source";
 import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
 import type { AudibleSource } from "@/pageworld/audible-source";
@@ -40,8 +39,10 @@ interface CrossfadeTiming {
   incomingOffsetSeconds?: number;
   startInSeconds?: number;
   videoId?: string;
-  shape?: FadeShape;
+  kind?: HandoverKind;
 }
+
+type HandoverKind = "transition" | "swap";
 
 interface StemsCrossfadeRequest extends CrossfadeTiming {
   vocals: Float32Array<ArrayBuffer>[];
@@ -142,8 +143,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     outgoingFrom: "deck" | "original";
     endsAtContextTime: number;
     videoId: string | null;
+    kind: HandoverKind;
   } | null = null;
-  decks[1].setGain(0);
+  decks[1].setGain(0, 0);
 
   const deck = (): Deck => decks[activeDeck];
   const idleDeck = (): Deck => decks[activeDeck === 0 ? 1 : 0];
@@ -254,6 +256,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
     setOriginalGain(0);
     deck().startAt(start.offsetSeconds);
+    deck().fadeIn();
     deck().setMixLevel(currentMixLevel);
   }
 
@@ -385,7 +388,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       videoId: load.trackId,
       incomingOffsetSeconds: position,
       startInSeconds: 0,
-      shape: "equal-gain",
+      kind: "swap",
     });
     if (result.kind === "refused") {
       logger.log(`not swapping ${load.trackId} in place, ${result.reason}`);
@@ -464,10 +467,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     const endsAt = startsAt + request.durationSeconds;
 
     incoming.setMixLevel(currentMixLevel);
-    incoming.setGain(0);
+    incoming.setGain(0, 0);
     incoming.startAt(request.incomingOffsetSeconds ?? 0, startsAt);
 
-    const shape = request.shape ?? "equal-power";
+    const kind = request.kind ?? "transition";
+    const shape = kind === "swap" ? "equal-gain" : "equal-power";
     if (outgoingFrom === "deck") {
       scheduleGainCurve(
         outgoing.gainParam(),
@@ -494,12 +498,13 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       outgoingFrom,
       endsAtContextTime: endsAt,
       videoId: request.videoId ?? null,
+      kind,
     };
     activeDeck = activeDeck === 0 ? 1 : 0;
     bypass.exitBypass();
     attachTransportListeners();
     logger.log(
-      `crossfading over ${request.durationSeconds.toFixed(2)} s out of the ${outgoingFrom} into a ${incomingState.kind}, deck ${activeDeck} takes over`
+      `${kind === "swap" ? "swapping" : "crossfading"} over ${request.durationSeconds.toFixed(2)} s out of the ${outgoingFrom} into a ${incomingState.kind}, deck ${activeDeck} takes over`
     );
     return { kind: "scheduled", startsAt, endsAt, outgoing: outgoingFrom };
   }
@@ -509,13 +514,14 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     logger.log(`crossfade aborted, ${reason}`);
 
     const abandoned = crossfade.videoId;
+    const wasTransition = crossfade.kind === "transition";
     const advanceLanded = abandoned !== null && deps.playerTrackId() === abandoned;
-    if (!advanceLanded) activeDeck = crossfade.outgoingDeck;
+    if (wasTransition && !advanceLanded) activeDeck = crossfade.outgoingDeck;
     crossfade = null;
     for (const each of decks) each.fadeOutAndStop();
     setOriginalGain(1);
     bypass.enterBypass();
-    deps.onCrossfadeAborted?.(abandoned, reason);
+    if (wasTransition) deps.onCrossfadeAborted?.(abandoned, reason);
     return true;
   }
 
@@ -628,4 +634,4 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 }
 
 export { createPlaybackGraph };
-export type { CrossfadeRequest, CrossfadeResult, GraphState, PlaybackGraph, PlaybackGraphDeps };
+export type { CrossfadeRequest, CrossfadeResult, GraphState, HandoverKind, PlaybackGraph, PlaybackGraphDeps };

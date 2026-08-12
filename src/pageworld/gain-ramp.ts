@@ -12,6 +12,14 @@ function rampGainTo(param: AudioParam, context: BaseAudioContext, value: number,
   param.setValueAtTime(value, now);
 }
 
+function rampGainFromZero(param: AudioParam, context: BaseAudioContext, seconds = GAIN_RAMP_SECONDS): void {
+  const now = context.currentTime;
+  const over = Number.isFinite(seconds) && seconds > 0 ? seconds : GAIN_RAMP_SECONDS;
+  param.cancelAndHoldAtTime(now);
+  param.setValueAtTime(0, now);
+  param.linearRampToValueAtTime(1, now + over);
+}
+
 function scheduleGainCurve(
   param: AudioParam,
   context: BaseAudioContext,
@@ -23,4 +31,4 @@ function scheduleGainCurve(
   param.setValueCurveAtTime(curve, startsAt, durationSeconds);
 }
 
-export { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve };
+export { GAIN_RAMP_SECONDS, rampGainFromZero, rampGainTo, scheduleGainCurve };

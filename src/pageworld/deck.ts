@@ -1,6 +1,6 @@
 // -- Deck --------------------------------------------------------------------
 
-import { GAIN_RAMP_SECONDS, rampGainTo } from "@/pageworld/gain-ramp";
+import { GAIN_RAMP_SECONDS, rampGainFromZero, rampGainTo } from "@/pageworld/gain-ramp";
 import { gainsForMixLevel } from "@/pageworld/gain-law";
 
 interface DeckDeps {
@@ -45,6 +45,7 @@ interface Deck {
   stop(): void;
   stopAt(when: number): void;
   fadeOutAndStop(seconds?: number): void;
+  fadeIn(seconds?: number): void;
   setMixLevel(mixLevel: number): void;
   hasStems(): boolean;
   isPlaying(): boolean;
@@ -253,7 +254,6 @@ function createDeck(deps: DeckDeps): Deck {
     if (!loaded) return;
     stop();
     finished = false;
-    rampGainTo(deckGainNode.gain, context, 1, 0);
 
     if (loaded.vocals !== null) {
       vocalsSource = context.createBufferSource();
@@ -312,6 +312,7 @@ function createDeck(deps: DeckDeps): Deck {
     stop,
     stopAt,
     fadeOutAndStop,
+    fadeIn: seconds => rampGainFromZero(deckGainNode.gain, context, seconds),
     setMixLevel: applyMixLevel,
     hasStems: () => loaded !== null,
     isPlaying: () => instrumentalSource !== null,

@@ -227,6 +227,15 @@ window.blkTransitionProbe = () => {
     deckDurations: state ? state.decks.map(deck => +deck.durationSeconds.toFixed(2)) : null,
     listenerGain: state?.listenerGain ?? null,
     originalGain: state?.originalGain ?? null,
+    deckPositions: state ? state.decks.map(deck => +deck.positionSeconds.toFixed(3)) : null,
+    deckGains: state ? state.decks.map(deck => +deck.deckGain.toFixed(4)) : null,
+    playerTime: state ? +state.playerTime.toFixed(3) : null,
+    elementTime: state ? +state.elementTime.toFixed(3) : null,
+    playbackRate: (cachedElement?.isConnected ? cachedElement : playerVideoElement(document))?.playbackRate ?? null,
+    standingDown: (() => {
+      const reason = mustStandDown();
+      return reason === null ? null : describeStandDown(reason);
+    })(),
   };
 };
 
