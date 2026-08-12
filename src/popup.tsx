@@ -766,7 +766,7 @@ async function main(): Promise<void> {
 
   const singAlongToggle = createToggle(
     "Sing-along",
-    "Master switch. Reload YouTube Music after changing this.",
+    "The fader and everything behind it, crossfade included. Reload YouTube Music after changing this.",
     settings.singAlongEnabled,
     next => {
       saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
