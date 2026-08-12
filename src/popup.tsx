@@ -317,25 +317,42 @@ function createCrossfadeRow(
   initialSeconds: number,
   onChange: (next: number) => void
 ): { row: HTMLElement; setValue(value: number): void } {
-  const row = createElement("div", "blk-row");
-  const { text, labelId } = createTextRow(
-    "Crossfade",
-    "Blend the end of one separated track into the start of the next. Takes effect immediately, except during a fade already under way."
-  );
+  const row = createElement("div", "blk-row blk-row--stack");
+  const { text, hint, labelId } = createTextRow("Crossfade", "");
+  text.classList.add("blk-row__text--slider");
+  hint.textContent = "Blend the end of one track into the start of the next";
 
-  const select = createSelect<string>(
-    presets.map(seconds =>
-      seconds === 0
-        ? { value: "0", label: "Off", note: "hard cut" }
-        : { value: String(seconds), label: describeCrossfade(seconds) }
-    ),
-    String(presets[closestPresetIndex(presets, initialSeconds)]),
-    value => onChange(Number(value)),
-    labelId
-  );
+  const value = createElement("span", "blk-row__value");
+  text.insertBefore(value, hint);
 
-  row.append(text, select.element);
-  return { row, setValue: value => select.setValue(String(value)) };
+  const slider = createElement("input", "blk-slider");
+  slider.type = "range";
+  slider.setAttribute("aria-labelledby", labelId);
+  slider.min = "0";
+  slider.max = String(presets.length - 1);
+  slider.step = "1";
+  slider.value = String(closestPresetIndex(presets, initialSeconds));
+
+  function paint(): void {
+    value.textContent = describeCrossfade(presets[Number(slider.value)]);
+    slider.setAttribute("aria-valuetext", describeCrossfade(presets[Number(slider.value)]));
+    const span = presets.length - 1;
+    const fraction = span === 0 ? 0 : Number(slider.value) / span;
+    slider.style.setProperty("--blk-fill", `${(fraction * 100).toFixed(2)}%`);
+  }
+  paint();
+
+  slider.addEventListener("input", paint);
+  slider.addEventListener("change", () => onChange(presets[Number(slider.value)]));
+
+  row.append(text, slider);
+  return {
+    row,
+    setValue: seconds => {
+      slider.value = String(closestPresetIndex(presets, seconds));
+      paint();
+    },
+  };
 }
 
 // -- Better Lyrics presence ----------------------------------------------------

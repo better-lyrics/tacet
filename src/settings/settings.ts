@@ -26,7 +26,7 @@ function isFaderPlacement(value: unknown): value is FaderPlacement {
 
 // -- Crossfade length ------------------------------------------------------------
 
-const CROSSFADE_PRESETS_SECONDS: readonly number[] = [0, 4, 6, 8, 12];
+const CROSSFADE_PRESETS_SECONDS: readonly number[] = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const MAX_CROSSFADE_SECONDS = 20;
 
 function isValidCrossfadeSeconds(value: unknown): value is number {

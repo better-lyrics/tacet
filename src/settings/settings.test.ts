@@ -1,17 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { MINIMUM_FADE_SECONDS } from "@/automix/transition-cue";
 import { DEFAULT_BUDGET_BYTES } from "@/cache/stem-store";
 import {
   CACHE_BUDGET_PRESETS_BYTES,
+  CROSSFADE_PRESETS_SECONDS,
   DEFAULT_SETTINGS,
   MAX_CACHE_BUDGET_BYTES,
-  MIN_CACHE_BUDGET_BYTES,
-  CROSSFADE_PRESETS_SECONDS,
   MAX_CROSSFADE_SECONDS,
+  MIN_CACHE_BUDGET_BYTES,
   isValidCacheBudgetBytes,
   isValidCrossfadeSeconds,
   sanitizeSettings,
   shouldEvictForNewBudget,
 } from "@/settings/settings";
+import { describe, expect, it } from "vitest";
 
 // -- defaults -----------------------------------------------------------------
 
@@ -223,6 +224,25 @@ describe("isValidCrossfadeSeconds", () => {
     for (const seconds of CROSSFADE_PRESETS_SECONDS) {
       expect(seconds).toBeLessThanOrEqual(MAX_CROSSFADE_SECONDS);
     }
+  });
+
+  it("steps one second at a time from the shortest usable fade to the longest", () => {
+    expect([...CROSSFADE_PRESETS_SECONDS]).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  });
+
+  describe("invariants", () => {
+    it("never offers a length the transition would refuse to run", () => {
+      for (const seconds of CROSSFADE_PRESETS_SECONDS) {
+        if (seconds === 0) continue;
+        expect(seconds).toBeGreaterThanOrEqual(MINIMUM_FADE_SECONDS);
+      }
+    });
+
+    it("ascends, so a slider index maps to a longer fade every step", () => {
+      const ascending = [...CROSSFADE_PRESETS_SECONDS].sort((a, b) => a - b);
+      expect([...CROSSFADE_PRESETS_SECONDS]).toEqual(ascending);
+      expect(new Set(CROSSFADE_PRESETS_SECONDS).size).toBe(CROSSFADE_PRESETS_SECONDS.length);
+    });
   });
 });
 
