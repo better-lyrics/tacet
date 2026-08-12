@@ -487,7 +487,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         const measured = `${stemSeconds.toFixed(1)}s of stems against a ${trackSeconds.toFixed(1)}s track`;
 
         if (step === "reacquire") {
-          logError("stems are shorter than the track, capturing it again", new Error(measured));
+          log(`stems are shorter than the track, capturing it again: ${measured}`);
           forgetAndReacquire(videoId);
           return;
         }

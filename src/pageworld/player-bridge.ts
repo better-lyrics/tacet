@@ -1,5 +1,7 @@
+import { isAdPlaying } from "@/capture/ad-state";
 import { BETTER_LYRICS_PLAYER_EVENT } from "@/orchestrator/player-source";
 import { currentPlayerSnapshot } from "@/pageworld/player-state";
+import type { PlayerSnapshot } from "@/pageworld/player-state";
 
 // -- Player bridge -----------------------------------------------------------
 
@@ -25,13 +27,25 @@ interface PlayerStateMessage {
   durationSeconds: number;
 }
 
+interface PublishInput {
+  snapshot: PlayerSnapshot | null;
+  adPlaying: boolean;
+  betterLyricsPublishing: boolean;
+}
+
+function shouldPublishPlayerState(input: PublishInput): boolean {
+  if (input.betterLyricsPublishing) return false;
+  if (input.snapshot === null) return false;
+  return !input.adPlaying;
+}
+
 function startPlayerBridge(): () => void {
   let betterLyricsPublishing = false;
 
   function publish(): void {
-    if (betterLyricsPublishing) return;
     const snapshot = currentPlayerSnapshot(document);
-    if (!snapshot) return;
+    if (!shouldPublishPlayerState({ snapshot, adPlaying: isAdPlaying(document), betterLyricsPublishing })) return;
+    if (snapshot === null) return;
     const message: PlayerStateMessage = {
       type: "blk-player-state",
       videoId: snapshot.videoId,
@@ -58,4 +72,5 @@ function startPlayerBridge(): () => void {
   };
 }
 
-export { startPlayerBridge };
+export { shouldPublishPlayerState, startPlayerBridge };
+export type { PublishInput };
