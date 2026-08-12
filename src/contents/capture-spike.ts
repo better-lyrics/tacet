@@ -2,6 +2,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator } from "@/capture/accumulator";
 import { isAdPlaying } from "@/capture/ad-state";
 import type {
+  AcquisitionResultMessage,
   CaptureReadyMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
@@ -13,6 +14,7 @@ import type {
 import {
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
+  isRequestMintMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
   isRequestPrefetchedAudioMessage,
@@ -24,7 +26,13 @@ import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
 import { log, logError } from "@/capture/log";
-import { FRAME_ID_PREFIX, type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
+import {
+  FRAME_ID_PREFIX,
+  MINT_FRAME_ID,
+  type CapturedSlice,
+  captureTrackInSlices,
+  mintUrlInFrame,
+} from "@/capture/frame-pool";
 import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
 import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
@@ -37,7 +45,11 @@ import { setLoggingEnabled } from "@/shared/logger";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { nextVideoIdInQueue, readQueueItems } from "@/capture/next-track";
 import { getVideoIdFromSearch } from "@/capture/video-id";
-import { readWorkerAssignment } from "@/capture/worker-frame";
+import { readMintedUrl } from "@/acquisition/minted-url";
+import type { SourceId } from "@/acquisition/sources";
+import { runMintCapture } from "@/capture/mint-runner";
+import { collectMatching, installUrlTap } from "@/capture/url-tap";
+import { isMintFrame, readWorkerAssignment } from "@/capture/worker-frame";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 
 // -- Track capture (MAIN world) ----------------------------------------------
@@ -85,15 +97,22 @@ const capture = installSourceBufferCapture({ isAdPlaying: isAdPlayingHere, onAud
 // -- Worker frame mode -------------------------------------------------------
 
 const workerAssignment = readWorkerAssignment(window.location.search);
+const mintsUrl = isMintFrame(window.location.search);
 
 const SILENCE_SWEEP_MS = 250;
 
-if (workerAssignment) {
+function silenceThisFrame(label: string): boolean {
   if (!installForcedSilence(HTMLMediaElement.prototype)) {
-    logError("worker frame could not be silenced, refusing to capture in it", new Error("no media setters"));
+    logError(`${label} could not be silenced, refusing to run in it`, new Error("no media setters"));
+    return false;
   }
   silenceMediaIn(document);
   setInterval(() => silenceMediaIn(document), SILENCE_SWEEP_MS);
+  return true;
+}
+
+if (workerAssignment) {
+  silenceThisFrame("worker frame");
 
   const workerVideoId = getVideoIdFromSearch(window.location.search);
   log(
@@ -106,8 +125,32 @@ if (workerAssignment) {
   }
 }
 
+// -- Minting frame mode --------------------------------------------------------
+
+const MEDIA_HOST = "googlevideo.com";
+const MINT_URL_LIMIT = 64;
+
+if (mintsUrl) {
+  const mintVideoId = getVideoIdFromSearch(window.location.search);
+  const silenced = silenceThisFrame("minting frame");
+
+  const collector = collectMatching(MEDIA_HOST, MINT_URL_LIMIT);
+  installUrlTap({
+    fetchHost: window,
+    xhrPrototype: XMLHttpRequest.prototype,
+    onUrl: url => collector.add(url),
+  });
+
+  log(`minting frame for videoId=${mintVideoId ?? "unknown"}`);
+  if (mintVideoId && silenced) {
+    void runMintCapture(collector, mintVideoId).catch(error => {
+      logError(`the minting frame for videoId=${mintVideoId} crashed`, error);
+    });
+  }
+}
+
 const isTopFrame = window.top === window;
-const runsOrchestration = isTopFrame && !workerAssignment;
+const runsOrchestration = isTopFrame && !workerAssignment && !mintsUrl;
 
 // -- Capture completion ------------------------------------------------------
 
@@ -128,6 +171,12 @@ function announceCaptureReady(videoId: string): void {
   const message: CaptureReadyMessage = { type: "blk-capture-ready", videoId };
   window.postMessage(message, window.location.origin);
   log(`capture-ready broadcast for videoId=${videoId}`);
+}
+
+function announceAcquisitionResult(videoId: string, source: SourceId, url: string | null, reason: string): void {
+  const message: AcquisitionResultMessage = { type: "blk-acquisition-result", videoId, source, url, reason };
+  window.postMessage(message, window.location.origin);
+  log(`${source} finished with videoId=${videoId}: ${url ? "a url for the track" : "nothing"}, ${reason}`);
 }
 
 function announcePartialCapture(videoId: string, coveredSeconds: number, trackSeconds: number): void {
@@ -343,6 +392,7 @@ function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void 
   if (decideRetry(attempts, ahead) === "give-up") {
     prefetchStateByVideoId.set(videoId, "unavailable");
     log(`prefetch for videoId=${videoId} gave up after ${attempts} attempt(s): ${reason}`);
+    announceAcquisitionResult(videoId, "hidden-player", null, `gave up after ${attempts} attempt(s), ${reason}`);
     return;
   }
 
@@ -441,6 +491,55 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
   }, PREFETCH_DELAY_MS);
 }
 
+// -- Minting a url on request ------------------------------------------------
+
+let mintInFlightVideoId: string | null = null;
+let mintAbort: AbortController | null = null;
+
+function settleMint(videoId: string, abort: AbortController, url: string | null, reason: string): void {
+  if (mintAbort !== abort) return;
+  mintInFlightVideoId = null;
+  mintAbort = null;
+  announceAcquisitionResult(videoId, "direct-fetch", url, reason);
+}
+
+function mintUrlFor(videoId: string): void {
+  if (mintInFlightVideoId === videoId) {
+    log(`already minting for videoId=${videoId}, ignoring a second request`);
+    return;
+  }
+  if (mintInFlightVideoId !== null) {
+    log(`minting for videoId=${videoId} takes over from ${mintInFlightVideoId}`);
+    mintAbort?.abort();
+  }
+
+  const abort = new AbortController();
+  mintInFlightVideoId = videoId;
+  mintAbort = abort;
+
+  mintUrlInFrame({ videoId, signal: abort.signal })
+    .then(minted => {
+      settleMint(
+        videoId,
+        abort,
+        minted?.url ?? null,
+        minted ? "the frame minted a url for the track" : "the minting frame answered with nothing"
+      );
+    })
+    .catch(error => {
+      logError(`minting for videoId=${videoId} threw`, error);
+      settleMint(videoId, abort, null, "the minting frame crashed");
+    });
+}
+
+function abandonMintFor(videoId: string): void {
+  if (mintInFlightVideoId !== videoId) return;
+  log(`abandoning the mint for videoId=${videoId}`);
+  mintAbort?.abort();
+  mintInFlightVideoId = null;
+  mintAbort = null;
+}
+
 // -- Handing the bytes over --------------------------------------------------
 
 function respondToCapturedAudioRequest(videoId: string): void {
@@ -510,6 +609,7 @@ function respondToPrefetchedAudioRequest(videoId: string): void {
 }
 
 function standDownFor(videoId: string): void {
+  abandonMintFor(videoId);
   if (stoodDownVideoIds.has(videoId)) return;
   stoodDownVideoIds.add(videoId);
   if (accumulator.getStats().videoId !== videoId) return;
@@ -524,6 +624,7 @@ window.addEventListener("message", event => {
   if (isSetLoggingMessage(data)) setLoggingEnabled(data.enabled);
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
+  if (isRequestMintMessage(data) && runsOrchestration) mintUrlFor(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) announcedListenedVideoId = data.videoId;
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
@@ -547,8 +648,33 @@ declare global {
     blkDisableCapture: () => void;
     blkPrefetchTrackInSlices: (workerCount?: number) => Promise<unknown>;
     blkCaptureProbe: () => unknown;
+    blkMintUrlProbe: (videoId: string) => Promise<unknown>;
   }
 }
+
+window.blkMintUrlProbe = async (videoId: string) => {
+  const started = performance.now();
+  const minted = await mintUrlInFrame({ videoId });
+  const elapsedMs = Math.round(performance.now() - started);
+  const framesLeft = document.querySelectorAll(`#${MINT_FRAME_ID}`).length;
+  if (!minted) return { videoId, minted: null, elapsedMs, framesLeft };
+  const stream = readMintedUrl(minted.url);
+  return {
+    videoId,
+    elapsedMs,
+    framesLeft,
+    trackDurationSeconds: minted.trackDurationSeconds,
+    minted: {
+      itag: stream?.itag ?? null,
+      contentLengthBytes: stream?.contentLengthBytes ?? null,
+      durationSeconds: stream?.durationSeconds ?? null,
+      mimeType: stream?.mimeType ?? null,
+      hasToken: stream?.poToken !== null && stream?.poToken !== undefined,
+      lastModified: String(stream?.lastModified ?? ""),
+      url: minted.url,
+    },
+  };
+};
 
 window.blkCaptureProbe = () => {
   const videoId = listenedVideoId();

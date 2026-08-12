@@ -22,4 +22,10 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-export { bytesToBase64, base64ToBytes };
+function base64UrlToBytes(base64Url: string): Uint8Array<ArrayBuffer> {
+  const standard = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+  const remainder = standard.length % 4;
+  return base64ToBytes(remainder === 0 ? standard : standard + "=".repeat(4 - remainder));
+}
+
+export { bytesToBase64, base64ToBytes, base64UrlToBytes };

@@ -5,4 +5,8 @@ function frameTrackDuration(playerSeconds: number, elementSeconds: number): numb
   return Number.isFinite(elementSeconds) && elementSeconds > 0 ? elementSeconds : 0;
 }
 
-export { frameTrackDuration };
+function settledFrameDuration(adPlaying: boolean, playerSeconds: number, elementSeconds: number): number {
+  return adPlaying ? 0 : frameTrackDuration(playerSeconds, elementSeconds);
+}
+
+export { frameTrackDuration, settledFrameDuration };

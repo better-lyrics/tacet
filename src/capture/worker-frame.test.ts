@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkerUrl, isWorkerFrame, readWorkerAssignment, WORKER_PARAM } from "@/capture/worker-frame";
+import {
+  buildMintUrl,
+  buildWorkerUrl,
+  isHiddenFrame,
+  isMintFrame,
+  isWorkerFrame,
+  readWorkerAssignment,
+  WORKER_PARAM,
+} from "@/capture/worker-frame";
 
 describe("buildWorkerUrl", () => {
   it("carries the video and the slice assignment", () => {
@@ -58,5 +66,53 @@ describe("isWorkerFrame", () => {
 
   it("treats a malformed marker as the real page, never as a worker", () => {
     expect(isWorkerFrame(`?v=x&${WORKER_PARAM}=broken`)).toBe(false);
+  });
+});
+
+describe("buildMintUrl", () => {
+  it("names the track and marks the frame as a minting one", () => {
+    const url = new URL(buildMintUrl("9E3jQcUkXdQ"));
+    expect(url.origin).toBe("https://music.youtube.com");
+    expect(url.pathname).toBe("/watch");
+    expect(url.searchParams.get("v")).toBe("9E3jQcUkXdQ");
+    expect(url.searchParams.get("blk-mint")).toBe("1");
+  });
+
+  it("carries no slice assignment, so a minting frame never captures", () => {
+    expect(new URL(buildMintUrl("abc")).searchParams.has(WORKER_PARAM)).toBe(false);
+    expect(isWorkerFrame(new URL(buildMintUrl("abc")).search)).toBe(false);
+  });
+});
+
+describe("isMintFrame", () => {
+  it("recognises the url it builds", () => {
+    expect(isMintFrame(new URL(buildMintUrl("abc")).search)).toBe(true);
+  });
+
+  it("does not recognise the listener's own page", () => {
+    expect(isMintFrame("?v=abc")).toBe(false);
+    expect(isMintFrame("")).toBe(false);
+  });
+
+  it("does not recognise a slice frame", () => {
+    expect(isMintFrame(new URL(buildWorkerUrl("abc", { index: 0, fromSeconds: 0, toSeconds: 10 })).search)).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a value that is not exactly one, so a stray parameter cannot arm it", () => {
+      expect(isMintFrame("?blk-mint=0")).toBe(false);
+      expect(isMintFrame("?blk-mint=")).toBe(false);
+      expect(isMintFrame("?blk-mint=true")).toBe(false);
+    });
+  });
+});
+
+describe("isHiddenFrame", () => {
+  it("recognises both jobs and nothing else", () => {
+    expect(isHiddenFrame(new URL(buildMintUrl("abc")).search)).toBe(true);
+    expect(isHiddenFrame(new URL(buildWorkerUrl("abc", { index: 0, fromSeconds: 0, toSeconds: 10 })).search)).toBe(
+      true
+    );
+    expect(isHiddenFrame("?v=abc")).toBe(false);
   });
 });

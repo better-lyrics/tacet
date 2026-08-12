@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { SOURCE_IDS } from "@/acquisition/sources";
 import {
+  isAcquisitionResultMessage,
   isCaptureReadyMessage,
   isCaptureStandDownMessage,
   isPartialCaptureMessage,
@@ -10,6 +12,8 @@ import {
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
+  isRequestMintMessage,
+  isMintedUrlMessage,
   isSliceCapturedMessage,
 } from "@/capture/bridge-protocol";
 import type {
@@ -250,6 +254,7 @@ describe("capture bridge protocol", () => {
           isRequestPrefetchMessage,
           isRequestNextPrefetchMessage,
           isCaptureStandDownMessage,
+          isMintedUrlMessage,
           isSliceCapturedMessage,
         ];
         for (const guard of existing) {
@@ -305,6 +310,122 @@ describe("blk-partial-capture", () => {
       expect(isCaptureReadyMessage(partial)).toBe(false);
       const ready: CaptureReadyMessage = { type: "blk-capture-ready", videoId: partial.videoId };
       expect(isPartialCaptureMessage(ready)).toBe(false);
+    });
+  });
+});
+
+describe("isMintedUrlMessage", () => {
+  const minted = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "blk-minted-url",
+    videoId: "9E3jQcUkXdQ",
+    url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
+    trackDurationSeconds: 188.3,
+    ...overrides,
+  });
+
+  it("accepts a message a minting frame sends", () => {
+    expect(isMintedUrlMessage(minted())).toBe(true);
+  });
+
+  it("survives the structured clone a postMessage puts it through", () => {
+    expect(isMintedUrlMessage(structuredClone(minted()))).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a message missing any field it promises", () => {
+      for (const missing of ["type", "videoId", "url", "trackDurationSeconds"]) {
+        const partial = minted();
+        delete partial[missing];
+        expect(isMintedUrlMessage(partial)).toBe(false);
+      }
+    });
+
+    it("refuses an empty url, which is what a frame that minted nothing would send", () => {
+      expect(isMintedUrlMessage(minted({ url: "" }))).toBe(false);
+    });
+
+    it("refuses another message's type", () => {
+      expect(isMintedUrlMessage(minted({ type: "blk-capture-ready" }))).toBe(false);
+    });
+
+    it("refuses nonsense rather than throwing", () => {
+      for (const nonsense of [null, undefined, 7, "text", []]) {
+        expect(isMintedUrlMessage(nonsense)).toBe(false);
+      }
+    });
+  });
+});
+
+describe("isRequestMintMessage", () => {
+  it("accepts a request to mint a url for a track", () => {
+    expect(isRequestMintMessage({ type: "blk-request-mint", videoId: "9E3jQcUkXdQ" })).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a request naming no track", () => {
+      expect(isRequestMintMessage({ type: "blk-request-mint" })).toBe(false);
+      expect(isRequestMintMessage({ type: "blk-request-mint", videoId: 7 })).toBe(false);
+    });
+
+    it("refuses another message's type", () => {
+      expect(isRequestMintMessage({ type: "blk-request-prefetch", videoId: "9E3jQcUkXdQ" })).toBe(false);
+    });
+
+    it("refuses nonsense rather than throwing", () => {
+      for (const nonsense of [null, undefined, 7, "text", []]) {
+        expect(isRequestMintMessage(nonsense)).toBe(false);
+      }
+    });
+  });
+});
+
+describe("isAcquisitionResultMessage", () => {
+  const result = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "blk-acquisition-result",
+    videoId: "9E3jQcUkXdQ",
+    source: "direct-fetch",
+    url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
+    reason: "the frame minted a url for the track",
+    ...overrides,
+  });
+
+  it("accepts a source answering with a url", () => {
+    expect(isAcquisitionResultMessage(result())).toBe(true);
+  });
+
+  it("accepts a source answering with nothing, which is how a rung reports itself spent", () => {
+    expect(isAcquisitionResultMessage(result({ url: null, reason: "gave up after 3 attempt(s)" }))).toBe(true);
+  });
+
+  it("survives the structured clone a postMessage puts it through", () => {
+    expect(isAcquisitionResultMessage(structuredClone(result()))).toBe(true);
+  });
+
+  it("accepts every registered source", () => {
+    for (const source of SOURCE_IDS) expect(isAcquisitionResultMessage(result({ source }))).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a message missing any field it promises", () => {
+      for (const missing of ["type", "videoId", "source", "reason"]) {
+        const partial = result();
+        delete partial[missing];
+        expect(isAcquisitionResultMessage(partial)).toBe(false);
+      }
+    });
+
+    it("refuses a source it does not know, so a rung cannot be invented over the wire", () => {
+      expect(isAcquisitionResultMessage(result({ source: "torrent" }))).toBe(false);
+    });
+
+    it("refuses an empty url, which is neither an answer nor an admission of failure", () => {
+      expect(isAcquisitionResultMessage(result({ url: "" }))).toBe(false);
+    });
+
+    it("refuses nonsense rather than throwing", () => {
+      for (const nonsense of [null, undefined, 7, "text", []]) {
+        expect(isAcquisitionResultMessage(nonsense)).toBe(false);
+      }
     });
   });
 });

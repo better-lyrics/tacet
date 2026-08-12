@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameTrackDuration } from "@/capture/frame-duration";
+import { frameTrackDuration, settledFrameDuration } from "@/capture/frame-duration";
 
 describe("frameTrackDuration", () => {
   it("takes the player's answer when it has one", () => {
@@ -51,6 +51,40 @@ describe("frameTrackDuration", () => {
           expect(Number.isFinite(result) && result >= 0).toBe(true);
         }
       }
+    });
+  });
+});
+
+describe("settledFrameDuration", () => {
+  it("answers the track's duration when nothing is in the way", () => {
+    expect(settledFrameDuration(false, 188.3, 15)).toBeCloseTo(188.3, 6);
+  });
+
+  it("refuses to answer while an advertisement plays", () => {
+    expect(settledFrameDuration(true, 15.04, 15.04)).toBe(0);
+  });
+
+  describe("edge cases", () => {
+    it("falls back to the element when the player has no duration yet", () => {
+      expect(settledFrameDuration(false, 0, 188.3)).toBeCloseTo(188.3, 6);
+      expect(settledFrameDuration(false, Number.NaN, 188.3)).toBeCloseTo(188.3, 6);
+    });
+
+    it("answers zero when neither clock is readable", () => {
+      expect(settledFrameDuration(false, Number.NaN, Number.NaN)).toBe(0);
+      expect(settledFrameDuration(false, 0, 0)).toBe(0);
+    });
+
+    it("refuses during an advertisement even when both clocks read cleanly", () => {
+      expect(settledFrameDuration(true, 200, 200)).toBe(0);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a preroll's own length is never mistaken for the track's", () => {
+      const advertisementSeconds = 15.041;
+      expect(settledFrameDuration(true, advertisementSeconds, advertisementSeconds)).toBe(0);
+      expect(settledFrameDuration(false, 188.321, advertisementSeconds)).toBeCloseTo(188.321, 6);
     });
   });
 });

@@ -1,5 +1,7 @@
 // -- Capture (MAIN world) to fader (ISOLATED world) bridge protocol --------
 
+import { isSourceId } from "@/acquisition/sources";
+import type { SourceId } from "@/acquisition/sources";
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 
 export interface RequestCapturedAudioMessage {
@@ -81,6 +83,59 @@ export interface SliceCapturedMessage {
   trackDurationSeconds: number;
   mimeType: string;
   bytes: ArrayBuffer;
+}
+
+export interface MintedUrlMessage {
+  type: "blk-minted-url";
+  videoId: string;
+  url: string;
+  trackDurationSeconds: number;
+}
+
+export interface RequestMintMessage {
+  type: "blk-request-mint";
+  videoId: string;
+}
+
+export interface AcquisitionResultMessage {
+  type: "blk-acquisition-result";
+  videoId: string;
+  source: SourceId;
+  url: string | null;
+  reason: string;
+}
+
+export function isRequestMintMessage(data: unknown): data is RequestMintMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-request-mint" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isAcquisitionResultMessage(data: unknown): data is AcquisitionResultMessage {
+  if (typeof data !== "object" || data === null) return false;
+  const url: unknown = (data as { url?: unknown }).url;
+  return (
+    (data as { type?: unknown }).type === "blk-acquisition-result" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    isSourceId((data as { source?: unknown }).source) &&
+    (url === null || (typeof url === "string" && url.length > 0)) &&
+    typeof (data as { reason?: unknown }).reason === "string"
+  );
+}
+
+export function isMintedUrlMessage(data: unknown): data is MintedUrlMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-minted-url" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { url?: unknown }).url === "string" &&
+    (data as { url: string }).url.length > 0 &&
+    typeof (data as { trackDurationSeconds?: unknown }).trackDurationSeconds === "number"
+  );
 }
 
 export function isSliceCapturedMessage(data: unknown): data is SliceCapturedMessage {

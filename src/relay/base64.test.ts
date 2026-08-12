@@ -1,5 +1,5 @@
+import { base64ToBytes, base64UrlToBytes, bytesToBase64 } from "@/relay/base64";
 import { describe, expect, it } from "vitest";
-import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 
 describe("bytesToBase64", () => {
   it("encodes known bytes to their known base64 string", () => {
@@ -57,6 +57,43 @@ describe("round trip", () => {
     it("is deterministic", () => {
       const bytes = new TextEncoder().encode("deterministic");
       expect(bytesToBase64(bytes)).toBe(bytesToBase64(bytes));
+    });
+  });
+});
+
+describe("base64UrlToBytes", () => {
+  it("decodes the url alphabet, which is what YouTube's config strings use", () => {
+    const bytes = new Uint8Array([255, 239, 190]);
+    expect(bytesToBase64(bytes)).toBe("/+++");
+    expect(base64UrlToBytes("_---")).toEqual(bytes);
+  });
+
+  it("accepts a plain base64 string unchanged, so one function serves both alphabets", () => {
+    expect(base64UrlToBytes("Zm9v")).toEqual(new TextEncoder().encode("foo"));
+  });
+
+  describe("edge cases", () => {
+    it("decodes an empty string", () => {
+      expect(base64UrlToBytes("")).toEqual(new Uint8Array(0));
+    });
+
+    it("supplies missing padding at every remainder", () => {
+      for (const text of ["f", "fo", "foo", "foob", "fooba", "foobar"]) {
+        const encoded = bytesToBase64(new TextEncoder().encode(text)).replace(/=+$/, "");
+        expect(base64UrlToBytes(encoded)).toEqual(new TextEncoder().encode(text));
+      }
+    });
+
+    it("accepts a string that already carries its padding", () => {
+      expect(base64UrlToBytes("Zg==")).toEqual(new TextEncoder().encode("f"));
+    });
+  });
+
+  describe("invariants", () => {
+    it("recovers every byte value 0 to 255", () => {
+      const bytes = new Uint8Array(256).map((_, index) => index);
+      const urlSafe = bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      expect(base64UrlToBytes(urlSafe)).toEqual(bytes);
     });
   });
 });

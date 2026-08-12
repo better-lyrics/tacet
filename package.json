@@ -30,9 +30,14 @@
     "vitest": "^4.1.10"
   },
   "manifest": {
-    "host_permissions": ["https://music.youtube.com/*", "https://models.betterlyrics.org/*"],
+    "host_permissions": [
+      "https://music.youtube.com/*",
+      "https://www.youtube.com/*",
+      "https://*.googlevideo.com/*",
+      "https://models.betterlyrics.org/*"
+    ],
     "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArXxvekuv4grdgbAaCvcFhRUZElp2sLdzc4c+qKQ8JSk6miRUrME+gx1pPHUxPjtC3zBUftn/CJXoU6LG3cE+R3VvfbhNTurSEq09NaPzFPqne3UBhOd2nDlOUf2WIIuTN1rt21W6FMwoJEwetJvP3RkfEQAicmaSZlW9VzGD071Nl2OpGktArtedOQKSx5F/S7+hRpBlR7fTErWHjcBVvUtUYGF/1qFgbTbAppuzq2+Kg0W39Sf291zB4GPnFTi6zhvJ1JQayNthurKmP4qr3GXA/Hcc8UMcOckbhwGcxGDj+HNUhahsWNcM+7liSTvba8YIVzrBa77n0iyd9BEDdwIDAQAB",
-    "permissions": ["storage", "offscreen"],
+    "permissions": ["storage", "offscreen", "declarativeNetRequestWithHostAccess"],
     "content_security_policy": {
       "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
     },
@@ -41,6 +46,7 @@
         "resources": [
           "assets/ort/*",
           "assets/workers/*",
+          "assets/src/acquisition/*",
           "assets/src/separation/*",
           "assets/src/cache/*",
           "assets/src/orchestrator/*",

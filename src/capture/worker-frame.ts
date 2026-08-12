@@ -1,4 +1,5 @@
 const WORKER_PARAM = "blk-slice";
+const MINT_PARAM = "blk-mint";
 const WATCH_URL = "https://music.youtube.com/watch";
 
 interface WorkerAssignment {
@@ -36,5 +37,31 @@ function isWorkerFrame(search: string): boolean {
   return readWorkerAssignment(search) !== null;
 }
 
-export { buildWorkerUrl, readWorkerAssignment, isWorkerFrame, WORKER_PARAM };
+// -- The other job a hidden frame can be given ---------------------------------
+
+function buildMintUrl(videoId: string): string {
+  const url = new URL(WATCH_URL);
+  url.searchParams.set("v", videoId);
+  url.searchParams.set(MINT_PARAM, "1");
+  return url.toString();
+}
+
+function isMintFrame(search: string): boolean {
+  return new URLSearchParams(search).get(MINT_PARAM) === "1";
+}
+
+function isHiddenFrame(search: string): boolean {
+  return isWorkerFrame(search) || isMintFrame(search);
+}
+
+export {
+  buildMintUrl,
+  buildWorkerUrl,
+  isHiddenFrame,
+  isMintFrame,
+  isWorkerFrame,
+  MINT_PARAM,
+  readWorkerAssignment,
+  WORKER_PARAM,
+};
 export type { WorkerAssignment };
