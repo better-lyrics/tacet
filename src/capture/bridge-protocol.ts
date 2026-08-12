@@ -44,6 +44,19 @@ export interface NextTrackMessage {
   artist?: string | null;
 }
 
+export interface RequestComingUpMessage {
+  type: "blk-request-coming-up";
+}
+
+// Answered whether or not anything is being separated, because the band is
+// about the queue rather than about the pipeline.
+export interface ComingUpTrackMessage {
+  type: "blk-coming-up-track";
+  videoId: string;
+  title: string | null;
+  artist: string | null;
+}
+
 // Sent separately, and possibly seconds later, because resolving a thumbnail
 // means loading it. blk-next-track is a retry signal for the prefetch gate, so
 // it must not be re-sent just to carry a picture.
@@ -145,6 +158,19 @@ export function isNextTrackMessage(data: unknown): data is NextTrackMessage {
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-next-track" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isRequestComingUpMessage(data: unknown): data is RequestComingUpMessage {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-request-coming-up";
+}
+
+export function isComingUpTrackMessage(data: unknown): data is ComingUpTrackMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-coming-up-track" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }

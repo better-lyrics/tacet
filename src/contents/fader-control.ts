@@ -1,7 +1,12 @@
 import faderCss from "data-text:../ui/fader.css";
+import {
+  type RequestComingUpMessage,
+  isComingUpTrackMessage,
+  isNextTrackArtworkMessage,
+} from "@/capture/bridge-protocol";
 import { describeBusy } from "@/orchestrator/busy-tooltip";
+import { comingUpStore } from "@/orchestrator/coming-up-store";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
-import type { KaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
@@ -83,8 +88,6 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 
 // -- Master switch ---------------------------------------------------------
 
-let livePipeline: KaraokePipeline | null = null;
-
 function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(next: FaderPlacement): void } {
   injectStylesheet();
 
@@ -115,7 +118,6 @@ function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(
       render();
     },
   });
-  livePipeline = pipeline;
 
   const mount = attachFaderMount({ button: control.button, setHost: control.setHost }, { placement });
 
@@ -124,7 +126,6 @@ function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(
     destroy() {
       mount.disconnect();
       // First, since it is what hands the audio back to the original.
-      if (livePipeline === pipeline) livePipeline = null;
       pipeline?.destroy();
       tooltip.destroy();
       control.destroy();
@@ -161,6 +162,27 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   applySettings(settings.singAlongEnabled, settings.faderPlacement);
 });
 
+// -- Coming up ---------------------------------------------------------------
+//
+// Fed by the page world, which is the only side that can read the queue's
+// Polymer data. Requested on demand rather than pushed, so nothing is read
+// while the popup is closed.
+
+window.addEventListener("message", event => {
+  if (event.source !== window || event.origin !== window.location.origin) return;
+  const data: unknown = event.data;
+  if (isComingUpTrackMessage(data)) {
+    comingUpStore.setTrack({ videoId: data.videoId, title: data.title, artist: data.artist });
+    return;
+  }
+  if (isNextTrackArtworkMessage(data)) comingUpStore.setArtwork(data.videoId, data.artworkUrl);
+});
+
+function requestComingUp(): void {
+  const request: RequestComingUpMessage = { type: "blk-request-coming-up" };
+  window.postMessage(request, window.location.origin);
+}
+
 // -- Better Lyrics probe, answered whether or not the fader is mounted ---------
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
@@ -173,8 +195,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   // Answered even with no pipeline running, so the popup can hide the band
   // rather than wait out a timeout.
   if (isGetComingUpCommand(message)) {
-    const reply: ComingUpMessage = { type: "blk-coming-up", track: livePipeline?.comingUp() ?? null };
-    sendResponse(reply);
+    // Answered from the last known record, then refreshed for the popup's next
+    // poll. The world hop is asynchronous and this reply cannot wait for it.
+    sendResponse({ type: "blk-coming-up", track: comingUpStore.get() } satisfies ComingUpMessage);
+    requestComingUp();
     return undefined;
   }
 

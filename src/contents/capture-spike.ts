@@ -5,6 +5,7 @@ import type {
   CaptureReadyMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
+  ComingUpTrackMessage,
   DownloadProgressMessage,
   NextTrackArtworkMessage,
   NextTrackMessage,
@@ -12,6 +13,7 @@ import type {
 import {
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
+  isRequestComingUpMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
 } from "@/capture/bridge-protocol";
@@ -469,6 +471,35 @@ function standDownFor(videoId: string): void {
 // is memoised for the life of the tab either way.
 const artworkResolver = createArtworkResolver(loadImageSizeInPage);
 
+// Asked for by the popup rather than pushed, so the queue is only read while
+// somebody is looking at it. The artwork follows separately because resolving
+// it means loading it.
+function answerComingUpRequest(): void {
+  const next = nextTrackInQueue(readQueueItems(document), listenedVideoId());
+  if (!next) return;
+
+  const message: ComingUpTrackMessage = {
+    type: "blk-coming-up-track",
+    videoId: next.videoId,
+    title: next.title,
+    artist: next.artist,
+  };
+  window.postMessage(message, window.location.origin);
+  postNextTrackArtwork(next.videoId);
+}
+
+function postNextTrackArtwork(videoId: string): void {
+  artworkResolver
+    .resolve(albumArtUrlForVideoId(videoId))
+    .then(artworkUrl => {
+      const artwork: NextTrackArtworkMessage = { type: "blk-next-track-artwork", videoId, artworkUrl };
+      window.postMessage(artwork, window.location.origin);
+    })
+    .catch(error => {
+      log(`could not resolve artwork for ${videoId}: ${String(error)}`);
+    });
+}
+
 function announceNextTrack(next: NextTrack): void {
   const message: NextTrackMessage = {
     type: "blk-next-track",
@@ -478,21 +509,7 @@ function announceNextTrack(next: NextTrack): void {
   };
   window.postMessage(message, window.location.origin);
 
-  // Resolving the thumbnail means loading it, so it follows separately rather
-  // than delaying the separation this message gates.
-  artworkResolver
-    .resolve(albumArtUrlForVideoId(next.videoId))
-    .then(artworkUrl => {
-      const artwork: NextTrackArtworkMessage = {
-        type: "blk-next-track-artwork",
-        videoId: next.videoId,
-        artworkUrl,
-      };
-      window.postMessage(artwork, window.location.origin);
-    })
-    .catch(error => {
-      log(`could not resolve artwork for ${next.videoId}: ${String(error)}`);
-    });
+  postNextTrackArtwork(next.videoId);
 }
 
 window.addEventListener("message", event => {
@@ -512,6 +529,7 @@ window.addEventListener("message", event => {
     }
     announceNextTrack(next);
   }
+  if (isRequestComingUpMessage(data) && runsOrchestration) answerComingUpRequest();
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
 });
 

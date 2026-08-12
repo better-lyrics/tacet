@@ -1,0 +1,10 @@
+Fonts bundled with Tacet
+========================
+
+Satoshi
+  File:    Satoshi-Variable.woff2
+  Variable weight axis 300..900.
+  Source:  https://cdn.fontshare.com/wf/NWBQYJIM7GCZ5XWD7D26ARB3VDY55ZRT/K63EV2KZIGKLE7RANQ2U42S6SVHU5RJ7/X6XYTKIVDUW7GZTZPZNN4EUM5KH54KHF.woff2
+  Upstream: https://www.fontshare.com/fonts/satoshi
+  Copyright Indian Type Foundry
+  Licence: ITF Free Font License 1.0, https://www.fontshare.com/licenses/itf-ffl

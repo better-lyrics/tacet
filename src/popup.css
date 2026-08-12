@@ -1,3 +1,13 @@
+/* Bundled rather than relying on a local install, the same way Better Lyrics
+   Shaders does it. Licence in the NOTICE beside the file. */
+@font-face {
+  font-family: "Satoshi";
+  src: url("data-base64:../assets/fonts/Satoshi-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Ported from docs/mocks/option-c-wash.html. The palette, easing, radii and
    type scale are Better Lyrics Shaders' own (popup/popup.css), so the two
    extensions read as one family. The accent is Tacet's own mark colour and is

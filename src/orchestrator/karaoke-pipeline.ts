@@ -10,9 +10,9 @@ import {
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isDownloadProgressMessage,
-  isNextTrackArtworkMessage,
   isNextTrackMessage,
 } from "@/capture/bridge-protocol";
+import { comingUpStore } from "@/orchestrator/coming-up-store";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import {
@@ -67,26 +67,14 @@ interface KaraokePipelineOptions {
   onStateChange(state: KaraokeState): void;
 }
 
-// What the popup shows in its Coming up band. cached is null until the probe
-// answers, so the band can say nothing rather than guess.
-interface ComingUp {
-  videoId: string;
-  title: string | null;
-  artist: string | null;
-  artworkUrl: string | null;
-  cached: boolean | null;
-}
-
 interface KaraokePipeline {
   engage(mixLevel: number): void;
-  comingUp(): ComingUp | null;
   destroy(): void;
 }
 
 function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline {
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
-  let comingUp: ComingUp | null = null;
   let prefetchVideoId: string | null = null;
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
@@ -230,24 +218,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
 
-    if (isNextTrackArtworkMessage(data)) {
-      if (comingUp?.videoId === data.videoId) comingUp = { ...comingUp, artworkUrl: data.artworkUrl };
-      return;
-    }
-
     if (isNextTrackMessage(data)) {
-      // A repeat for the same track is the documented prefetch retry, so the
-      // record is refreshed without dropping artwork that already arrived.
-      comingUp =
-        data.videoId === comingUp?.videoId
-          ? { ...comingUp, title: data.title ?? comingUp.title, artist: data.artist ?? comingUp.artist }
-          : {
-              videoId: data.videoId,
-              title: data.title ?? null,
-              artist: data.artist ?? null,
-              artworkUrl: null,
-              cached: null,
-            };
+      comingUpStore.setTrack({ videoId: data.videoId, title: data.title ?? null, artist: data.artist ?? null });
       if (data.videoId === state.videoId) return;
       prefetchVideoId = data.videoId;
       log(`next up is ${data.videoId}, checking whether it needs separating`);
@@ -369,14 +341,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       });
   }
 
-  function noteComingUpCached(videoId: string, cached: boolean): void {
-    if (comingUp?.videoId !== videoId) return;
-    comingUp = { ...comingUp, cached };
-  }
-
   function onRuntimeMessage(message: unknown): void {
     if (isCacheHitMessage(message)) {
-      noteComingUpCached(message.videoId, true);
+      comingUpStore.setCached(message.videoId, true);
       if (message.videoId === prefetchVideoId) {
         log(`next track ${message.videoId} is already separated`);
         prefetchVideoId = null;
@@ -390,7 +357,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isCacheMissMessage(message)) {
-      noteComingUpCached(message.videoId, false);
+      comingUpStore.setCached(message.videoId, false);
       if (message.videoId === prefetchVideoId) {
         log(`next track ${message.videoId} is not separated yet, warming it`);
         postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
@@ -484,8 +451,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
   }
 
-  return { engage, comingUp: () => comingUp, destroy };
+  return { engage, destroy };
 }
 
 export { createKaraokePipeline };
-export type { KaraokePipeline, KaraokePipelineOptions, ComingUp };
+export type { KaraokePipeline, KaraokePipelineOptions };
