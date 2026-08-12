@@ -197,6 +197,16 @@ interface DriveInput {
   windowBytes?: number;
   maxRequests?: number;
   onProgress?: (receivedBytes: number, requestNumber: number) => void;
+  onResponse?: (response: SabrResponseReport) => void;
+}
+
+interface SabrResponseReport {
+  requestNumber: number;
+  httpStatus: number;
+  ranged: boolean;
+  parts: string[];
+  gainedBytes: number;
+  protectionStatus: number | null;
 }
 
 interface DriveResult {
@@ -243,13 +253,29 @@ async function driveSabr(input: DriveInput): Promise<DriveResult> {
     requestNumber += 1;
 
     if (sent.status !== 200) {
+      input.onResponse?.({
+        requestNumber,
+        httpStatus: sent.status,
+        ranged: new URL(windowed).searchParams.has("range"),
+        parts: [],
+        gainedBytes: 0,
+        protectionStatus: state.protectionStatus,
+      });
       reason = `the server answered ${sent.status}`;
       break;
     }
 
     state.redirectUrl = null;
-    const { gainedBytes } = applyUmpResponse(state, sent.bytes);
+    const { parts, gainedBytes } = applyUmpResponse(state, sent.bytes);
     input.onProgress?.(receivedBytes(state), requestNumber);
+    input.onResponse?.({
+      requestNumber,
+      httpStatus: sent.status,
+      ranged: windowed !== asked,
+      parts: parts.map(part => part.name),
+      gainedBytes,
+      protectionStatus: state.protectionStatus,
+    });
 
     if (state.error) {
       reason = `sabr error ${state.error.type ?? "unnamed"} code ${state.error.code ?? "none"}`;
@@ -311,4 +337,4 @@ export {
   orderedSegments,
   receivedBytes,
 };
-export type { DriveInput, DriveResult, SabrState, SabrTransport, Segment };
+export type { DriveInput, DriveResult, SabrResponseReport, SabrState, SabrTransport, Segment };

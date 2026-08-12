@@ -322,7 +322,12 @@ async function runSelfTest(forceWasm = false): Promise<unknown> {
 
 async function acquireMinted(url: string, windowBytes?: number): Promise<unknown> {
   const started = Date.now();
-  const acquired = await acquireFromMintedUrl({ url, windowBytes });
+  const trace: unknown[] = [];
+  const acquired = await acquireFromMintedUrl({
+    url,
+    windowBytes,
+    onResponse: response => trace.push(response),
+  });
   const digest = acquired.bytes.length
     ? [...new Uint8Array(await crypto.subtle.digest("SHA-256", acquired.bytes))]
         .map(byte => byte.toString(16).padStart(2, "0"))
@@ -339,6 +344,7 @@ async function acquireMinted(url: string, windowBytes?: number): Promise<unknown
     protectionStatus: acquired.protectionStatus,
     elapsedMs: Date.now() - started,
     sha256: digest,
+    trace,
   };
 }
 

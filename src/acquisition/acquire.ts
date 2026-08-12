@@ -1,7 +1,7 @@
 import { readMintedUrl } from "@/acquisition/minted-url";
 import type { MintedStream } from "@/acquisition/minted-url";
 import { driveSabr } from "@/acquisition/sabr-client";
-import type { SabrTransport } from "@/acquisition/sabr-client";
+import type { SabrResponseReport, SabrTransport } from "@/acquisition/sabr-client";
 import { clientIdFor } from "@/acquisition/sabr-request";
 
 // -- Turning a minted url into a track ------------------------------------------
@@ -16,6 +16,7 @@ interface AcquireInput {
   windowBytes?: number;
   maxRequests?: number;
   onProgress?: (receivedBytes: number, expectedBytes: number) => void;
+  onResponse?: (response: SabrResponseReport) => void;
 }
 
 interface AcquiredTrack {
@@ -67,6 +68,7 @@ async function acquireFromMintedUrl(input: AcquireInput): Promise<AcquiredTrack>
     windowBytes: input.windowBytes ?? DEFAULT_WINDOW_BYTES,
     maxRequests: input.maxRequests,
     onProgress: received => input.onProgress?.(received, minted.contentLengthBytes),
+    onResponse: input.onResponse,
   });
 
   return {
