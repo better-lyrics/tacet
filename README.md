@@ -37,8 +37,8 @@ and none of your audio leaves the browser.
 ### Sing-along
 
 Tacet splits the track into vocals and instrumental and gives you a vertical
-fader between them. All the way down is karaoke. Anywhere in between is a guide
-vocal. Tracks are separated ahead of you, so the fader is usually ready before
+slider between them. All the way down is karaoke. Anywhere in between is a guide
+vocal. Tracks are separated ahead of you, so it is usually ready before
 you reach for it, and stems are cached, so a song you have played before starts
 instantly. Pause, seek and skip all stay in sync.
 
@@ -82,11 +82,11 @@ The popup groups these under General, Separation and Storage.
 
 | Setting | Default | What it does |
 |---|---|---|
-| Sing-along | on | The master switch |
+| Sing-along | on | Sing-along and everything behind it, crossfade included |
 | Crossfade | 8s | Blends the end of one track into the start of the next |
-| Fader position | Lyrics dock | Where the control sits when Better Lyrics is installed |
+| Sing-along position | Lyrics dock | Where the control sits when Better Lyrics is installed |
 | Console logging | off | Prints what the extension is doing, for debugging |
-| Start separating automatically | on | Gets each track ready before you touch the fader |
+| Start separating automatically | on | Gets each track ready before you reach for it |
 | Model precision | Full | Half is a smaller download that sounds much the same |
 | Cache budget | 250 MB | How many separated songs to keep |
 
@@ -131,8 +131,8 @@ will still work without one, just a lot slower.
 
 ### Do I need Better Lyrics?
 
-No. With Better Lyrics installed the fader docks into the lyrics controls, and
-without it the fader sits in the player bar. Nothing else changes.
+No. With Better Lyrics installed the sing-along button docks into the lyrics
+controls, and without it it sits in the player bar. Nothing else changes.
 
 ### Why did sing-along stop when I changed the playback speed?
 
@@ -158,7 +158,7 @@ clears either the stems or the model.
 The extension captures the audio the player is already streaming, decodes it,
 and runs [htdemucs](https://github.com/adefossez/demucs) over it in an offscreen
 document. The two stems come back as Opus, get cached in IndexedDB, and play
-through a pair of gain nodes that follow the player's own transport. The fader
+through a pair of gain nodes that follow the player's own transport. Sing-along
 just moves those gains.
 
 Crossfade needs the next track early, so Tacet fetches and decodes it before the

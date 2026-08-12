@@ -288,7 +288,7 @@ function createFaderPlacementRow(
 ): { row: HTMLElement; setValue(value: FaderPlacement): void } {
   const row = createElement("div", "blk-row");
   const { text, labelId } = createTextRow(
-    "Fader position",
+    "Sing-along position",
     "Where the sing-along button sits. The lyrics dock falls back to the player bar whenever it is not on screen."
   );
 
@@ -485,11 +485,11 @@ function createAboutPanel(): HTMLElement {
     hero,
     createAboutSection("What it is", body => {
       body.textContent =
-        "Tacet sits inside YouTube Music and adds the controls the player does not have. Today that means a fader that lifts the voice out of a track, and a crossfade that stops songs ending cold. More will follow.";
+        "Tacet sits inside YouTube Music and adds the controls the player does not have. Today that means a slider that lifts the voice out of a track, and a crossfade that stops songs ending cold. More will follow.";
     }),
     createAboutSection("Sing-along", body => {
       body.textContent =
-        "The fader runs from the song as recorded down to the instrumental on its own. All the way down is karaoke. Anywhere in between is a guide vocal.";
+        "It runs from the song as recorded down to the instrumental on its own. All the way down is karaoke. Anywhere in between is a guide vocal.";
     }),
     createAboutSection("Crossfade", body => {
       body.textContent =
@@ -506,7 +506,7 @@ function createAboutPanel(): HTMLElement {
 
     createAboutSection("Better Lyrics", body => {
       body.append(
-        "Optional, but the two are built to sit together: with it installed the fader docks into the lyrics controls instead of the player bar. ",
+        "Optional, but the two are built to sit together: with it installed the sing-along button docks into the lyrics controls instead of the player bar. ",
         aboutLink(BETTER_LYRICS_URL, "Install Better Lyrics"),
         "."
       );
@@ -766,7 +766,7 @@ async function main(): Promise<void> {
 
   const singAlongToggle = createToggle(
     "Sing-along",
-    "The fader and everything behind it, crossfade included. Reload YouTube Music after changing this.",
+    "Sing-along and everything behind it, crossfade included. Reload YouTube Music after changing this.",
     settings.singAlongEnabled,
     next => {
       saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
