@@ -13,7 +13,7 @@ describe("separation status", () => {
   describe("happy path", () => {
     it("counts a separation up", () => {
       const status = describeSeparation(state({ status: "processing", stage: "separating", processed: 5, total: 8 }));
-      expect(status).toEqual({ label: "Separating", percent: 0.625, complete: false });
+      expect(status).toEqual({ label: "Separating", percent: 0.625, fill: 0.625 });
       expect(separationText(status)).toBe("Separating 63%");
       expect(separationFill(status)).toBeCloseTo(0.625);
     });
@@ -114,6 +114,41 @@ describe("separation status", () => {
     it("regression: an overshooting segment count still reads as at most 100%", () => {
       const status = describeSeparation(state({ status: "processing", stage: "separating", processed: 9, total: 8 }));
       expect(separationText(status)).toBe("Separating 100%");
+    });
+
+    it("regression: Finishing holds the bar where separating left it instead of sweeping back to nothing", () => {
+      const separating = state({ status: "processing", stage: "separating", processed: 19, total: 20 });
+      const finishing = { ...separating, stage: "encoding" };
+      expect(separationText(describeSeparation(finishing))).toBe("Finishing");
+      expect(separationFill(describeSeparation(finishing))).toBe(separationFill(describeSeparation(separating)));
+    });
+
+    it("regression: the bar never runs backwards across a whole track", () => {
+      const run: KaraokeState[] = [
+        state({ status: "waiting-for-capture" }),
+        state({ status: "waiting-for-capture", downloadSource: "hidden-player", downloadFraction: 0.2 }),
+        state({ status: "waiting-for-capture", downloadSource: "hidden-player", downloadFraction: 0.9 }),
+        state({ status: "processing", stage: "checking-cache" }),
+        state({ status: "processing", stage: "decoding" }),
+        state({ status: "processing", stage: "downloading-model" }),
+        state({ status: "processing", stage: "separating", processed: 1, total: 20 }),
+        state({ status: "processing", stage: "separating", processed: 19, total: 20 }),
+        state({ status: "processing", stage: "encoding", processed: 19, total: 20 }),
+        state({ status: "engaged", processed: 19, total: 20 }),
+      ];
+      const fills = run.map(step => separationFill(describeSeparation(step)));
+      for (let index = 1; index < fills.length; index++) {
+        expect(fills[index]).toBeGreaterThanOrEqual(fills[index - 1]);
+      }
+      expect(fills.at(-1)).toBe(1);
+    });
+
+    it("regression: the download's percentage stays in the text and out of the bar", () => {
+      const status = describeSeparation(
+        state({ status: "waiting-for-capture", downloadSource: "hidden-player", downloadFraction: 0.67 })
+      );
+      expect(separationText(status)).toBe("Downloading track 67%");
+      expect(separationFill(status)).toBe(0);
     });
   });
 });

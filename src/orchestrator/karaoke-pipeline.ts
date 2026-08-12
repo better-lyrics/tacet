@@ -403,6 +403,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     stagedDoneReceived = false;
     staged = { videoId, vocals, instrumental };
 
+    trackStatusStore.setCached(videoId, true);
     const kilobytes = Math.round((vocals.size + instrumental.size) / 1024);
     log(`staged ${videoId} for a transition, ${kilobytes} kB of Opus held`);
     const ready: StagedReadyMessage = { type: "blk-staged-ready", videoId };

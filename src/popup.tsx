@@ -630,9 +630,14 @@ interface StatusSection {
   render(status: TrackStatus | null): void;
 }
 
+// A cache miss on the track coming up is not a verdict, it is the ordinary
+// state of a track the pipeline has not reached yet: separation runs one track
+// at a time and the next one is only warmed once this one has engaged. Saying
+// "not separated" read as a failure and, worse, never changed, because the
+// cache probe answers once. It flips to Ready when the ahead separation lands.
 function nextTrackState(track: StatusTrack): string {
   if (track.cached === null) return "";
-  return track.cached ? "Ready" : "Not separated";
+  return track.cached ? "Ready" : "Queued";
 }
 
 function createStatusSection(): StatusSection {

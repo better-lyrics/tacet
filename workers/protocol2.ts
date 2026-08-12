@@ -264,7 +264,7 @@ export interface TrackStatusMessage {
   next: StatusTrackRecord | null;
   // null whenever no pipeline is running, which is the whole of sing-along
   // being switched off.
-  separation: { label: string; percent: number | null; complete: boolean } | null;
+  separation: { label: string; percent: number | null; fill: number } | null;
 }
 
 export function isGetTrackStatusCommand(data: unknown): data is GetTrackStatusCommand {
