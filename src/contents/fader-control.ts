@@ -1,21 +1,29 @@
 import faderCss from "data-text:../ui/fader.css";
-import type { PlasmoCSConfig } from "plasmo";
+import { type RequestQueueTracksMessage, isQueueTracksMessage, isTrackArtworkMessage } from "@/capture/bridge-protocol";
 import { describeBusy } from "@/orchestrator/busy-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { describeSeparation } from "@/orchestrator/separation-status";
+import { trackStatusStore } from "@/orchestrator/track-status-store";
+import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import type { SetLoggingMessage } from "@/pageworld/protocol";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
-import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
-import type { SetLoggingMessage } from "@/pageworld/protocol";
+import { createLogger, setLoggingEnabled } from "@/shared/logger";
+import { extensionVersion } from "@/shared/version";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
-import { createLogger, setLoggingEnabled } from "@/shared/logger";
-import { extensionVersion } from "@/shared/version";
-import { type BetterLyricsPresenceMessage, isHasBetterLyricsCommand } from "../../workers/protocol2";
+import type { PlasmoCSConfig } from "plasmo";
+import {
+  type BetterLyricsPresenceMessage,
+  type TrackStatusMessage,
+  isGetTrackStatusCommand,
+  isHasBetterLyricsCommand,
+} from "../../workers/protocol2";
 
 const logger = createLogger("orchestrator");
 
@@ -77,6 +85,8 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 
 // -- Master switch ---------------------------------------------------------
 
+let latest: KaraokeState | null = null;
+
 interface MountedFader {
   destroy(): void;
   setPlacement(next: FaderPlacement): void;
@@ -88,7 +98,6 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
 
   let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
   let tooltip: Tooltip | undefined;
-  let latest: KaraokeState | null = null;
   let armed = false;
 
   function render(): void {
@@ -126,6 +135,7 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
       pipeline?.destroy();
       tooltip.destroy();
       control.destroy();
+      latest = null;
     },
   };
 }
@@ -167,11 +177,43 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   applySettings(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue));
 });
 
+// -- Track status ------------------------------------------------------------
+
+window.addEventListener("message", event => {
+  if (event.source !== window || event.origin !== window.location.origin) return;
+  const data: unknown = event.data;
+  if (isQueueTracksMessage(data)) {
+    trackStatusStore.setTracks({ now: data.now, next: data.next });
+    return;
+  }
+  if (isTrackArtworkMessage(data)) trackStatusStore.setArtwork(data.videoId, data.artworkUrl);
+});
+
+function requestQueueTracks(): void {
+  const request: RequestQueueTracksMessage = { type: "blk-request-queue-tracks" };
+  window.postMessage(request, window.location.origin);
+}
+
 // -- Better Lyrics probe, answered whether or not the fader is mounted ---------
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (!isHasBetterLyricsCommand(message)) return undefined;
-  const reply: BetterLyricsPresenceMessage = { type: "blk-better-lyrics-presence", present: hasBetterLyrics() };
-  sendResponse(reply);
+  if (isHasBetterLyricsCommand(message)) {
+    const reply: BetterLyricsPresenceMessage = { type: "blk-better-lyrics-presence", present: hasBetterLyrics() };
+    sendResponse(reply);
+    return undefined;
+  }
+
+  if (isGetTrackStatusCommand(message)) {
+    const tracks = trackStatusStore.get();
+    sendResponse({
+      type: "blk-track-status",
+      now: tracks.now,
+      next: tracks.next,
+      separation: describeSeparation(latest),
+    } satisfies TrackStatusMessage);
+    requestQueueTracks();
+    return undefined;
+  }
+
   return undefined;
 });

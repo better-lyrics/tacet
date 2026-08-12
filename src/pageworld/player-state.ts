@@ -1,5 +1,5 @@
-import { isAdPlaying } from "@/capture/ad-state";
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
+import { isAdPlaying } from "@/capture/ad-state";
 import { readPlayerDuration, readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
@@ -29,11 +29,7 @@ function readPlayerSnapshot(
 
 function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {
   const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
-  return readPlayerSnapshot(
-    player ? (player as unknown as YtPlayer) : null,
-    readClockDuration(doc),
-    isAdPlaying(doc)
-  );
+  return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null, readClockDuration(doc), isAdPlaying(doc));
 }
 
 function playerCurrentTime(doc: Document): number {

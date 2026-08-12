@@ -7,7 +7,9 @@ function planNaiveConcat(chunks: readonly CaptureChunk[]): Uint8Array[] {
 function planFirstPlusMedia(chunks: readonly CaptureChunk[]): Uint8Array[] {
   if (chunks.length === 0) return [];
   const [first, ...rest] = chunks;
-  return [first.bytes, ...rest.filter(chunk => !chunk.isInitSegment).map(chunk => chunk.bytes)];
+  const boundary = rest.findIndex(chunk => chunk.isInitSegment);
+  const kept = boundary === -1 ? rest : rest.slice(0, boundary);
+  return [first.bytes, ...kept.map(chunk => chunk.bytes)];
 }
 
 function countInitSegments(chunks: readonly CaptureChunk[]): number {

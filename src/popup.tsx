@@ -1,8 +1,20 @@
 import "./popup.css";
-import betterLyricsIconUrl from "data-base64:../assets/brand/better-lyrics.png";
+import tacetIconUrl from "data-base64:../assets/brand/logo.png";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
+import { sizedArtworkUrl } from "@/capture/artwork-url";
+import { separationFill, separationText } from "@/orchestrator/separation-status";
 import { formatBytes } from "@/settings/format-bytes";
-import { extensionVersion } from "@/shared/version";
+import {
+  POPUP_TABS,
+  type PopupTab,
+  type PopupView,
+  activePanel,
+  initialView,
+  isStatusVisible,
+  isTabBarVisible,
+  selectTab,
+  toggleAbout,
+} from "@/settings/popup-tabs";
 import { createSelect } from "@/settings/select";
 import {
   CACHE_BUDGET_PRESETS_BYTES,
@@ -11,17 +23,21 @@ import {
   type FaderPlacement,
 } from "@/settings/settings";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
+import { extensionVersion } from "@/shared/version";
 import {
   type ClearModelCacheCommand,
   type ClearStemCacheCommand,
   type GetCacheStatusCommand,
+  type GetTrackStatusCommand,
   type HasBetterLyricsCommand,
+  type TrackStatusMessage,
   isBetterLyricsPresenceMessage,
   isCacheStatusMessage,
   isClearCacheResultMessage,
+  isTrackStatusMessage,
 } from "../workers/protocol2";
 
-// -- Popup: settings and cache management --------------------------------------
+// -- Popup: settings, storage and About ----------------------------------------
 
 const LOG_PREFIX = "[BLK-POPUP]";
 
@@ -50,10 +66,13 @@ function createTextRow(labelText: string, hintText: string): { text: HTMLElement
   return { text, hint, labelId: label.id };
 }
 
-// -- Header links ---------------------------------------------------------------
+// -- Links and icons ------------------------------------------------------------
 
 const BETTER_LYRICS_URL = "https://betterlyrics.org";
 const REPOSITORY_URL = "https://github.com/better-lyrics/tacet";
+const ISSUES_URL = "https://github.com/better-lyrics/tacet/issues/new/choose";
+const DISCORD_URL = "https://discord.gg/UsHE3d5fWF";
+const AUTHOR_URL = "https://boidu.dev";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GITHUB_MARK_PATH =
@@ -67,6 +86,13 @@ const GITHUB_MARK_PATH =
   "2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 " +
   "12.297c0-6.627-5.373-12-12-12";
 
+const QUEUE_MARK_PATH =
+  "M14 6H4c-.55 0-1 .45-1 1s.45 1 1 1h10c.55 0 1-.45 1-1s-.45-1-1-1m0 4H4c-.55 0-1 .45-1 " +
+  "1s.45 1 1 1h10c.55 0 1-.45 1-1s-.45-1-1-1M4 16h6c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 " +
+  "0-1 .45-1 1s.45 1 1 1M19 6c-1.1 0-2 .9-2 2v6.18c-.31-.11-.65-.18-1-.18c-1.84 0-3.28 " +
+  "1.64-2.95 3.54c.21 1.21 1.2 2.2 2.41 2.41c1.9.33 3.54-1.11 3.54-2.95V8h2c.55 0 " +
+  "1-.45 1-1s-.45-1-1-1z";
+
 function createExternalLink(href: string, label: string, className: string): HTMLAnchorElement {
   const link = createElement("a", className);
   link.href = href;
@@ -77,30 +103,49 @@ function createExternalLink(href: string, label: string, className: string): HTM
   return link;
 }
 
-function createGithubIcon(): SVGSVGElement {
+function createFilledIcon(pathData: string, size: number): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "16");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
   svg.setAttribute("fill", "currentColor");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
   const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", GITHUB_MARK_PATH);
+  path.setAttribute("d", pathData);
   svg.append(path);
+  return svg;
+}
+
+function createInfoIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const circle = document.createElementNS(SVG_NS, "circle");
+  circle.setAttribute("cx", "12");
+  circle.setAttribute("cy", "12");
+  circle.setAttribute("r", "9");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M12 11v5M12 7.6v.6");
+  svg.append(circle, path);
   return svg;
 }
 
 function createHeader(): HTMLElement {
   const header = createElement("div", "blk-popup__header");
 
-  const brand = createExternalLink(BETTER_LYRICS_URL, "Better Lyrics", "blk-popup__brand");
-  const brandIcon = createElement("img", "blk-popup__brand-icon");
-  brandIcon.src = betterLyricsIconUrl;
-  brandIcon.alt = "";
-  brandIcon.width = 18;
-  brandIcon.height = 18;
-  brand.append(brandIcon);
+  const brand = createElement("img", "blk-popup__brand");
+  brand.src = tacetIconUrl;
+  brand.alt = "";
+  brand.width = 22;
+  brand.height = 22;
 
   const title = createElement("span", "blk-popup__title");
   title.textContent = "Tacet";
@@ -108,8 +153,8 @@ function createHeader(): HTMLElement {
   version.textContent = extensionVersion();
   title.append(version);
 
-  const repository = createExternalLink(REPOSITORY_URL, "View source on GitHub", "blk-popup__icon-button");
-  repository.append(createGithubIcon());
+  const repository = createExternalLink(REPOSITORY_URL, "View source on GitHub", "blk-icon-button");
+  repository.append(createFilledIcon(GITHUB_MARK_PATH, 16));
 
   header.append(brand, title, repository);
   return header;
@@ -154,10 +199,6 @@ function createToggle(
 
 // -- Cache budget slider -------------------------------------------------------
 
-interface BudgetSlider {
-  row: HTMLElement;
-}
-
 function closestPresetIndex(presets: readonly number[], bytes: number): number {
   let closestIndex = 0;
   let closestDiff = Number.POSITIVE_INFINITY;
@@ -175,9 +216,10 @@ function createBudgetSlider(
   presets: readonly number[],
   initialBytes: number,
   onChange: (bytes: number) => void
-): BudgetSlider {
+): { row: HTMLElement } {
   const row = createElement("div", "blk-row blk-row--stack");
   const { text, hint, labelId } = createTextRow("Cache budget", "");
+  text.classList.add("blk-row__text--slider");
   hint.textContent = "Maximum space used for cached vocals";
 
   const value = createElement("span", "blk-row__value");
@@ -190,12 +232,16 @@ function createBudgetSlider(
   slider.max = String(presets.length - 1);
   slider.step = "1";
   slider.value = String(closestPresetIndex(presets, initialBytes));
-  value.textContent = formatBytes(presets[Number(slider.value)]);
 
-  slider.addEventListener("input", () => {
+  function paint(): void {
     value.textContent = formatBytes(presets[Number(slider.value)]);
-  });
+    const span = presets.length - 1;
+    const fraction = span === 0 ? 0 : Number(slider.value) / span;
+    slider.style.setProperty("--blk-fill", `${(fraction * 100).toFixed(2)}%`);
+  }
+  paint();
 
+  slider.addEventListener("input", paint);
   slider.addEventListener("change", () => {
     onChange(presets[Number(slider.value)]);
   });
@@ -242,7 +288,7 @@ function createFaderPlacementRow(
 ): { row: HTMLElement; setValue(value: FaderPlacement): void } {
   const row = createElement("div", "blk-row");
   const { text, labelId } = createTextRow(
-    "Fader position",
+    "Sing-along position",
     "Where the sing-along button sits. The lyrics dock falls back to the player bar whenever it is not on screen."
   );
 
@@ -271,25 +317,42 @@ function createCrossfadeRow(
   initialSeconds: number,
   onChange: (next: number) => void
 ): { row: HTMLElement; setValue(value: number): void } {
-  const row = createElement("div", "blk-row");
-  const { text, labelId } = createTextRow(
-    "Crossfade",
-    "Blend the end of one separated track into the start of the next. Takes effect immediately, except during a fade already under way."
-  );
+  const row = createElement("div", "blk-row blk-row--stack");
+  const { text, hint, labelId } = createTextRow("Crossfade", "");
+  text.classList.add("blk-row__text--slider");
+  hint.textContent = "Blend the end of one track into the start of the next";
 
-  const select = createSelect<string>(
-    presets.map(seconds =>
-      seconds === 0
-        ? { value: "0", label: "Off", note: "hard cut" }
-        : { value: String(seconds), label: describeCrossfade(seconds) }
-    ),
-    String(presets[closestPresetIndex(presets, initialSeconds)]),
-    value => onChange(Number(value)),
-    labelId
-  );
+  const value = createElement("span", "blk-row__value");
+  text.insertBefore(value, hint);
 
-  row.append(text, select.element);
-  return { row, setValue: value => select.setValue(String(value)) };
+  const slider = createElement("input", "blk-slider");
+  slider.type = "range";
+  slider.setAttribute("aria-labelledby", labelId);
+  slider.min = "0";
+  slider.max = String(presets.length - 1);
+  slider.step = "1";
+  slider.value = String(closestPresetIndex(presets, initialSeconds));
+
+  function paint(): void {
+    value.textContent = describeCrossfade(presets[Number(slider.value)]);
+    slider.setAttribute("aria-valuetext", describeCrossfade(presets[Number(slider.value)]));
+    const span = presets.length - 1;
+    const fraction = span === 0 ? 0 : Number(slider.value) / span;
+    slider.style.setProperty("--blk-fill", `${(fraction * 100).toFixed(2)}%`);
+  }
+  paint();
+
+  slider.addEventListener("input", paint);
+  slider.addEventListener("change", () => onChange(presets[Number(slider.value)]));
+
+  row.append(text, slider);
+  return {
+    row,
+    setValue: seconds => {
+      slider.value = String(closestPresetIndex(presets, seconds));
+      paint();
+    },
+  };
 }
 
 // -- Better Lyrics presence ----------------------------------------------------
@@ -312,17 +375,60 @@ async function probeBetterLyrics(): Promise<boolean> {
   }
 }
 
-// -- Cache row (readout + clear button) ----------------------------------------
+// -- Storage readout -----------------------------------------------------------
 
-interface CacheRow {
-  row: HTMLElement;
-  setReadout(value: string): void;
-  setClearDisabled(disabled: boolean): void;
+interface CacheReadout {
+  element: HTMLElement;
+  setStems(value: string): void;
+  setModel(value: string): void;
 }
 
-function createCacheRow(labelText: string, onClear: () => void): CacheRow {
+function createReadoutRow(labelText: string): { row: HTMLElement; value: HTMLElement } {
+  const row = createElement("div", "blk-cache__row");
+  const label = createElement("span", "blk-cache__label");
+  label.textContent = labelText;
+  const dots = createElement("span", "blk-cache__dots");
+  dots.setAttribute("aria-hidden", "true");
+  const value = createElement("span", "blk-cache__value");
+  value.textContent = "…";
+  row.append(label, dots, value);
+  return { row, value };
+}
+
+function createCacheReadout(): CacheReadout {
+  const element = createElement("div", "blk-cache");
+
+  const head = createElement("div", "blk-cache__head");
+  const title = createElement("span", "blk-cache__title");
+  title.textContent = "On this machine";
+  head.append(title);
+
+  const stems = createReadoutRow("Cached vocals");
+  const model = createReadoutRow("Separation model");
+  element.append(head, stems.row, model.row);
+
+  return {
+    element,
+    setStems(text) {
+      stems.value.textContent = text;
+    },
+    setModel(text) {
+      model.value.textContent = text;
+    },
+  };
+}
+
+// -- Clear row -----------------------------------------------------------------
+
+interface ClearRow {
+  row: HTMLElement;
+  setHint(value: string): void;
+  setDisabled(disabled: boolean): void;
+}
+
+function createClearRow(labelText: string, hintText: string, onClear: () => void): ClearRow {
   const row = createElement("div", "blk-row");
-  const { text, hint } = createTextRow(labelText, "Loading…");
+  const { text, hint } = createTextRow(labelText, hintText);
 
   const clearButton = createElement("button", "blk-button");
   clearButton.type = "button";
@@ -334,13 +440,313 @@ function createCacheRow(labelText: string, onClear: () => void): CacheRow {
   row.append(text, clearButton);
   return {
     row,
-    setReadout(valueText) {
-      hint.textContent = valueText;
+    setHint(value) {
+      hint.textContent = value;
     },
-    setClearDisabled(disabled) {
+    setDisabled(disabled) {
       clearButton.disabled = disabled;
     },
   };
+}
+
+// -- About ---------------------------------------------------------------------
+
+function aboutLink(href: string, text: string): HTMLAnchorElement {
+  const link = createElement("a");
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = text;
+  return link;
+}
+
+function createAboutSection(heading: string, build: (body: HTMLElement) => void): HTMLElement {
+  const section = createElement("div", "blk-about__section");
+  const title = createElement("h3", "blk-about__heading");
+  title.textContent = heading;
+  const body = createElement("p", "blk-about__body");
+  build(body);
+  section.append(title, body);
+  return section;
+}
+
+function createAboutPanel(): HTMLElement {
+  const panel = createElement("div", "blk-panel");
+
+  const hero = createElement("div", "blk-about__hero");
+  const mark = createElement("img", "blk-about__mark");
+  mark.src = tacetIconUrl;
+  mark.alt = "";
+  mark.width = 52;
+  mark.height = 52;
+  const heroText = createElement("div", "blk-about__hero-text");
+  const name = createElement("h2", "blk-about__name");
+  name.textContent = "Tacet";
+  const tagline = createElement("p", "blk-about__tagline");
+  tagline.textContent = "Playback controls, on your own machine.";
+  heroText.append(name, tagline);
+  hero.append(mark, heroText);
+
+  const community = createElement("div", "blk-about__section");
+  const communityHeading = createElement("h3", "blk-about__heading");
+  communityHeading.textContent = "Community";
+  const communityList = createElement("ul", "blk-about__body blk-about__list");
+  const discordItem = createElement("li");
+  discordItem.append(aboutLink(DISCORD_URL, "Discord"), " for questions and chat.");
+  const issueItem = createElement("li");
+  issueItem.append(aboutLink(ISSUES_URL, "File an issue"), " if something is broken.");
+  communityList.append(discordItem, issueItem);
+  community.append(communityHeading, communityList);
+
+  panel.append(
+    hero,
+    createAboutSection("What it is", body => {
+      body.textContent =
+        "Tacet sits inside YouTube Music and adds the controls the player does not have. Today that means a slider that lifts the voice out of a track, and a crossfade that stops songs ending cold. More will follow.";
+    }),
+    createAboutSection("Sing-along", body => {
+      body.textContent =
+        "It runs from the song as recorded down to the instrumental on its own. All the way down is karaoke. Anywhere in between is a guide vocal.";
+    }),
+    createAboutSection("Crossfade", body => {
+      body.textContent =
+        "One track blends into the next instead of stopping dead. It does not wait on separation: with no stems to fade out of, the fade runs on the original audio. Set the length under General, or turn it off there.";
+    }),
+    createAboutSection("Where the separation happens", body => {
+      body.textContent =
+        "On your own GPU, in your own browser, and nowhere else. The track is captured as it plays, cut into short segments, and run through htdemucs on WebGPU. No audio ever leaves the machine.";
+    }),
+    createAboutSection("The first track is the slow one", body => {
+      body.textContent =
+        "The model downloads once and is kept. Separated tracks are kept too, so hearing one again starts instantly. Both live under Storage, along with a budget and a way to clear them.";
+    }),
+
+    createAboutSection("Better Lyrics", body => {
+      body.append(
+        "Optional, but the two are built to sit together: with it installed the sing-along button docks into the lyrics controls instead of the player bar. ",
+        aboutLink(BETTER_LYRICS_URL, "Install Better Lyrics"),
+        "."
+      );
+    }),
+    createAboutSection("Open source", body => {
+      body.append(
+        "AGPL v3. Source on ",
+        aboutLink(REPOSITORY_URL, "GitHub"),
+        ". PRs welcome if you spot something to fix."
+      );
+    }),
+    community,
+    createAboutSection("Made by", body => {
+      body.append(
+        aboutLink(AUTHOR_URL, "Boidu"),
+        ", with thanks to everyone in the Better Lyrics community who has tested it and reported bugs."
+      );
+    })
+  );
+  return panel;
+}
+
+// -- Playing, and coming up ------------------------------------------------------
+
+const STATUS_POLL_MS = 1000;
+
+const NOW_ART_PX = 34;
+const NEXT_ART_PX = 20;
+const NEXT_GLYPH_PX = 14;
+
+type StatusTrack = NonNullable<TrackStatusMessage["now"]>;
+type TrackStatus = Pick<TrackStatusMessage, "now" | "next" | "separation">;
+
+interface ArtworkThumb {
+  element: HTMLElement;
+  render(url: string | null): void;
+}
+
+function createArtworkThumb(sizePx: number): ArtworkThumb {
+  const element = createElement("span", "blk-status__thumb");
+  let shown: string | null = null;
+
+  return {
+    element,
+    render(url) {
+      if (url === shown) return;
+      shown = url;
+      if (url === null) {
+        element.replaceChildren();
+        return;
+      }
+      const image = createElement("img", "blk-status__art");
+      image.alt = "";
+      image.addEventListener("load", () => image.classList.add("blk-status__art--ready"), { once: true });
+      image.src = sizedArtworkUrl(url, sizePx);
+      element.replaceChildren(image);
+    },
+  };
+}
+
+interface Roll {
+  element: HTMLElement;
+  render(text: string): void;
+}
+
+function createRoll(): Roll {
+  const element = createElement("span", "blk-roll");
+  let shown: string | null = null;
+
+  return {
+    element,
+    render(text) {
+      if (text === shown) return;
+      shown = text;
+
+      const previous = element.querySelector(`.blk-roll__line:not(.blk-roll__line--leaving)`);
+      if (previous) {
+        previous.classList.remove("blk-roll__line--entering");
+        previous.classList.add("blk-roll__line--leaving");
+        previous.addEventListener("animationend", () => previous.remove(), { once: true });
+      }
+      if (text === "") return;
+
+      const line = createElement("span", "blk-roll__line blk-roll__line--entering");
+      line.textContent = text;
+      line.addEventListener("animationend", () => line.classList.remove("blk-roll__line--entering"), { once: true });
+      element.append(line);
+    },
+  };
+}
+
+interface StatusRow {
+  element: HTMLElement;
+  artwork: ArtworkThumb;
+  title: HTMLElement;
+  roll: Roll;
+  replay(): void;
+}
+
+function createStatusRow(modifier: string, artPx: number): StatusRow {
+  const element = createElement("div", `blk-status__row blk-status__row--${modifier}`);
+  const artwork = createArtworkThumb(artPx);
+  const title = createElement("span", "blk-status__title");
+  const roll = createRoll();
+
+  return {
+    element,
+    artwork,
+    title,
+    roll,
+    replay() {
+      element.classList.remove("blk-status__row--promoted");
+      void element.offsetWidth;
+      element.classList.add("blk-status__row--promoted");
+    },
+  };
+}
+
+interface StatusSection {
+  element: HTMLElement;
+  render(status: TrackStatus | null): void;
+  setVisible(visible: boolean): void;
+}
+
+function nextTrackState(track: StatusTrack): string {
+  if (track.cached === null) return "";
+  return track.cached ? "Ready" : "Queued";
+}
+
+function createStatusSection(): StatusSection {
+  const element = createElement("div", "blk-status");
+  element.hidden = true;
+
+  const now = createStatusRow("now", NOW_ART_PX);
+  const fill = createElement("span", "blk-status__fill");
+  const nowText = createElement("span", "blk-status__text");
+  const nowArtist = createElement("span", "blk-status__artist");
+  nowText.append(now.title, nowArtist);
+  now.element.append(fill, now.artwork.element, nowText, now.roll.element);
+
+  const next = createStatusRow("next", NEXT_ART_PX);
+  const nextGlyph = createElement("span", "blk-status__glyph");
+  nextGlyph.setAttribute("role", "img");
+  nextGlyph.setAttribute("aria-label", "Up next");
+  nextGlyph.append(createFilledIcon(QUEUE_MARK_PATH, NEXT_GLYPH_PX));
+  const nextText = createElement("span", "blk-status__text");
+  const nextArtist = createElement("span", "blk-status__artist");
+  nextText.append(next.title, nextArtist);
+  next.element.append(next.artwork.element, nextGlyph, nextText, next.roll.element);
+
+  element.append(now.element, next.element);
+
+  let shownNowId: string | null = null;
+  let shownNextId: string | null = null;
+  let visible = true;
+  let occupied = false;
+
+  function paint(): void {
+    element.hidden = !visible || !occupied;
+  }
+
+  function renderRow(row: StatusRow, track: StatusTrack | null, state: string): void {
+    row.element.hidden = track === null;
+    if (track === null) {
+      row.artwork.render(null);
+      row.roll.render("");
+      return;
+    }
+    row.title.textContent = track.title ?? "Unknown track";
+    row.roll.render(state);
+    row.artwork.render(track.artworkUrl);
+  }
+
+  return {
+    element,
+    render(status) {
+      occupied = status !== null && (status.now !== null || status.next !== null);
+      paint();
+      if (status === null || !occupied) {
+        shownNowId = null;
+        shownNextId = null;
+        return;
+      }
+
+      const advanced = status.now !== null && status.now.videoId !== shownNowId && status.now.videoId === shownNextId;
+
+      renderRow(now, status.now, separationText(status.separation));
+      nowArtist.textContent = status.now?.artist ?? "";
+      fill.style.width = `${(separationFill(status.separation) * 100).toFixed(2)}%`;
+
+      renderRow(next, status.next, status.next === null ? "" : nextTrackState(status.next));
+      nextArtist.textContent = status.next?.artist ?? "";
+
+      if (advanced) {
+        now.replay();
+        next.replay();
+      }
+      shownNowId = status.now?.videoId ?? null;
+      shownNextId = status.next?.videoId ?? null;
+    },
+    setVisible(next) {
+      visible = next;
+      paint();
+    },
+  };
+}
+
+async function readTrackStatus(): Promise<TrackStatus | null> {
+  const command: GetTrackStatusCommand = { type: "blk-get-track-status" };
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined) return null;
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, command);
+    if (!isTrackStatusMessage(response)) {
+      console.error(`${LOG_PREFIX} unexpected track status reply`, response);
+      return null;
+    }
+    return response;
+  } catch (error) {
+    console.debug(`${LOG_PREFIX} no YouTube Music tab answered the track status probe`, error);
+    return null;
+  }
 }
 
 // -- Main -----------------------------------------------------------------------
@@ -350,9 +756,20 @@ async function main(): Promise<void> {
 
   const header = createHeader();
 
-  const status = createElement("div", "blk-popup__status");
+  const tabs = createElement("div", "blk-tabs");
+  tabs.setAttribute("role", "tablist");
+
+  const scroll = createElement("div", "blk-scroll");
+
+  const footer = createElement("div", "blk-footer");
+  const aboutButton = createElement("button", "blk-text-button");
+  aboutButton.type = "button";
+  aboutButton.append(createInfoIcon(), document.createTextNode("About"));
+  const spacer = createElement("span", "blk-footer__spacer");
+  const status = createElement("span", "blk-footer__status");
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
+  footer.append(aboutButton, spacer, status);
 
   function showStatus(message: string): void {
     status.textContent = message;
@@ -366,7 +783,7 @@ async function main(): Promise<void> {
 
   const singAlongToggle = createToggle(
     "Sing-along",
-    "Master switch. Reload YouTube Music after changing this.",
+    "Sing-along and everything behind it, crossfade included. Reload YouTube Music after changing this.",
     settings.singAlongEnabled,
     next => {
       saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
@@ -442,27 +859,83 @@ async function main(): Promise<void> {
       });
   });
 
-  const stemRow = createCacheRow("Cached vocals", () => {
+  const cacheReadout = createCacheReadout();
+  const stemClearRow = createClearRow("Cached vocals", "Cleared tracks separate again from scratch.", () => {
     clearStemCache();
   });
-  const modelRow = createCacheRow("Separation model", () => {
+  const modelClearRow = createClearRow("Separation model", "Downloads again the next time a track needs it.", () => {
     clearModelCache();
   });
 
-  root.append(
-    header,
-    singAlongToggle.row,
-    autoSeparateToggle.row,
-    faderPlacementRow.row,
-    crossfadeRow.row,
-    modelVariantRow.row,
-    budgetSlider.row,
-    stemRow.row,
-    modelRow.row,
-    debugLoggingToggle.row,
-    status
-  );
+  const generalPanel = createElement("div", "blk-panel");
+  generalPanel.setAttribute("role", "tabpanel");
+  generalPanel.append(singAlongToggle.row, crossfadeRow.row, faderPlacementRow.row, debugLoggingToggle.row);
+
+  const separationPanel = createElement("div", "blk-panel");
+  separationPanel.setAttribute("role", "tabpanel");
+  separationPanel.append(autoSeparateToggle.row, modelVariantRow.row);
+
+  const storagePanel = createElement("div", "blk-panel");
+  storagePanel.setAttribute("role", "tabpanel");
+  storagePanel.append(budgetSlider.row, cacheReadout.element, stemClearRow.row, modelClearRow.row);
+
+  const panels: Record<PopupTab | "about", HTMLElement> = {
+    general: generalPanel,
+    separation: separationPanel,
+    storage: storagePanel,
+    about: createAboutPanel(),
+  };
+
+  const TAB_LABELS: Record<PopupTab, string> = {
+    general: "General",
+    separation: "Separation",
+    storage: "Storage",
+  };
+
+  let view: PopupView = initialView();
+
+  const tabButtons = POPUP_TABS.map(tab => {
+    const button = createElement("button", "blk-tab");
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.textContent = TAB_LABELS[tab];
+    button.addEventListener("click", () => {
+      view = selectTab(view, tab);
+      render();
+    });
+    tabs.append(button);
+    return { tab, button };
+  });
+
+  aboutButton.addEventListener("click", () => {
+    view = toggleAbout(view);
+    render();
+  });
+
+  const statusSection = createStatusSection();
+
+  function render(): void {
+    tabs.hidden = !isTabBarVisible(view);
+    statusSection.setVisible(isStatusVisible(view));
+    for (const { tab, button } of tabButtons) {
+      button.setAttribute("aria-selected", String(!view.aboutOpen && view.tab === tab));
+    }
+    aboutButton.setAttribute("aria-pressed", String(view.aboutOpen));
+    scroll.replaceChildren(panels[activePanel(view)]);
+    scroll.scrollTop = 0;
+  }
+
+  root.append(header, statusSection.element, tabs, scroll, footer);
   document.body.append(root);
+  render();
+
+  function refreshStatus(): void {
+    readTrackStatus()
+      .then(status => statusSection.render(status))
+      .catch(error => console.error(`${LOG_PREFIX} failed to read the track status`, error));
+  }
+  refreshStatus();
+  setInterval(refreshStatus, STATUS_POLL_MS);
 
   async function refreshCacheStatus(): Promise<void> {
     const command: GetCacheStatusCommand = { type: "blk-get-cache-status" };
@@ -470,22 +943,32 @@ async function main(): Promise<void> {
       const response = await chrome.runtime.sendMessage(command);
       if (!isCacheStatusMessage(response)) throw new Error("unexpected response shape");
 
-      stemRow.setReadout(`${formatBytes(response.stemCacheBytes)} used`);
-      stemRow.setClearDisabled(response.stemCacheBytes === 0);
+      cacheReadout.setStems(formatBytes(response.stemCacheBytes));
+      cacheReadout.setModel(response.modelCached ? formatBytes(response.modelCacheBytes) : "none");
 
-      modelRow.setReadout(
-        response.modelCached ? `Downloaded (${formatBytes(response.modelCacheBytes)})` : "Not downloaded"
+      stemClearRow.setHint(
+        response.stemCacheBytes === 0
+          ? "Nothing cached yet."
+          : `Frees ${formatBytes(response.stemCacheBytes)}. Cleared tracks separate again from scratch.`
       );
-      modelRow.setClearDisabled(!response.modelCached);
+      stemClearRow.setDisabled(response.stemCacheBytes === 0);
+
+      modelClearRow.setHint(
+        response.modelCached
+          ? "Downloads again the next time a track needs it."
+          : "Not downloaded yet, so there is nothing to clear."
+      );
+      modelClearRow.setDisabled(!response.modelCached);
     } catch (error) {
       console.error(`${LOG_PREFIX} failed to read cache status`, error);
-      stemRow.setReadout("Could not read cache size.");
-      modelRow.setReadout("Could not read cache size.");
+      cacheReadout.setStems("unreadable");
+      cacheReadout.setModel("unreadable");
+      showStatus("Could not read cache size.");
     }
   }
 
   async function clearStemCache(): Promise<void> {
-    stemRow.setClearDisabled(true);
+    stemClearRow.setDisabled(true);
     const command: ClearStemCacheCommand = { type: "blk-clear-stem-cache" };
     try {
       const response = await chrome.runtime.sendMessage(command);
@@ -504,7 +987,7 @@ async function main(): Promise<void> {
   }
 
   async function clearModelCache(): Promise<void> {
-    modelRow.setClearDisabled(true);
+    modelClearRow.setDisabled(true);
     const command: ClearModelCacheCommand = { type: "blk-clear-model-cache" };
     try {
       const response = await chrome.runtime.sendMessage(command);
@@ -515,7 +998,7 @@ async function main(): Promise<void> {
       }
       showStatus("Separation model cleared.");
     } catch (error) {
-      console.error(`${LOG_PREFIX} failed to clear the model cache`, error);
+      console.error(`${LOG_PREFIX} failed to clear the separation model`, error);
       showStatus("Could not clear the separation model.");
     } finally {
       await refreshCacheStatus();

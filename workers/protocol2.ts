@@ -276,6 +276,46 @@ export function isBetterLyricsPresenceMessage(data: unknown): data is BetterLyri
   );
 }
 
+// -- Track status probe (popup -> the tab's fader control) ---------------------
+
+export interface GetTrackStatusCommand {
+  type: "blk-get-track-status";
+}
+
+export interface StatusTrackRecord {
+  videoId: string;
+  title: string | null;
+  artist: string | null;
+  artworkUrl: string | null;
+  cached: boolean | null;
+}
+
+export interface TrackStatusMessage {
+  type: "blk-track-status";
+  // Either row is null whenever there is nothing to show there: no queue, no
+  // YouTube Music tab, or nothing after the track playing.
+  now: StatusTrackRecord | null;
+  next: StatusTrackRecord | null;
+  // null whenever no pipeline is running, which is the whole of sing-along
+  // being switched off.
+  separation: { label: string; percent: number | null; fill: number } | null;
+}
+
+export function isGetTrackStatusCommand(data: unknown): data is GetTrackStatusCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-track-status";
+}
+
+function isStatusTrackRecord(value: unknown): value is StatusTrackRecord | null {
+  if (value === null) return true;
+  return typeof value === "object" && typeof (value as { videoId?: unknown }).videoId === "string";
+}
+
+export function isTrackStatusMessage(data: unknown): data is TrackStatusMessage {
+  if (typeof data !== "object" || data === null) return false;
+  if ((data as { type?: unknown }).type !== "blk-track-status") return false;
+  return isStatusTrackRecord((data as { now?: unknown }).now) && isStatusTrackRecord((data as { next?: unknown }).next);
+}
+
 // -- Settings relay (offscreen has no chrome.storage) --------------------------
 
 export interface GetSettingsCommand {
