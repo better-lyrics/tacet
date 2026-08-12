@@ -3,6 +3,7 @@
 import { enabledOrder, nextSource, sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
+import { deliveredBy } from "@/orchestrator/delivery";
 import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
@@ -90,6 +91,7 @@ interface KaraokePipelineOptions {
 interface KaraokePipeline {
   engage(mixLevel: number): void;
   setCrossfadeSeconds(seconds: number): void;
+  deliveredSource(videoId: string): SourceId | null;
   destroy(): void;
 }
 
@@ -110,6 +112,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTrack: PlayerState | null = null;
   let climb: { videoId: string; tried: SourceId[]; inFlight: boolean; exhausted: boolean } | null = null;
+  let delivery: { videoId: string; source: SourceId } | null = null;
   const reacquiredVideoIds = new Set<string>();
 
   options.onStateChange(state);
@@ -355,6 +358,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
       log(`capture ready for ${data.videoId}`);
+      recordDelivery(data.videoId, null);
       dispatch({ type: "capture-ready", videoId: data.videoId });
       maybeAutoEngage(data.videoId);
       return;
@@ -367,6 +371,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       }
       if (data.videoId !== state.videoId) return;
       log(`${data.source} answered for ${data.videoId}, pulling the track`);
+      recordDelivery(data.videoId, data.source);
       acquireFromUrl(data.videoId, data.url);
       return;
     }
@@ -653,6 +658,12 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       .catch(error => logError("failed to read the source order", error));
   }
 
+  function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
+    const inFlightSource =
+      climb?.videoId === videoId && climb.inFlight ? climb.tried[climb.tried.length - 1] ?? null : null;
+    delivery = { videoId, source: deliveredBy({ inFlightSource, announcedSource }) };
+  }
+
   function startSource(videoId: string, source: SourceId): void {
     if (source === "direct-fetch") {
       log(`acquiring ${videoId} from a url its own player mints`);
@@ -746,7 +757,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     postToPageWorld({ type: "blk-set-crossfade", seconds });
   }
 
-  return { engage, setCrossfadeSeconds, destroy };
+  function deliveredSource(videoId: string): SourceId | null {
+    return delivery?.videoId === videoId ? delivery.source : null;
+  }
+
+  return { engage, setCrossfadeSeconds, deliveredSource, destroy };
 }
 
 export { createKaraokePipeline };

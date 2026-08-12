@@ -332,6 +332,10 @@ export interface TrackStatusMessage {
   // null whenever no pipeline is running, which is the whole of sing-along
   // being switched off.
   separation: { label: string; percent: number | null; fill: number } | null;
+  // The source that delivered the track playing now, as its display label.
+  // null whenever nothing has been acquired for it, which includes a cache hit,
+  // where no source ever runs.
+  deliveredBy?: string | null;
 }
 
 export function isGetTrackStatusCommand(data: unknown): data is GetTrackStatusCommand {

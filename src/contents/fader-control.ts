@@ -1,6 +1,8 @@
 import faderCss from "data-text:../ui/fader.css";
 import { type RequestQueueTracksMessage, isQueueTracksMessage, isTrackArtworkMessage } from "@/capture/bridge-protocol";
+import type { SourceId } from "@/acquisition/sources";
 import { describeBusy } from "@/orchestrator/busy-tooltip";
+import { describeDelivery } from "@/orchestrator/delivery";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { describeSeparation } from "@/orchestrator/separation-status";
@@ -91,6 +93,7 @@ interface MountedFader {
   destroy(): void;
   setPlacement(next: FaderPlacement): void;
   setCrossfadeSeconds(seconds: number): void;
+  deliveredSource(videoId: string): SourceId | null;
 }
 
 function mountFader(placement: FaderPlacement, crossfadeSeconds: number): MountedFader {
@@ -130,6 +133,7 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
   return {
     setPlacement: mount.setPlacement,
     setCrossfadeSeconds: seconds => pipeline?.setCrossfadeSeconds(seconds),
+    deliveredSource: videoId => pipeline?.deliveredSource(videoId) ?? null,
     destroy() {
       mount.disconnect();
       pipeline?.destroy();
@@ -205,11 +209,13 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 
   if (isGetTrackStatusCommand(message)) {
     const tracks = trackStatusStore.get();
+    const nowVideoId = tracks.now?.videoId ?? null;
     sendResponse({
       type: "blk-track-status",
       now: tracks.now,
       next: tracks.next,
       separation: describeSeparation(latest),
+      deliveredBy: describeDelivery(nowVideoId ? mounted?.deliveredSource(nowVideoId) ?? null : null),
     } satisfies TrackStatusMessage);
     requestQueueTracks();
     return undefined;

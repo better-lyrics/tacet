@@ -18,6 +18,7 @@ import {
   selectTab,
   toggleAbout,
 } from "@/settings/popup-tabs";
+import { describeNowArtist } from "@/orchestrator/delivery";
 import { createSelect } from "@/settings/select";
 import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
 import {
@@ -655,7 +656,7 @@ const NEXT_ART_PX = 20;
 const NEXT_GLYPH_PX = 14;
 
 type StatusTrack = NonNullable<TrackStatusMessage["now"]>;
-type TrackStatus = Pick<TrackStatusMessage, "now" | "next" | "separation">;
+type TrackStatus = Pick<TrackStatusMessage, "now" | "next" | "separation" | "deliveredBy">;
 
 interface ArtworkThumb {
   element: HTMLElement;
@@ -811,7 +812,7 @@ function createStatusSection(): StatusSection {
       const advanced = status.now !== null && status.now.videoId !== shownNowId && status.now.videoId === shownNextId;
 
       renderRow(now, status.now, separationText(status.separation));
-      nowArtist.textContent = status.now?.artist ?? "";
+      nowArtist.textContent = describeNowArtist(status.now?.artist ?? "", status.deliveredBy ?? null);
       fill.style.width = `${(separationFill(status.separation) * 100).toFixed(2)}%`;
 
       renderRow(next, status.next, status.next === null ? "" : nextTrackState(status.next));
