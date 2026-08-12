@@ -5,6 +5,8 @@ import { bytesToBase64 } from "../src/relay/base64.js";
 import type { CaptureChunkMessage, ModelChoice, TrackPipelineOutboundMessage } from "./protocol2.js";
 import type { SeparationHost } from "./separation-host.js";
 import { TrackPipeline } from "./track-pipeline.js";
+import { encodeMessage } from "../src/acquisition/protobuf.js";
+import { UMP_PART } from "../src/acquisition/ump.js";
 import { getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
 import { getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
 
@@ -241,5 +243,110 @@ describe("TrackPipeline answering a duplicate capture", () => {
     await new Promise(resolve => setTimeout(resolve, 20));
 
     expect(runsStartedFor(VIDEO_ID)).toBe(1);
+  });
+});
+
+// -- Acquiring a track from a minted url ----------------------------------------
+
+const ACQUIRED_VIDEO_ID = "DJCB1ZlseJ8";
+const MINTED_URL = "https://rr3.googlevideo.com/videoplayback?itag=251&clen=4&dur=188.3&mime=audio%2Fwebm&c=WEB_REMIX";
+
+function umpPart(type: number, payload: Uint8Array): Uint8Array {
+  return new Uint8Array([type, payload.length, ...payload]);
+}
+
+function wholeTrackResponse(media: number[]): Uint8Array {
+  const header = umpPart(
+    UMP_PART.mediaHeader,
+    encodeMessage([
+      { number: 1, varint: 1 },
+      { number: 6, varint: 0 },
+      { number: 9, varint: 1 },
+      { number: 12, varint: 5_000 },
+    ])
+  );
+  const body = umpPart(UMP_PART.media, new Uint8Array([1, ...media]));
+  return new Uint8Array([...header, ...body]);
+}
+
+function newPipeline(): TrackPipeline {
+  return new TrackPipeline(
+    fakeSeparationHost(),
+    () => 250 * 1024 * 1024,
+    () => TEST_MODEL
+  );
+}
+
+function failuresFor(videoId: string): TrackPipelineOutboundMessage[] {
+  return posted.filter(message => message.type === "blk-acquire-failed" && message.videoId === videoId);
+}
+
+describe("TrackPipeline acquisition", () => {
+  it("separates a track it pulled from a minted url", async () => {
+    const pipeline = newPipeline();
+    await pipeline.acquireTrack(ACQUIRED_VIDEO_ID, MINTED_URL, async () => ({
+      status: 200,
+      bytes: wholeTrackResponse([1, 2, 3, 4]),
+    }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(failuresFor(ACQUIRED_VIDEO_ID)).toHaveLength(0);
+    expect(runsStartedFor(ACQUIRED_VIDEO_ID)).toBe(1);
+  });
+
+  it("shares the supersede decision with the capture route rather than starting a second run", async () => {
+    const pipeline = newPipeline();
+    const send = async () => ({ status: 200, bytes: wholeTrackResponse([1, 2, 3, 4]) });
+    await pipeline.acquireTrack(ACQUIRED_VIDEO_ID, MINTED_URL, send);
+    pipeline.handleCaptureChunk(captureChunk(ACQUIRED_VIDEO_ID));
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(runsStartedFor(ACQUIRED_VIDEO_ID)).toBe(1);
+  });
+
+  describe("edge cases", () => {
+    it("reports a refusal so the ladder can try the next source, without failing the track", async () => {
+      const pipeline = newPipeline();
+      await pipeline.acquireTrack(ACQUIRED_VIDEO_ID, MINTED_URL, async () => ({
+        status: 403,
+        bytes: new Uint8Array(),
+      }));
+
+      expect(failuresFor(ACQUIRED_VIDEO_ID)).toHaveLength(1);
+      expect(posted.filter(message => message.type === "blk-track-error")).toHaveLength(0);
+      expect(runsStartedFor(ACQUIRED_VIDEO_ID)).toBe(0);
+    });
+
+    it("reports a url it cannot read rather than pulling nothing in silence", async () => {
+      const pipeline = newPipeline();
+      await pipeline.acquireTrack(ACQUIRED_VIDEO_ID, "https://example.com/not-a-stream");
+
+      expect(failuresFor(ACQUIRED_VIDEO_ID)).toHaveLength(1);
+      expect(runsStartedFor(ACQUIRED_VIDEO_ID)).toBe(0);
+    });
+
+    it("reports a transport that throws rather than letting the ladder wait for ever", async () => {
+      const pipeline = newPipeline();
+      await pipeline.acquireTrack(ACQUIRED_VIDEO_ID, MINTED_URL, async () => {
+        throw new Error("the network is gone");
+      });
+
+      expect(failuresFor(ACQUIRED_VIDEO_ID)).toHaveLength(1);
+      expect(runsStartedFor(ACQUIRED_VIDEO_ID)).toBe(0);
+    });
+
+    it("drops a pull the listener has already moved on from", async () => {
+      const pipeline = newPipeline();
+      const pulling = pipeline.acquireTrack(ACQUIRED_VIDEO_ID, MINTED_URL, async () => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        return { status: 200, bytes: wholeTrackResponse([1, 2, 3, 4]) };
+      });
+      pipeline.handleCaptureChunk(captureChunk("other-track"));
+      await pulling;
+      await new Promise(resolve => setTimeout(resolve, 20));
+
+      expect(runsStartedFor(ACQUIRED_VIDEO_ID)).toBe(0);
+      expect(failuresFor(ACQUIRED_VIDEO_ID)).toHaveLength(0);
+    });
   });
 });

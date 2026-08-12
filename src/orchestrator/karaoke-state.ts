@@ -19,6 +19,7 @@ type KaraokeEvent =
   | { type: "reacquire"; videoId: string }
   | { type: "capture-ready"; videoId: string }
   | { type: "cache-hit"; videoId: string }
+  | { type: "acquiring"; videoId: string }
   | { type: "engage"; videoId: string }
   | { type: "stage"; videoId: string; stage: string }
   | { type: "progress"; videoId: string; processed: number; total: number }
@@ -63,6 +64,9 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
       return state.status === "waiting-for-capture"
         ? { ...state, status: "processing", stage: "checking-cache" }
         : state;
+
+    case "acquiring":
+      return state.status === "waiting-for-capture" ? { ...state, status: "processing", stage: null } : state;
 
     case "engage":
       return state.status === "ready-to-engage" ? { ...state, status: "processing" } : state;

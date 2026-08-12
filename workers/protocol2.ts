@@ -45,6 +45,18 @@ export interface CaptureChunkMessage {
   data: string;
 }
 
+export interface AcquireTrackCommand {
+  type: "blk-acquire-track";
+  videoId: string;
+  url: string;
+}
+
+export interface AcquireFailedMessage {
+  type: "blk-acquire-failed";
+  videoId: string;
+  reason: string;
+}
+
 export interface TrackStageMessage {
   type: "blk-track-stage";
   videoId: string;
@@ -89,6 +101,27 @@ export function isCaptureChunkMessage(data: unknown): data is CaptureChunkMessag
     typeof (data as { index?: unknown }).index === "number" &&
     typeof (data as { total?: unknown }).total === "number" &&
     typeof (data as { data?: unknown }).data === "string"
+  );
+}
+
+export function isAcquireTrackCommand(data: unknown): data is AcquireTrackCommand {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-acquire-track" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { url?: unknown }).url === "string" &&
+    (data as { url: string }).url.length > 0
+  );
+}
+
+export function isAcquireFailedMessage(data: unknown): data is AcquireFailedMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-acquire-failed" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { reason?: unknown }).reason === "string"
   );
 }
 
@@ -147,6 +180,7 @@ export function isTrackErrorMessage(data: unknown): data is TrackErrorMessage {
 }
 
 export type TrackPipelineOutboundMessage =
+  | AcquireFailedMessage
   | CacheHitMessage
   | CacheMissMessage
   | TrackStageMessage
@@ -347,6 +381,7 @@ export function isCacheHitMessage(data: unknown): data is CacheHitMessage {
 // -- The relay's guard for everything the offscreen document sends out ---------
 
 const TRACK_PIPELINE_OUTBOUND_GUARDS: Record<TrackPipelineOutboundMessage["type"], (data: unknown) => boolean> = {
+  "blk-acquire-failed": isAcquireFailedMessage,
   "blk-cache-hit": isCacheHitMessage,
   "blk-cache-miss": isCacheMissMessage,
   "blk-track-stage": isTrackStageMessage,

@@ -1,10 +1,14 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
+import { nextSource, sanitizeSourceOrder } from "@/acquisition/sources";
+import type { SourceId } from "@/acquisition/sources";
 import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
+  type RequestMintMessage,
   type RequestNextPrefetchMessage,
   type RequestPrefetchMessage,
+  isAcquisitionResultMessage,
   isCaptureReadyMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
@@ -41,6 +45,7 @@ import { loadSettingsFrom } from "@/settings/storage";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
 import type {
+  AcquireTrackCommand,
   CancelSeparationCommand,
   CaptureChunkMessage,
   ForgetTrackCommand,
@@ -48,6 +53,7 @@ import type {
   StemChunkMessage,
 } from "../../workers/protocol2";
 import {
+  isAcquireFailedMessage,
   isCacheHitMessage,
   isCacheMissMessage,
   isStemChunkMessage,
@@ -102,6 +108,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let crossfadeArmTimer: ReturnType<typeof setTimeout> | null = null;
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTrack: PlayerState | null = null;
+  let climb: { videoId: string; tried: SourceId[]; inFlight: boolean; exhausted: boolean } | null = null;
   const reacquiredVideoIds = new Set<string>();
 
   options.onStateChange(state);
@@ -158,6 +165,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | StopStemsMessage
       | CaptureStandDownMessage
       | RequestPrefetchMessage
+      | RequestMintMessage
       | RequestNextPrefetchMessage
       | StagedReadyMessage
       | StageDeckMessage
@@ -180,6 +188,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       resetStemAssembly();
       resetStaging();
       prefetchVideoId = null;
+      climb = null;
 
       if (landing === "release") {
         log(`crossfaded into ${videoId} while karaoke was ${state.status}, handing the audio back`);
@@ -216,6 +225,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     resetStemAssembly();
     resetStaging();
     prefetchVideoId = null;
+    climb = null;
     dispatch({ type: "track-changed", videoId });
     probeCacheFor(videoId);
   }
@@ -346,6 +356,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       log(`capture ready for ${data.videoId}`);
       dispatch({ type: "capture-ready", videoId: data.videoId });
       maybeAutoEngage(data.videoId);
+      return;
+    }
+
+    if (isAcquisitionResultMessage(data)) {
+      if (data.url === null) {
+        onSourceSpent(data.videoId, data.source, data.reason);
+        return;
+      }
+      if (data.videoId !== state.videoId) return;
+      log(`${data.source} answered for ${data.videoId}, pulling the track`);
+      acquireFromUrl(data.videoId, data.url);
       return;
     }
 
@@ -520,6 +541,12 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function onRuntimeMessage(message: unknown): void {
+    if (isAcquireFailedMessage(message)) {
+      if (message.videoId !== state.videoId) return;
+      dispatch({ type: "reacquire", videoId: message.videoId });
+      onSourceSpent(message.videoId, "direct-fetch", message.reason);
+      return;
+    }
     if (isCacheHitMessage(message)) {
       if (isStagingTarget(message.videoId)) {
         log(`next track ${message.videoId} is already separated, staging it`);
@@ -594,14 +621,56 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
         if (videoId !== state.videoId) return;
-        if (settings.autoSeparateEnabled || pendingMixLevel !== NEUTRAL_MIX_LEVEL) {
-          log(`no cached stems for ${videoId}, acquiring`);
-          postToPageWorld({ type: "blk-request-prefetch", videoId });
+        if (!settings.autoSeparateEnabled && pendingMixLevel === NEUTRAL_MIX_LEVEL) {
+          log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
           return;
         }
-        log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
+        if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
+        if (climb.inFlight || climb.exhausted) return;
+
+        const order = sanitizeSourceOrder(settings.sourceOrder);
+        for (;;) {
+          const source = nextSource({ order, playingTrack: true, tried: climb.tried });
+          if (!source) {
+            climb.exhausted = true;
+            log(`every source has been tried for ${videoId}`);
+            return;
+          }
+          climb.tried.push(source);
+          if (source === "player-capture") {
+            log(`${videoId} is covered by the listener's own playback once it buffers`);
+            continue;
+          }
+          climb.inFlight = true;
+          startSource(videoId, source);
+          return;
+        }
       })
-      .catch(error => logError("failed to read the auto-separate setting", error));
+      .catch(error => logError("failed to read the source order", error));
+  }
+
+  function startSource(videoId: string, source: SourceId): void {
+    if (source === "direct-fetch") {
+      log(`acquiring ${videoId} from a url its own player mints`);
+      postToPageWorld({ type: "blk-request-mint", videoId });
+      return;
+    }
+    log(`acquiring ${videoId} in a hidden player`);
+    postToPageWorld({ type: "blk-request-prefetch", videoId });
+  }
+
+  function onSourceSpent(videoId: string, source: SourceId, reason: string): void {
+    if (videoId !== state.videoId || climb?.videoId !== videoId) return;
+    if (!climb.tried.includes(source)) return;
+    log(`${source} could not get ${videoId}: ${reason}`);
+    climb.inFlight = false;
+    maybeAcquireCurrent(videoId);
+  }
+
+  function acquireFromUrl(videoId: string, url: string): void {
+    const command: AcquireTrackCommand = { type: "blk-acquire-track", videoId, url };
+    chrome.runtime.sendMessage(command).catch(error => logError("failed to send an acquire command", error));
+    dispatch({ type: "acquiring", videoId });
   }
 
   function maybeSeparateAhead(videoId: string): void {
@@ -644,7 +713,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (mixLevel === NEUTRAL_MIX_LEVEL) return;
     if (state.status === "waiting-for-capture") {
       log(`arming ${state.videoId}, acquiring it now that the fader asked for it`);
-      postToPageWorld({ type: "blk-request-prefetch", videoId: state.videoId });
+      maybeAcquireCurrent(state.videoId);
       return;
     }
     if (state.status !== "ready-to-engage") return;

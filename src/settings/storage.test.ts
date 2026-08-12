@@ -41,6 +41,7 @@ describe("loadSettingsFrom", () => {
       modelVariant: "fp16",
       faderPlacement: DEFAULT_SETTINGS.faderPlacement,
       crossfadeSeconds: DEFAULT_SETTINGS.crossfadeSeconds,
+      sourceOrder: DEFAULT_SETTINGS.sourceOrder,
       debugLoggingEnabled: DEFAULT_SETTINGS.debugLoggingEnabled,
     });
   });
@@ -71,6 +72,7 @@ describe("saveSettingsFrom", () => {
       modelVariant: DEFAULT_SETTINGS.modelVariant,
       faderPlacement: DEFAULT_SETTINGS.faderPlacement,
       crossfadeSeconds: DEFAULT_SETTINGS.crossfadeSeconds,
+      sourceOrder: DEFAULT_SETTINGS.sourceOrder,
       debugLoggingEnabled: DEFAULT_SETTINGS.debugLoggingEnabled,
     });
   });

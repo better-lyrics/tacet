@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type TrackPipelineOutboundMessage, isTrackPipelineOutboundMessage } from "./protocol2";
+import {
+  type TrackPipelineOutboundMessage,
+  isAcquireFailedMessage,
+  isAcquireTrackCommand,
+  isTrackPipelineOutboundMessage,
+} from "./protocol2";
 
 const SAMPLES: Record<TrackPipelineOutboundMessage["type"], TrackPipelineOutboundMessage> = {
+  "blk-acquire-failed": { type: "blk-acquire-failed", videoId: "DJCB1ZlseJ8", reason: "the url expired" },
   "blk-cache-hit": { type: "blk-cache-hit", videoId: "DJCB1ZlseJ8" },
   "blk-cache-miss": { type: "blk-cache-miss", videoId: "DJCB1ZlseJ8" },
   "blk-track-stage": { type: "blk-track-stage", videoId: "DJCB1ZlseJ8", stage: "separating" },
@@ -48,6 +54,58 @@ describe("isTrackPipelineOutboundMessage", () => {
       expect(isTrackPipelineOutboundMessage(undefined)).toBe(false);
       expect(isTrackPipelineOutboundMessage("blk-cache-miss")).toBe(false);
       expect(isTrackPipelineOutboundMessage({})).toBe(false);
+    });
+  });
+});
+
+describe("isAcquireTrackCommand", () => {
+  const command = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "blk-acquire-track",
+    videoId: "9E3jQcUkXdQ",
+    url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
+    ...overrides,
+  });
+
+  it("accepts a command naming a track and a url", () => {
+    expect(isAcquireTrackCommand(command())).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a command missing any field it promises", () => {
+      for (const missing of ["type", "videoId", "url"]) {
+        const partial = command();
+        delete partial[missing];
+        expect(isAcquireTrackCommand(partial)).toBe(false);
+      }
+    });
+
+    it("refuses an empty url, which would send the pipeline off to pull nothing", () => {
+      expect(isAcquireTrackCommand(command({ url: "" }))).toBe(false);
+    });
+
+    it("refuses nonsense rather than throwing", () => {
+      for (const nonsense of [null, undefined, 7, "text", []]) {
+        expect(isAcquireTrackCommand(nonsense)).toBe(false);
+      }
+    });
+  });
+});
+
+describe("isAcquireFailedMessage", () => {
+  it("accepts a source reporting that it could not pull the track", () => {
+    expect(isAcquireFailedMessage({ type: "blk-acquire-failed", videoId: "9E3jQcUkXdQ", reason: "403" })).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a report naming no track or no reason", () => {
+      expect(isAcquireFailedMessage({ type: "blk-acquire-failed", reason: "403" })).toBe(false);
+      expect(isAcquireFailedMessage({ type: "blk-acquire-failed", videoId: "9E3jQcUkXdQ" })).toBe(false);
+    });
+
+    it("refuses nonsense rather than throwing", () => {
+      for (const nonsense of [null, undefined, 7, "text", []]) {
+        expect(isAcquireFailedMessage(nonsense)).toBe(false);
+      }
     });
   });
 });

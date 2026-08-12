@@ -1,3 +1,4 @@
+import { acquireFromMintedUrl } from "../src/acquisition/acquire.js";
 import { SEPARATION_VERSION, clearAllAliases } from "../src/cache/keys.js";
 import { clearCachedModel, getCachedModelSize } from "../src/cache/model-cache.js";
 import { getModelSha256, getModelUrl } from "../src/cache/model-url.js";
@@ -9,6 +10,7 @@ import {
   type ClearCacheResultMessage,
   type GetSettingsCommand,
   type ModelChoice,
+  isAcquireTrackCommand,
   isCancelSeparationCommand,
   isCaptureChunkMessage,
   isClearModelCacheCommand,
@@ -122,6 +124,13 @@ const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes, get
 chrome.runtime.onMessage.addListener(message => {
   if (isCaptureChunkMessage(message)) {
     trackPipeline.handleCaptureChunk(message);
+    return;
+  }
+
+  if (isAcquireTrackCommand(message)) {
+    trackPipeline.acquireTrack(message.videoId, message.url).catch(error => {
+      logger.error("acquiring a track threw", error);
+    });
     return;
   }
 
@@ -308,3 +317,29 @@ async function runSelfTest(forceWasm = false): Promise<unknown> {
 }
 
 (self as unknown as Record<string, unknown>).blkRunPipelineSelfTest = runSelfTest;
+
+// -- Pulling a track from a url a player minted ----------------------------------
+
+async function acquireMinted(url: string, windowBytes?: number): Promise<unknown> {
+  const started = Date.now();
+  const acquired = await acquireFromMintedUrl({ url, windowBytes });
+  const digest = acquired.bytes.length
+    ? [...new Uint8Array(await crypto.subtle.digest("SHA-256", acquired.bytes))]
+        .map(byte => byte.toString(16).padStart(2, "0"))
+        .join("")
+    : null;
+  return {
+    ok: acquired.ok,
+    reason: acquired.reason,
+    itag: acquired.itag,
+    mimeType: acquired.mimeType,
+    receivedBytes: acquired.bytes.length,
+    expectedBytes: acquired.expectedBytes,
+    requests: acquired.requests,
+    protectionStatus: acquired.protectionStatus,
+    elapsedMs: Date.now() - started,
+    sha256: digest,
+  };
+}
+
+(self as unknown as Record<string, unknown>).blkAcquireFromMintedUrl = acquireMinted;

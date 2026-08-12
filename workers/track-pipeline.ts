@@ -1,3 +1,6 @@
+import { acquireFromMintedUrl } from "../src/acquisition/acquire.js";
+import type { AcquiredTrack } from "../src/acquisition/acquire.js";
+import type { SabrTransport } from "../src/acquisition/sabr-client.js";
 import { decideCacheLookup } from "../src/orchestrator/cache-lookup.js";
 import { decideSeparationStart, shouldRepublishStage } from "../src/orchestrator/separation-gate.js";
 import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.js";
@@ -112,13 +115,66 @@ class TrackPipeline {
     post({ type: "blk-track-error", videoId, code, message });
   }
 
-  handleCaptureChunk(message: CaptureChunkMessage): void {
-    if (message.videoId !== this.activeVideoId) {
-      this.separationHost.cancel();
-      this.activeVideoId = message.videoId;
-      this.captureAssembler = null;
-      this.captureMimeType = "";
+  private claimTrack(videoId: string): void {
+    if (videoId === this.activeVideoId) return;
+    this.separationHost.cancel();
+    this.activeVideoId = videoId;
+    this.captureAssembler = null;
+    this.captureMimeType = "";
+  }
+
+  private beginSeparation(videoId: string, mimeType: string, bytes: Uint8Array<ArrayBuffer>): void {
+    const decision = decideSeparationStart(this.runningVideoId, videoId);
+    if (decision === "ignore") {
+      logger.log(`already separating ${videoId}, ignoring a second copy of it`);
+      this.republishProgress(videoId);
+      return;
     }
+    if (decision === "supersede") this.separationHost.cancel();
+
+    this.currentStage = null;
+    this.lastProgress = null;
+    this.runningVideoId = videoId;
+    this.run(videoId, mimeType, bytes)
+      .catch(error => {
+        if (isAbortError(error)) return;
+        this.sendError(videoId, "unknown", toErrorMessage(error));
+      })
+      .finally(() => {
+        if (this.runningVideoId === videoId) this.runningVideoId = null;
+      });
+  }
+
+  async acquireTrack(videoId: string, url: string, send?: SabrTransport): Promise<void> {
+    this.claimTrack(videoId);
+
+    let acquired: AcquiredTrack;
+    try {
+      acquired = await acquireFromMintedUrl({ url, send });
+    } catch (error) {
+      this.sendAcquireFailed(videoId, toErrorMessage(error));
+      return;
+    }
+    if (this.isStale(videoId)) return;
+
+    if (!acquired.ok || acquired.bytes.length === 0) {
+      this.sendAcquireFailed(videoId, acquired.reason);
+      return;
+    }
+
+    logger.log(
+      `pulled ${acquired.bytes.length} bytes of ${videoId} over ${acquired.requests} request(s) as ${acquired.mimeType}`
+    );
+    this.beginSeparation(videoId, acquired.mimeType, acquired.bytes);
+  }
+
+  private sendAcquireFailed(videoId: string, reason: string): void {
+    logger.log(`could not pull ${videoId} from the url it was given: ${reason}`);
+    post({ type: "blk-acquire-failed", videoId, reason });
+  }
+
+  handleCaptureChunk(message: CaptureChunkMessage): void {
+    this.claimTrack(message.videoId);
     if (!this.captureAssembler) {
       this.captureAssembler = createChunkAssembler();
       this.captureMimeType = message.mimeType;
@@ -138,25 +194,7 @@ class TrackPipeline {
     this.captureAssembler = null;
     this.captureMimeType = "";
 
-    const decision = decideSeparationStart(this.runningVideoId, message.videoId);
-    if (decision === "ignore") {
-      logger.log(`already separating ${message.videoId}, ignoring a second capture of it`);
-      this.republishProgress(message.videoId);
-      return;
-    }
-    if (decision === "supersede") this.separationHost.cancel();
-
-    this.currentStage = null;
-    this.lastProgress = null;
-    this.runningVideoId = message.videoId;
-    this.run(message.videoId, mimeType, base64ToBytes(base64))
-      .catch(error => {
-        if (isAbortError(error)) return;
-        this.sendError(message.videoId, "unknown", toErrorMessage(error));
-      })
-      .finally(() => {
-        if (this.runningVideoId === message.videoId) this.runningVideoId = null;
-      });
+    this.beginSeparation(message.videoId, mimeType, base64ToBytes(base64));
   }
 
   async forgetTrack(videoId: string): Promise<void> {

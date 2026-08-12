@@ -7,6 +7,7 @@ import {
   type ModelChoice,
   type SettingsChangedMessage,
   type SettingsMessage,
+  isAcquireTrackCommand,
   isCaptureChunkMessage,
   isProbeCacheCommand,
   isClearModelCacheCommand,
@@ -77,6 +78,20 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   if (isForgetTrackCommand(message)) {
     sendToOffscreenWithRetry(message).catch(error => {
       logger.error("failed to relay a forget-track command", error);
+    });
+    return undefined;
+  }
+
+  if (isAcquireTrackCommand(message)) {
+    const acquireTabId = sender.tab?.id;
+    if (acquireTabId !== undefined) tabRegistry.remember(message.videoId, acquireTabId);
+    sendToOffscreenWithRetry(message).catch(error => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      relayToTabForVideo(message.videoId, {
+        type: "blk-acquire-failed",
+        videoId: message.videoId,
+        reason: `Failed to reach the offscreen document: ${errorMessage}`,
+      });
     });
     return undefined;
   }

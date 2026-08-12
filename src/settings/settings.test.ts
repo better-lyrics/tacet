@@ -128,6 +128,7 @@ describe("sanitizeSettings", () => {
       modelVariant: "fp16" as const,
       faderPlacement: "bar" as const,
       crossfadeSeconds: 6,
+      sourceOrder: ["hidden-player" as const, "direct-fetch" as const, "player-capture" as const],
       debugLoggingEnabled: false,
     };
     expect(sanitizeSettings(valid)).toEqual(valid);

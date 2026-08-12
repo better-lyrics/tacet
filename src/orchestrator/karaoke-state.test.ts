@@ -160,6 +160,39 @@ describe("cache-hit", () => {
   });
 });
 
+describe("acquiring", () => {
+  it("moves waiting-for-capture to processing with no stage of its own", () => {
+    const next = reduceKaraokeState(initialKaraokeState("video-1"), { type: "acquiring", videoId: "video-1" });
+    expect(next.status).toBe("processing");
+    expect(next.stage).toBeNull();
+  });
+
+  it("is ignored for a videoId that is not the current track", () => {
+    const state = initialKaraokeState("video-1");
+    expect(reduceKaraokeState(state, { type: "acquiring", videoId: "video-2" })).toBe(state);
+  });
+
+  it("is ignored once the track is engaged", () => {
+    let state = reduceKaraokeState(initialKaraokeState("video-1"), { type: "capture-ready", videoId: "video-1" });
+    state = reduceKaraokeState(state, { type: "engage", videoId: "video-1" });
+    state = reduceKaraokeState(state, { type: "stems-loaded", videoId: "video-1" });
+    expect(reduceKaraokeState(state, { type: "acquiring", videoId: "video-1" })).toBe(state);
+  });
+
+  it("does not undo a stage a running separation has already reported", () => {
+    let state = reduceKaraokeState(initialKaraokeState("video-1"), { type: "acquiring", videoId: "video-1" });
+    state = reduceKaraokeState(state, { type: "stage", videoId: "video-1", stage: "separating" });
+    expect(reduceKaraokeState(state, { type: "acquiring", videoId: "video-1" }).stage).toBe("separating");
+  });
+
+  it("regression: a source that fails leaves the track ready for the next one to try", () => {
+    const acquiring = reduceKaraokeState(initialKaraokeState("video-1"), { type: "acquiring", videoId: "video-1" });
+    const spent = reduceKaraokeState(acquiring, { type: "reacquire", videoId: "video-1" });
+    expect(spent.status).toBe("waiting-for-capture");
+    expect(reduceKaraokeState(spent, { type: "acquiring", videoId: "video-1" }).status).toBe("processing");
+  });
+});
+
 describe("engage", () => {
   function readyState(): KaraokeState {
     return reduceKaraokeState(initialKaraokeState("video-1"), { type: "capture-ready", videoId: "video-1" });
@@ -404,6 +437,7 @@ describe("invariants", () => {
     for (const event of [
       { type: "capture-ready" as const, videoId: "other" },
       { type: "cache-hit" as const, videoId: "other" },
+      { type: "acquiring" as const, videoId: "other" },
       { type: "engage" as const, videoId: "other" },
       { type: "stems-loaded" as const, videoId: "other" },
       { type: "failed" as const, videoId: "other", reason: "x" },
