@@ -31,9 +31,9 @@ const formatsOf = (raw: string): { itag: number; mimeType: string }[] =>
     .adaptiveFormats;
 
 describe("rewritePlayerResponse", () => {
-  it("leaves the wanted audio format as the only choice", () => {
+  it("leaves the wanted audio format as the only audio choice", () => {
     const formats = formatsOf(rewritePlayerResponse(playerResponse(everyFormat()), "9E3jQcUkXdQ", 141));
-    expect(formats.map(format => format.itag)).toEqual([141]);
+    expect(formats.filter(format => format.mimeType.startsWith("audio")).map(format => format.itag)).toEqual([141]);
   });
 
   it("drops the other audio rungs the chooser would otherwise prefer", () => {
@@ -76,9 +76,14 @@ describe("rewritePlayerResponse", () => {
   });
 
   describe("regressions", () => {
-    it("regression: drops video formats, which the shadow would otherwise stream and discard", () => {
+    it("regression: keeps the video formats, because a music video with no video stream never fetches at all", () => {
       const formats = formatsOf(rewritePlayerResponse(playerResponse(everyFormat()), "9E3jQcUkXdQ", 141));
-      expect(formats.some(format => format.mimeType.startsWith("video"))).toBe(false);
+      expect(formats.some(format => format.itag === 243)).toBe(true);
+    });
+
+    it("regression: a track carrying video still ends up with exactly one audio rung", () => {
+      const formats = formatsOf(rewritePlayerResponse(playerResponse(everyFormat()), "9E3jQcUkXdQ", 141));
+      expect(formats.filter(format => format.mimeType.startsWith("audio")).map(f => f.itag)).toEqual([141]);
     });
 
     it("regression: forcing 141 does not fall back to 140, which is what blocking opus produced", () => {

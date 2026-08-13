@@ -89,11 +89,14 @@ function rewritePlayerResponse(raw: string, videoId: string, itag: number | null
   if (Number.isFinite(length) && length > 0) expectedLengths.set(videoId, length);
 
   if (itag === null || wanted === undefined) return raw;
-  // Only the one audio format survives. Leaving the video formats in makes the
-  // shadow stream video as well, measured as itag 243 alongside the audio, which
-  // is bandwidth spent competing with the listener's own stream for bytes we
-  // throw away.
-  streaming.adaptiveFormats = [wanted];
+  // Only the audio rungs are filtered. Dropping the video formats as well looks
+  // like free bandwidth and is not: a music video has no audio-only rendition, so
+  // a player left with one audio format and no video stalls and never fetches
+  // anything at all. Measured over 22 tracks, that cost 7 of them, every one a
+  // track carrying an itag 243 video stream, while audio-only tracks were
+  // unaffected. The shadow is disposed as soon as it mints, so the video bytes it
+  // buffers before then are bounded.
+  streaming.adaptiveFormats = formats.filter(format => !isAudio(format)).concat([wanted]);
   return JSON.stringify(parsed);
 }
 
