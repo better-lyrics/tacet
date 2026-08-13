@@ -47,35 +47,38 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm typecheck
 
       - name: Lint
-        run: npm run lint
+        run: pnpm lint
 
       - name: Test
-        run: npm test
+        run: pnpm test
 
       # The .wasm binaries are gitignored, so a clean checkout has the loaders
       # without the runtime they load. Building without this ships an extension
       # that fails only once a track is separated.
       - name: Restore ORT binaries
-        run: npm run sync:ort
+        run: pnpm sync:ort
 
       - name: Update version
         run: node tooling/update-version.mjs ${{ github.event.inputs.version }}
 
       - name: Build
-        run: npm run build
+        run: pnpm build
 
       - name: Stage version bump
         id: stage

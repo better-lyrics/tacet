@@ -65,9 +65,9 @@ Or build it yourself:
 ```bash
 git clone https://github.com/better-lyrics/tacet
 cd tacet
-npm install
-npm run sync:ort
-npm run build
+pnpm install
+pnpm sync:ort
+pnpm build
 ```
 
 That leaves the same folder at `build/chrome-mv3-prod` to load unpacked.
@@ -168,10 +168,10 @@ it fades between those. If not it fades the originals.
 ## Development
 
 ```bash
-npm run dev        # Plasmo, with hot reload
-npm run test       # vitest
-npm run typecheck
-npm run lint
+pnpm dev        # Plasmo, with hot reload
+pnpm test       # vitest
+pnpm typecheck
+pnpm lint
 ```
 
 Decisions live in small pure modules with tests beside them, and the Web Audio

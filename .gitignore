@@ -65,3 +65,9 @@ scripts/stress/
 
 # Python side-venv for tooling/convert-fp16.py.
 .venv-onnx/
+
+# pnpm is the only package manager here, enforced by the preinstall guard in
+# package.json. A rival lockfile appearing in the tree means someone got past
+# it, so it is ignored rather than committed alongside pnpm-lock.yaml.
+package-lock.json
+yarn.lock
