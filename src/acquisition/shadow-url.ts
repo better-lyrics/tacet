@@ -3,11 +3,6 @@ import type { MintedStream } from "@/acquisition/minted-url";
 
 // -- Which of a shadow player's urls is worth pulling ----------------------------
 
-// A fresh player emits media urls carrying a cold-start token before it emits ones
-// carrying the real content-bound one. Measured on a real session, times relative
-// to the player being created: pot of 16 characters at 0.31s, 116 characters at
-// 0.50s. The short-token url is rationed and dies partway through the track, so
-// the first url a shadow offers is never the one to take.
 const COLD_START_TOKEN_BYTES = 16;
 
 const ATTESTED_TOKEN_BYTES = 40;

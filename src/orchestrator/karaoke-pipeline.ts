@@ -558,9 +558,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isAcquireFailedMessage(message)) {
       if (message.videoId !== state.videoId) return;
       dispatch({ type: "reacquire", videoId: message.videoId });
-      // Whichever rung handed us the url is the one that is spent. Naming a
-      // source here instead would mark the wrong rung tried and leave the real
-      // one to be attempted again for ever.
       const spent = climb?.videoId === message.videoId ? climb.tried[climb.tried.length - 1] : null;
       if (spent) onSourceSpent(message.videoId, spent, message.reason);
       return;

@@ -4,12 +4,6 @@ import { log } from "@/capture/log";
 
 // -- Minting a url with a second player in this very document --------------------
 
-// The page will build a second player beside the listener's own and point it at
-// any track. It deciphers and attests the media url itself, which is the whole
-// reason this exists: no frame, no BotGuard, no signature transform. The player
-// is a url minter and nothing more, so it is disposed the moment a usable url
-// appears and the bytes are pulled long afterwards.
-
 const SHADOW_HOST_ID = "blk-shadow-player";
 
 const SHADOW_HOST_STYLE =
@@ -48,13 +42,6 @@ function page(): PageWithPlayer {
 
 // -- Taking the format choice away from the player's own chooser -----------------
 
-// The shadow's /player response already carries every format the account is
-// entitled to, itag 141 included. What differs from the listener's own player is
-// only the client-side chooser, which starts conservative on a fresh player and
-// lands on 251. Filtering the response down to one audio format leaves it nothing
-// to choose. Setting the account's audio quality does not work: the shadow
-// already reads back the same value the listener's player does.
-
 interface ForcedFormat {
   videoId: string;
   itag: number;
@@ -89,13 +76,6 @@ function rewritePlayerResponse(raw: string, videoId: string, itag: number | null
   if (Number.isFinite(length) && length > 0) expectedLengths.set(videoId, length);
 
   if (itag === null || wanted === undefined) return raw;
-  // Only the audio rungs are filtered. Dropping the video formats as well looks
-  // like free bandwidth and is not: a music video has no audio-only rendition, so
-  // a player left with one audio format and no video stalls and never fetches
-  // anything at all. Measured over 22 tracks, that cost 7 of them, every one a
-  // track carrying an itag 243 video stream, while audio-only tracks were
-  // unaffected. The shadow is disposed as soon as it mints, so the video bytes it
-  // buffers before then are bounded.
   streaming.adaptiveFormats = formats.filter(format => !isAudio(format)).concat([wanted]);
   return JSON.stringify(parsed);
 }
@@ -136,9 +116,6 @@ function installPlayerResponseFilter(): void {
     openOriginal.call(this, method, url, isAsync, username, password);
   };
 
-  // The player registers its own load handler before calling send, so a listener
-  // added here would run second and be too late. A getter runs when the value is
-  // read, which makes the rewrite independent of handler order.
   proto.send = function patchedSend(this: XMLHttpRequest, ...args: Parameters<typeof sendOriginal>) {
     if (isPlayerRequest(urls.get(this))) {
       let videoId: string | null = null;
@@ -203,21 +180,6 @@ function removeShadowHost(): void {
 
 // -- Keeping the shadow silent ---------------------------------------------------
 
-// `mute: "1"` in the construction args is not enough, and `loadVideoById` starts
-// playback rather than merely loading, so an unsilenced shadow is audible over the
-// listener's own track. Measured with a 20ms sampler: the element appears at
-// volume 1 unmuted and was audible for two samples before a 100ms poll caught it.
-// Polling cannot win that race, so this is event driven: mute on the mutation that
-// adds the element, and mute again on any `volumechange` the player issues when it
-// restores the listener's own volume. Scoped to the host, so the listener's own
-// player is never touched.
-// Re-muting after the fact always loses some window, however tight the loop: the
-// element is born at volume 1 and the player restores the listener's own volume
-// once the media loads. Locking the two properties on the instance, which shadows
-// the prototype accessors, means the player cannot unmute it at all. Measured
-// before this: two samples at volume 1, and one of them after the element had
-// metadata. Nothing was ever audible, because decoded bytes were zero throughout,
-// but a window that only closes in time is not the same as one that cannot open.
 function silenceMedia(media: HTMLMediaElement): void {
   const locked = media as HTMLMediaElement & { __blkSilenced?: boolean };
   if (locked.__blkSilenced === true) return;
@@ -238,9 +200,7 @@ function silenceShadow(host: HTMLElement): void {
   try {
     element?.mute?.();
     element?.setVolume?.(0);
-  } catch {
-    // the player api is not ready yet, the element level mute below still holds
-  }
+  } catch {}
   for (const media of host.querySelectorAll("video, audio")) silenceMedia(media as HTMLMediaElement);
 }
 

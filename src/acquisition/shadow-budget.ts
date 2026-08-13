@@ -1,18 +1,5 @@
 // -- How often a shadow player may be built --------------------------------------
 
-// Minting is cheap for the page and expensive for the session. Measured on a real
-// signed-in account: 31 mints in 4.5 minutes, roughly one every nine seconds, and
-// the page stopped issuing content-bound tokens altogether. It emitted only
-// 16 character cold-start tokens afterwards, for the listener's own player as well
-// as for ours, and it had not recovered 40 minutes later or across a page reload.
-//
-// Nothing upstream documents a mint-count cap, so what this guards against is
-// measured rather than specified. The listener never notices directly, because a
-// cold-start token still serves one to two megabytes and the player simply asks
-// again, but our own acquisition stops working entirely. So the rule is: mint no
-// faster than a listener actually changes track, and stop completely once the page
-// starts answering with cold-start tokens rather than pulling harder.
-
 const MIN_INTERVAL_MS = 45_000;
 
 const FAILURES_BEFORE_STANDING_DOWN = 2;
@@ -60,8 +47,6 @@ function recordMintOutcome(budget: ShadowBudget, attested: boolean, now: number)
   return {
     ...budget,
     consecutiveFailures,
-    // The clock runs from the first refusal. Restarting it on every later failure
-    // would let a run of them hold the source down for ever.
     stoodDownAt: alreadyStoodDown
       ? budget.stoodDownAt
       : consecutiveFailures >= FAILURES_BEFORE_STANDING_DOWN

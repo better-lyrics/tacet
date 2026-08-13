@@ -1,10 +1,5 @@
 const FALLBACK_ELEMENT_SELECTOR = "video.video-stream.html5-main-video";
 
-// A shadow player is a second, complete player in this same document, and its
-// element decodes real bytes. "The one that is decoding" would therefore pick the
-// shadow over the listener's own player, which routes the wrong track into the
-// graph and leaves the deck following a clock nobody is listening to. Anything
-// inside the shadow's host is never the listener's element.
 const SHADOW_ELEMENT_SELECTOR = "#blk-shadow-player video, #blk-shadow-player audio";
 
 interface MediaElementCandidate {

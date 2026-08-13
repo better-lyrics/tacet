@@ -27,7 +27,6 @@ import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/ac
 import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
 
-// The format the listener's own player streams on High, which is the parity bar.
 const SHADOW_ITAG = 141;
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs, shouldHoldCapture } from "@/capture/capture-coverage";
@@ -226,7 +225,12 @@ function announceAheadDownloadProgress(): void {
   if (videoId === null || !slicedPrefetchIsAhead || !hiddenPlayerOwns(videoId)) return;
   const fraction = hiddenPlayerProgress();
   if (!Number.isFinite(fraction)) return;
-  const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction, source: "hidden-player" };
+  const message: DownloadProgressMessage = {
+    type: "blk-download-progress",
+    videoId,
+    fraction,
+    source: "hidden-player",
+  };
   window.postMessage(message, window.location.origin);
 }
 
@@ -597,17 +601,9 @@ function standDownFor(videoId: string): void {
 }
 
 // -- The queue's own artwork, and the fallback for rows without it -------------
-//
-// A queue row carries its own square cover, which is the picture we want and
-// the one Better Lyrics Shaders shows for the same track. The ytimg resolver
-// below is only for a row that arrived without one, and it runs here rather
-// than in the popup because only this world can probe an image against
-// music.youtube.com.
 
 const artworkResolver = createArtworkResolver(loadImageSizeInPage);
 
-// Asked for by the popup rather than pushed, so the queue is only read while
-// somebody is looking at it.
 function answerQueueTracksRequest(): void {
   const items = readQueueItems(document);
   const listened = listenedVideoId();

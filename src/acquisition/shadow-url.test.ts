@@ -2,8 +2,6 @@ import { ATTESTED_TOKEN_BYTES, chooseShadowUrl, judgeShadowUrl } from "@/acquisi
 import { readMintedUrl } from "@/acquisition/minted-url";
 import { describe, expect, it } from "vitest";
 
-// A cold-start token measures 16 characters and an attested one 116, on every
-// sample of a sixty track run. Nothing in between was ever observed.
 const COLD_START_TOKEN = "a".repeat(16);
 const ATTESTED_TOKEN = "a".repeat(116);
 

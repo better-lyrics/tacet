@@ -114,9 +114,6 @@ describe("currentTrackInQueue", () => {
   });
 
   describe("invariants", () => {
-    // This used to prefer the selection outright. It still does when exactly one
-    // row claims it, which is the ordinary case, but the queue's own play state
-    // now outranks both the selection and any id.
     it("trusts a lone selection over the id it is handed", () => {
       expect(currentTrackInQueue(described(IDS, 0), IDS[2])?.videoId).toBe(IDS[0]);
     });
