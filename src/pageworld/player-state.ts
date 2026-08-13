@@ -3,7 +3,13 @@ import { isAdPlaying } from "@/capture/ad-state";
 import { readPlayerDuration, readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
-import { chooseTrackDuration, clocksAgree, readClockDuration } from "@/pageworld/track-duration";
+import {
+  chooseTrackDuration,
+  clockDurationSettled,
+  noteClockDuration,
+  readClockDuration,
+} from "@/pageworld/track-duration";
+import type { ClockSettling } from "@/pageworld/track-duration";
 
 interface PlayerSnapshot {
   videoId: string;
@@ -14,7 +20,8 @@ interface PlayerSnapshot {
 function readPlayerSnapshot(
   player: YtPlayer | null,
   clockDurationSeconds = Number.NaN,
-  adPlaying = false
+  adPlaying = false,
+  clockSettled = false
 ): PlayerSnapshot | null {
   if (!player || adPlaying) return null;
 
@@ -29,13 +36,23 @@ function readPlayerSnapshot(
   return {
     videoId: videoData.video_id,
     durationSeconds,
-    durationTrusted: clocksAgree(clockDurationSeconds, playerDurationSeconds),
+    durationTrusted: clockSettled && durationSeconds === clockDurationSeconds,
   };
 }
 
+let clockSettling: ClockSettling | null = null;
+
 function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {
   const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
-  return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null, readClockDuration(doc), isAdPlaying(doc));
+  const clockDurationSeconds = readClockDuration(doc);
+  const nowMs = Date.now();
+  clockSettling = noteClockDuration(clockSettling, clockDurationSeconds, nowMs);
+  return readPlayerSnapshot(
+    player ? (player as unknown as YtPlayer) : null,
+    clockDurationSeconds,
+    isAdPlaying(doc),
+    clockDurationSettled(clockSettling, nowMs)
+  );
 }
 
 function playerCurrentTime(doc: Document): number {

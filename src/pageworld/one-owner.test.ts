@@ -41,7 +41,17 @@ describe("one owner for how long the track is", () => {
   });
 
   it("only the player snapshot decides whether that length can be trusted", () => {
-    expect(filesMatching(/\bclocksAgree\b/)).toEqual(["pageworld/player-state.ts", "pageworld/track-duration.ts"]);
+    expect(filesMatching(/\bclockDurationSettled\b/)).toEqual([
+      "pageworld/player-state.ts",
+      "pageworld/track-duration.ts",
+    ]);
+  });
+
+  // The player's own duration was the corroborator until it was measured during
+  // a gapless append, where it is wrong in both directions. Nothing may consult
+  // it for trust again.
+  it("nothing weighs the bar against the player's own duration", () => {
+    expect(filesMatching(/\bclocksAgree\b/)).toEqual([]);
   });
 
   it("nothing outside the cue clock derives a remaining time by subtraction", () => {

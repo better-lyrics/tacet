@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  CLOCK_AGREEMENT_TOLERANCE_S,
+  CLOCK_SETTLE_MS,
   chooseTrackDuration,
-  clocksAgree,
+  clockDurationSettled,
+  noteClockDuration,
   parseClockDuration,
 } from "@/pageworld/track-duration";
 
@@ -61,55 +62,114 @@ describe("chooseTrackDuration", () => {
   });
 });
 
-describe("clocksAgree", () => {
-  it("agrees when the bar and the player report the same track", () => {
-    expect(clocksAgree(216, 215.11)).toBe(true);
+describe("a settled bar clock", () => {
+  const settleOver = (readings: [number, number][]): boolean => {
+    let settling = null;
+    let settled = false;
+    for (const [seconds, atMs] of readings) {
+      settling = noteClockDuration(settling, seconds, atMs);
+      settled = clockDurationSettled(settling, atMs);
+    }
+    return settled;
+  };
+
+  it("is not settled the moment a total first appears", () => {
+    expect(settleOver([[216, 0]])).toBe(false);
   });
 
-  it("refuses a bar still timing an ad against the player's real duration", () => {
-    expect(clocksAgree(14, 237)).toBe(false);
-    expect(clocksAgree(46, 237)).toBe(false);
+  it("settles once the total has held for the settle window", () => {
+    expect(
+      settleOver([
+        [216, 0],
+        [216, CLOCK_SETTLE_MS],
+      ])
+    ).toBe(true);
   });
 
-  it("trusts the bar through a gapless append, where the player times the buffer", () => {
-    expect(clocksAgree(315, 49.9)).toBe(true);
-    expect(clocksAgree(315, 68)).toBe(true);
+  it("refuses a bar still timing an ad, because its total moves", () => {
+    // Measured across one ad block: 0:13, 0:14, 0:46, then the real 3:57.
+    expect(
+      settleOver([
+        [13, 0],
+        [14, 1000],
+        [46, 2000],
+        [237, 3000],
+      ])
+    ).toBe(false);
   });
 
-  it("refuses a bar shorter than the player, whatever the gap", () => {
-    expect(clocksAgree(222, 315)).toBe(false);
+  it("stays settled once the real track's total arrives and holds", () => {
+    expect(
+      settleOver([
+        [13, 0],
+        [237, 1000],
+        [237, 1000 + CLOCK_SETTLE_MS],
+      ])
+    ).toBe(true);
   });
 
   describe("edge cases", () => {
-    it("refuses when either side is unreadable", () => {
-      expect(clocksAgree(Number.NaN, 215)).toBe(false);
-      expect(clocksAgree(215, Number.NaN)).toBe(false);
-      expect(clocksAgree(0, 215)).toBe(false);
-      expect(clocksAgree(215, 0)).toBe(false);
+    it("is never settled while the bar is unreadable", () => {
+      expect(
+        settleOver([
+          [Number.NaN, 0],
+          [Number.NaN, 10_000],
+        ])
+      ).toBe(false);
+      expect(
+        settleOver([
+          [0, 0],
+          [0, 10_000],
+        ])
+      ).toBe(false);
     });
 
-    it("cares which side is larger, because the two disagreements mean different things", () => {
-      expect(clocksAgree(315, 49.9)).toBe(true);
-      expect(clocksAgree(49.9, 315)).toBe(false);
-    });
-  });
-
-  describe("invariants", () => {
-    it("tolerates the player reading longer only to the tolerance", () => {
-      expect(clocksAgree(200, 200 + CLOCK_AGREEMENT_TOLERANCE_S)).toBe(true);
-      expect(clocksAgree(200, 200 + CLOCK_AGREEMENT_TOLERANCE_S + 0.01)).toBe(false);
-    });
-
-    it("tolerates the player reading shorter without limit, which is a filling buffer", () => {
-      expect(clocksAgree(200, 199)).toBe(true);
-      expect(clocksAgree(200, 1)).toBe(true);
+    it("an unreadable bar resets a total that had already settled", () => {
+      expect(
+        settleOver([
+          [216, 0],
+          [216, CLOCK_SETTLE_MS],
+          [Number.NaN, CLOCK_SETTLE_MS + 1],
+        ])
+      ).toBe(false);
     });
   });
 
   describe("regressions", () => {
+    // The whole reason the player's own duration is no longer consulted.
+    it("regression: a gapless append never unsettles the bar", () => {
+      // getDuration climbed 289.0, 290.6, 296.7, 304.9 across these reads while
+      // the bar held 289, and the fade was armed and waiting throughout.
+      expect(
+        settleOver([
+          [289, 0],
+          [289, 2000],
+          [289, 4000],
+          [289, 6000],
+        ])
+      ).toBe(true);
+    });
+
+    it("regression: a filling buffer on the next track never unsettles the bar", () => {
+      // getDuration read 29.9, 49.9, 59.9, 79.8 against a steady bar of 134.
+      expect(
+        settleOver([
+          [134, 0],
+          [134, 2000],
+          [134, 4000],
+          [134, 6000],
+        ])
+      ).toBe(true);
+    });
+
     it("regression: the bar reading an ad's 0:14 against a 237 s track is not a track length", () => {
       expect(chooseTrackDuration(14, 237)).toBe(14);
-      expect(clocksAgree(14, 237)).toBe(false);
+      expect(
+        settleOver([
+          [14, 0],
+          [237, 500],
+        ])
+      ).toBe(false);
     });
   });
 });
