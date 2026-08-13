@@ -1,5 +1,9 @@
 :root {
   --blk-accent: #f20c32;
+  /* The glyph when sing-along is on. Mostly white so it reads as lit against
+     the accent pill behind it, with enough of the accent left to still look
+     like the product rather than a plain highlight. */
+  --blk-glyph-active: color-mix(in srgb, var(--blk-accent) 28%, #fff);
 }
 
 @property --glyph-o {
@@ -39,7 +43,7 @@
   outline-offset: 2px;
 }
 .blyrics-sing--active {
-  color: color-mix(in srgb, var(--blk-accent) 45%, #fff);
+  color: var(--blk-glyph-active);
   background-image: linear-gradient(
     to bottom,
     color-mix(in srgb, var(--blk-accent) 45%, transparent),
@@ -70,7 +74,7 @@
 }
 
 .blyrics-sing.blyrics-dock__control.blyrics-dock__control--active {
-  color: color-mix(in srgb, var(--blk-accent) 45%, #fff);
+  color: var(--blk-glyph-active);
   background-image: linear-gradient(
     to bottom,
     color-mix(in srgb, var(--blk-accent) 45%, transparent),
@@ -86,11 +90,14 @@
   border-radius: 50%;
   color: rgb(144, 144, 144);
 }
+/* No pill behind the glyph in this host, so the tint on the icon is the only
+   thing carrying the accent and the only thing separating this from the grey
+   inactive state. Weighted well toward white, but not all the way to it. */
 .blyrics-sing--bar.blyrics-sing--active {
   background-color: transparent;
   background-image: none;
   box-shadow: none;
-  color: color-mix(in srgb, var(--blk-accent) 40%, #fff);
+  color: var(--blk-glyph-active);
 }
 .blyrics-sing--bar .blyrics-sing__glyph--busy > span {
   width: 24px;

@@ -7,7 +7,7 @@ const INSTRUMENTAL_GAIN = 1;
 // toggle, and the reveal when separation lands with the fader already armed,
 // are the same gesture to the ear and share this. A drag passes zero instead,
 // because direct manipulation has to track the finger.
-const MIX_GLIDE_SECONDS = 0.6;
+const MIX_GLIDE_SECONDS = 0.3;
 
 interface StemGains {
   vocalsGain: number;
