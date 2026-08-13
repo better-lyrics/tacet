@@ -71,8 +71,12 @@ describe("clocksAgree", () => {
     expect(clocksAgree(46, 237)).toBe(false);
   });
 
-  it("refuses a gapless append, where the two describe different things", () => {
-    expect(clocksAgree(315, 49.9)).toBe(false);
+  it("trusts the bar through a gapless append, where the player times the buffer", () => {
+    expect(clocksAgree(315, 49.9)).toBe(true);
+    expect(clocksAgree(315, 68)).toBe(true);
+  });
+
+  it("refuses a bar shorter than the player, whatever the gap", () => {
     expect(clocksAgree(222, 315)).toBe(false);
   });
 
@@ -84,15 +88,21 @@ describe("clocksAgree", () => {
       expect(clocksAgree(215, 0)).toBe(false);
     });
 
-    it("does not care which side is larger", () => {
-      expect(clocksAgree(215, 218)).toBe(clocksAgree(218, 215));
+    it("cares which side is larger, because the two disagreements mean different things", () => {
+      expect(clocksAgree(315, 49.9)).toBe(true);
+      expect(clocksAgree(49.9, 315)).toBe(false);
     });
   });
 
   describe("invariants", () => {
-    it("agrees exactly to the tolerance and no further", () => {
+    it("tolerates the player reading longer only to the tolerance", () => {
       expect(clocksAgree(200, 200 + CLOCK_AGREEMENT_TOLERANCE_S)).toBe(true);
       expect(clocksAgree(200, 200 + CLOCK_AGREEMENT_TOLERANCE_S + 0.01)).toBe(false);
+    });
+
+    it("tolerates the player reading shorter without limit, which is a filling buffer", () => {
+      expect(clocksAgree(200, 199)).toBe(true);
+      expect(clocksAgree(200, 1)).toBe(true);
     });
   });
 

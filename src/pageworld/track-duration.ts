@@ -26,10 +26,17 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
 
 const CLOCK_AGREEMENT_TOLERANCE_S = 5;
 
+// One-sided, for the same reason `settledTrackDuration` is: the two ways these
+// clocks disagree are told apart by their direction, and only one of them means
+// the bar is lying. A bar *shorter* than the player is a bar still timing an ad
+// the attribute has already released, which is what this guard exists for. A
+// bar *longer* than the player is a gapless append, where `getDuration()` is
+// reporting the buffered length and the bar is the authority, so refusing there
+// silenced the cue for the whole track and no fade could ever arm.
 function clocksAgree(clockSeconds: number, playerSeconds: number): boolean {
   if (!Number.isFinite(clockSeconds) || clockSeconds <= 0) return false;
   if (!Number.isFinite(playerSeconds) || playerSeconds <= 0) return false;
-  return Math.abs(clockSeconds - playerSeconds) <= CLOCK_AGREEMENT_TOLERANCE_S;
+  return clockSeconds + CLOCK_AGREEMENT_TOLERANCE_S >= playerSeconds;
 }
 
 export {
