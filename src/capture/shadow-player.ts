@@ -27,6 +27,8 @@ interface ShadowApplication {
 
 interface ShadowPlayerElement extends HTMLElement {
   loadVideoById?: (videoId: string) => void;
+  mute?: () => void;
+  setVolume?: (volume: number) => void;
 }
 
 interface PageWithPlayer {
@@ -196,6 +198,29 @@ function removeShadowHost(): void {
   document.getElementById(SHADOW_HOST_ID)?.remove();
 }
 
+// -- Keeping the shadow silent ---------------------------------------------------
+
+// `mute: "1"` in the construction args is not enough, and `loadVideoById` starts
+// playback rather than merely loading, so an unsilenced shadow is audible over the
+// listener's own track. It has to be silenced on the element itself, and it has to
+// be done repeatedly: the `<video>` does not exist at construction time, the
+// player rebuilds it, and it restores its own volume from the listener's settings
+// once the media loads. Scoped to the host, so the listener's player is untouched.
+function silenceShadow(host: HTMLElement): void {
+  const element = host.querySelector<ShadowPlayerElement>("#movie_player");
+  try {
+    element?.mute?.();
+    element?.setVolume?.(0);
+  } catch {
+    // the player api is not ready yet, the element level mute below still holds
+  }
+  for (const media of host.querySelectorAll("video, audio")) {
+    const playable = media as HTMLMediaElement;
+    playable.muted = true;
+    playable.volume = 0;
+  }
+}
+
 async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> {
   const started = performance.now();
   const finish = (minted: MintedStream | null, reason: string): ShadowMintResult => ({
@@ -226,8 +251,10 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
   let application: ShadowApplication | null = null;
   try {
     application = create(host, { args: { autoplay: "0", mute: "1", controls: "0" } }, playerConfig);
+    silenceShadow(host);
     const element: ShadowPlayerElement | null = host.querySelector("#movie_player");
     element?.loadVideoById?.(input.videoId);
+    silenceShadow(host);
   } catch (error) {
     watch.stop();
     forced = null;
@@ -239,6 +266,7 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
   let minted: MintedStream | null = null;
   while (performance.now() - started < timeoutMs) {
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    silenceShadow(host);
     minted = chooseShadowUrl(watch.urls, {
       itag: input.itag,
       contentLengthBytes: expectedLengths.get(input.videoId) ?? null,
