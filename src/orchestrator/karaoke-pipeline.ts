@@ -7,7 +7,6 @@ import { deliveredBy } from "@/orchestrator/delivery";
 import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
-  type RequestMintMessage,
   type RequestShadowUrlMessage,
   type RequestNextPrefetchMessage,
   type RequestPrefetchMessage,
@@ -170,7 +169,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | StopStemsMessage
       | CaptureStandDownMessage
       | RequestPrefetchMessage
-      | RequestMintMessage
       | RequestShadowUrlMessage
       | RequestNextPrefetchMessage
       | StagedReadyMessage
@@ -553,7 +551,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isAcquireFailedMessage(message)) {
       if (message.videoId !== state.videoId) return;
       dispatch({ type: "reacquire", videoId: message.videoId });
-      onSourceSpent(message.videoId, "direct-fetch", message.reason);
+      // Whichever rung handed us the url is the one that is spent. Naming a
+      // source here instead would mark the wrong rung tried and leave the real
+      // one to be attempted again for ever.
+      const spent = climb?.videoId === message.videoId ? climb.tried[climb.tried.length - 1] : null;
+      if (spent) onSourceSpent(message.videoId, spent, message.reason);
       return;
     }
     if (isCacheHitMessage(message)) {
@@ -670,11 +672,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (source === "shadow-url") {
       log(`acquiring ${videoId} from a url a shadow player mints in this page`);
       postToPageWorld({ type: "blk-request-shadow-url", videoId });
-      return;
-    }
-    if (source === "direct-fetch") {
-      log(`acquiring ${videoId} from a url its own player mints`);
-      postToPageWorld({ type: "blk-request-mint", videoId });
       return;
     }
     log(`acquiring ${videoId} in a hidden player`);

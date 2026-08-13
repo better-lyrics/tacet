@@ -1,7 +1,7 @@
 import { log } from "@/capture/log";
 import type { SlicePlan } from "@/capture/slice-plan";
-import { buildMintUrl, buildWorkerUrl } from "@/capture/worker-frame";
-import { isMintedUrlMessage, isSliceCapturedMessage } from "@/capture/bridge-protocol";
+import { buildWorkerUrl } from "@/capture/worker-frame";
+import { isSliceCapturedMessage } from "@/capture/bridge-protocol";
 
 interface CapturedSlice {
   index: number;
@@ -97,68 +97,5 @@ function captureTrackInSlices(options: SliceCaptureOptions): Promise<CapturedSli
 
 // -- Minting a url in a frame that dies straight afterwards ---------------------
 
-interface MintedUrl {
-  videoId: string;
-  url: string;
-  trackDurationSeconds: number;
-}
-
-interface MintUrlOptions {
-  videoId: string;
-  timeoutMs?: number;
-  signal?: AbortSignal;
-}
-
-const MINT_FRAME_ID = `${FRAME_ID_PREFIX}mint`;
-const DEFAULT_MINT_TIMEOUT_MS = 3 * 60 * 1000;
-
-function mintUrlInFrame(options: MintUrlOptions): Promise<MintedUrl | null> {
-  const { videoId, timeoutMs = DEFAULT_MINT_TIMEOUT_MS, signal } = options;
-
-  return new Promise(resolve => {
-    const existing = document.getElementById(MINT_FRAME_ID);
-    if (existing) existing.remove();
-
-    const frame = document.createElement("iframe");
-    frame.id = MINT_FRAME_ID;
-    frame.setAttribute("aria-hidden", "true");
-    frame.setAttribute("tabindex", "-1");
-    frame.allow = "autoplay";
-    frame.style.cssText = FRAME_STYLE;
-    frame.src = buildMintUrl(videoId);
-
-    const startedAt = Date.now();
-    let settled = false;
-
-    const finish = (minted: MintedUrl | null, reason: string): void => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("message", onMessage);
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      frame.remove();
-      log(`minting frame for videoId=${videoId} ${reason} after ${Date.now() - startedAt} ms`);
-      resolve(minted);
-    };
-
-    function onMessage(event: MessageEvent): void {
-      if (event.origin !== window.location.origin) return;
-      const data: unknown = event.data;
-      if (!isMintedUrlMessage(data) || data.videoId !== videoId) return;
-      finish({ videoId: data.videoId, url: data.url, trackDurationSeconds: data.trackDurationSeconds }, "answered");
-    }
-
-    function onAbort(): void {
-      finish(null, "was abandoned");
-    }
-
-    const timer = setTimeout(() => finish(null, "timed out"), timeoutMs);
-
-    window.addEventListener("message", onMessage);
-    signal?.addEventListener("abort", onAbort, { once: true });
-    document.body.appendChild(frame);
-  });
-}
-
-export { captureTrackInSlices, FRAME_ID_PREFIX, MINT_FRAME_ID, mintUrlInFrame };
-export type { CapturedSlice, MintedUrl, MintUrlOptions, SliceCaptureOptions };
+export { captureTrackInSlices, FRAME_ID_PREFIX };
+export type { CapturedSlice };

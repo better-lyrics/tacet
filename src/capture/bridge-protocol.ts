@@ -108,18 +108,6 @@ export interface SliceCapturedMessage {
   bytes: ArrayBuffer;
 }
 
-export interface MintedUrlMessage {
-  type: "blk-minted-url";
-  videoId: string;
-  url: string;
-  trackDurationSeconds: number;
-}
-
-export interface RequestMintMessage {
-  type: "blk-request-mint";
-  videoId: string;
-}
-
 export interface RequestShadowUrlMessage {
   type: "blk-request-shadow-url";
   videoId: string;
@@ -131,15 +119,6 @@ export interface AcquisitionResultMessage {
   source: SourceId;
   url: string | null;
   reason: string;
-}
-
-export function isRequestMintMessage(data: unknown): data is RequestMintMessage {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    (data as { type?: unknown }).type === "blk-request-mint" &&
-    typeof (data as { videoId?: unknown }).videoId === "string"
-  );
 }
 
 export function isRequestShadowUrlMessage(data: unknown): data is RequestShadowUrlMessage {
@@ -160,18 +139,6 @@ export function isAcquisitionResultMessage(data: unknown): data is AcquisitionRe
     isSourceId((data as { source?: unknown }).source) &&
     (url === null || (typeof url === "string" && url.length > 0)) &&
     typeof (data as { reason?: unknown }).reason === "string"
-  );
-}
-
-export function isMintedUrlMessage(data: unknown): data is MintedUrlMessage {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    (data as { type?: unknown }).type === "blk-minted-url" &&
-    typeof (data as { videoId?: unknown }).videoId === "string" &&
-    typeof (data as { url?: unknown }).url === "string" &&
-    (data as { url: string }).url.length > 0 &&
-    typeof (data as { trackDurationSeconds?: unknown }).trackDurationSeconds === "number"
   );
 }
 

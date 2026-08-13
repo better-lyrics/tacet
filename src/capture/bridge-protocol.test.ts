@@ -12,8 +12,6 @@ import {
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
-  isRequestMintMessage,
-  isMintedUrlMessage,
   isSliceCapturedMessage,
 } from "@/capture/bridge-protocol";
 import type {
@@ -254,7 +252,6 @@ describe("capture bridge protocol", () => {
           isRequestPrefetchMessage,
           isRequestNextPrefetchMessage,
           isCaptureStandDownMessage,
-          isMintedUrlMessage,
           isSliceCapturedMessage,
         ];
         for (const guard of existing) {
@@ -314,76 +311,11 @@ describe("blk-partial-capture", () => {
   });
 });
 
-describe("isMintedUrlMessage", () => {
-  const minted = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
-    type: "blk-minted-url",
-    videoId: "9E3jQcUkXdQ",
-    url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
-    trackDurationSeconds: 188.3,
-    ...overrides,
-  });
-
-  it("accepts a message a minting frame sends", () => {
-    expect(isMintedUrlMessage(minted())).toBe(true);
-  });
-
-  it("survives the structured clone a postMessage puts it through", () => {
-    expect(isMintedUrlMessage(structuredClone(minted()))).toBe(true);
-  });
-
-  describe("edge cases", () => {
-    it("refuses a message missing any field it promises", () => {
-      for (const missing of ["type", "videoId", "url", "trackDurationSeconds"]) {
-        const partial = minted();
-        delete partial[missing];
-        expect(isMintedUrlMessage(partial)).toBe(false);
-      }
-    });
-
-    it("refuses an empty url, which is what a frame that minted nothing would send", () => {
-      expect(isMintedUrlMessage(minted({ url: "" }))).toBe(false);
-    });
-
-    it("refuses another message's type", () => {
-      expect(isMintedUrlMessage(minted({ type: "blk-capture-ready" }))).toBe(false);
-    });
-
-    it("refuses nonsense rather than throwing", () => {
-      for (const nonsense of [null, undefined, 7, "text", []]) {
-        expect(isMintedUrlMessage(nonsense)).toBe(false);
-      }
-    });
-  });
-});
-
-describe("isRequestMintMessage", () => {
-  it("accepts a request to mint a url for a track", () => {
-    expect(isRequestMintMessage({ type: "blk-request-mint", videoId: "9E3jQcUkXdQ" })).toBe(true);
-  });
-
-  describe("edge cases", () => {
-    it("refuses a request naming no track", () => {
-      expect(isRequestMintMessage({ type: "blk-request-mint" })).toBe(false);
-      expect(isRequestMintMessage({ type: "blk-request-mint", videoId: 7 })).toBe(false);
-    });
-
-    it("refuses another message's type", () => {
-      expect(isRequestMintMessage({ type: "blk-request-prefetch", videoId: "9E3jQcUkXdQ" })).toBe(false);
-    });
-
-    it("refuses nonsense rather than throwing", () => {
-      for (const nonsense of [null, undefined, 7, "text", []]) {
-        expect(isRequestMintMessage(nonsense)).toBe(false);
-      }
-    });
-  });
-});
-
 describe("isAcquisitionResultMessage", () => {
   const result = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     type: "blk-acquisition-result",
     videoId: "9E3jQcUkXdQ",
-    source: "direct-fetch",
+    source: "shadow-url",
     url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
     reason: "the frame minted a url for the track",
     ...overrides,

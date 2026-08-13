@@ -4,7 +4,7 @@ import { deliveredBy, describeDelivery, describeNowArtist } from "@/orchestrator
 
 describe("deliveredBy", () => {
   it("credits the source that announced a url", () => {
-    expect(deliveredBy({ inFlightSource: "hidden-player", announcedSource: "direct-fetch" })).toBe("direct-fetch");
+    expect(deliveredBy({ inFlightSource: "hidden-player", announcedSource: "hidden-player" })).toBe("hidden-player");
   });
 
   it("credits the rung that was running when bytes arrived without an announcement", () => {
@@ -34,7 +34,7 @@ describe("deliveredBy", () => {
 
 describe("describeNowArtist", () => {
   it("puts the source after the artist", () => {
-    expect(describeNowArtist("Some Artist", "Direct fetch")).toBe("Some Artist · via Direct fetch");
+    expect(describeNowArtist("Some Artist", "Shadow player")).toBe("Some Artist · via Shadow player");
   });
 
   describe("edge cases", () => {
@@ -55,7 +55,7 @@ describe("describeNowArtist", () => {
   describe("invariants", () => {
     it("never leaves a dangling separator", () => {
       for (const artist of ["", "  ", "Artist"]) {
-        for (const delivery of [null, "Direct fetch"]) {
+        for (const delivery of [null, "Shadow player"]) {
           const line = describeNowArtist(artist, delivery);
           expect(line.startsWith("·")).toBe(false);
           expect(line.endsWith("·")).toBe(false);
@@ -67,7 +67,7 @@ describe("describeNowArtist", () => {
 
 describe("describeDelivery", () => {
   it("answers with the registry's own label rather than the id", () => {
-    expect(describeDelivery("direct-fetch")).toBe("Direct fetch");
+    expect(describeDelivery("hidden-player")).toBe("Hidden player");
   });
 
   describe("edge cases", () => {

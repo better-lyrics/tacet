@@ -1,6 +1,6 @@
 // -- What a source is ----------------------------------------------------------
 
-type SourceId = "shadow-url" | "hidden-player" | "player-capture" | "direct-fetch";
+type SourceId = "shadow-url" | "hidden-player" | "player-capture";
 
 type SourceReach = "playing-track" | "any-track";
 
@@ -17,31 +17,23 @@ const SOURCES: readonly SourceDefinition[] = [
   {
     id: "shadow-url",
     label: "Shadow player",
-    hint: "Asks this page for a download link, then fetches the track itself. Any track, and the fastest.",
+    hint: "Gets a link from this page, then downloads it. Any track, a few seconds.",
     reach: "any-track",
-  },
-  // Player capture sits above the hidden player deliberately. The shadow stands
-  // down for 30 minutes after two unattested mints, and when it does, the free
-  // source should cover the track playing now before a frame is spawned and costs
-  // the tab 35 MB it never gets back. The hidden player still covers the track
-  // that is coming next, which player capture cannot reach at all.
-  {
-    id: "player-capture",
-    label: "Player capture",
-    hint: "Copies what your player is already streaming. Free, and only the track playing now.",
-    reach: "playing-track",
   },
   {
     id: "hidden-player",
     label: "Hidden player",
-    hint: "A second player streams an upcoming track. Any track, and costs memory for the tab.",
+    hint: "Loads the track in a background player. Any track, about ten seconds.",
     reach: "any-track",
   },
+  // Player capture is passive rather than a rung the ladder starts: it is always
+  // running, so `maybeAcquireCurrent` skips past it. It sits last because it is
+  // the floor, not because it is tried last.
   {
-    id: "direct-fetch",
-    label: "Direct fetch",
-    hint: "Asks your player for a link, then downloads the track itself. Fastest, when it is allowed.",
-    reach: "any-track",
+    id: "player-capture",
+    label: "Player capture",
+    hint: "Copies whatever you play as it streams. Current track only, in real time.",
+    reach: "playing-track",
   },
 ];
 

@@ -16,14 +16,12 @@ import type {
 import {
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
-  isRequestMintMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
   isRequestPrefetchedAudioMessage,
   isRequestQueueTracksMessage,
   isRequestShadowUrlMessage,
 } from "@/capture/bridge-protocol";
-import { readMintedUrl } from "@/acquisition/minted-url";
 import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
 import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
@@ -31,19 +29,11 @@ import type { SourceId } from "@/acquisition/sources";
 // The format the listener's own player streams on High, which is the parity bar.
 const SHADOW_ITAG = 141;
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
-import { runMintCapture } from "@/capture/mint-runner";
-import { collectMatching, installUrlTap } from "@/capture/url-tap";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs, shouldHoldCapture } from "@/capture/capture-coverage";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { bufferedRangeEnd } from "@/capture/edge-hopper";
-import {
-  type CapturedSlice,
-  FRAME_ID_PREFIX,
-  MINT_FRAME_ID,
-  captureTrackInSlices,
-  mintUrlInFrame,
-} from "@/capture/frame-pool";
+import { type CapturedSlice, FRAME_ID_PREFIX, captureTrackInSlices } from "@/capture/frame-pool";
 import { log, logError } from "@/capture/log";
 import { currentTrackInQueue, nextTrackInQueue, readQueueItems } from "@/capture/next-track";
 import type { QueueTrack } from "@/capture/next-track";
@@ -55,7 +45,7 @@ import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slic
 import { runSliceCapture } from "@/capture/slice-runner";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
-import { isMintFrame, readWorkerAssignment } from "@/capture/worker-frame";
+import { readWorkerAssignment } from "@/capture/worker-frame";
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { isSetLoggingMessage } from "@/pageworld/protocol";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
@@ -108,7 +98,6 @@ const capture = installSourceBufferCapture({ isAdPlaying: isAdPlayingHere, onAud
 // -- Worker frame mode -------------------------------------------------------
 
 const workerAssignment = readWorkerAssignment(window.location.search);
-const mintsUrl = isMintFrame(window.location.search);
 
 const SILENCE_SWEEP_MS = 250;
 
@@ -136,32 +125,8 @@ if (workerAssignment) {
   }
 }
 
-// -- Minting frame mode --------------------------------------------------------
-
-const MEDIA_HOST = "googlevideo.com";
-const MINT_URL_LIMIT = 64;
-
-if (mintsUrl) {
-  const mintVideoId = getVideoIdFromSearch(window.location.search);
-  const silenced = silenceThisFrame("minting frame");
-
-  const collector = collectMatching(MEDIA_HOST, MINT_URL_LIMIT);
-  installUrlTap({
-    fetchHost: window,
-    xhrPrototype: XMLHttpRequest.prototype,
-    onUrl: url => collector.add(url),
-  });
-
-  log(`minting frame for videoId=${mintVideoId ?? "unknown"}`);
-  if (mintVideoId && silenced) {
-    void runMintCapture(collector, mintVideoId).catch(error => {
-      logError(`the minting frame for videoId=${mintVideoId} crashed`, error);
-    });
-  }
-}
-
 const isTopFrame = window.top === window;
-const runsOrchestration = isTopFrame && !workerAssignment && !mintsUrl;
+const runsOrchestration = isTopFrame && !workerAssignment;
 
 // -- Capture completion ------------------------------------------------------
 
@@ -504,16 +469,6 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
 
 // -- Minting a url on request ------------------------------------------------
 
-let mintInFlightVideoId: string | null = null;
-let mintAbort: AbortController | null = null;
-
-function settleMint(videoId: string, abort: AbortController, url: string | null, reason: string): void {
-  if (mintAbort !== abort) return;
-  mintInFlightVideoId = null;
-  mintAbort = null;
-  announceAcquisitionResult(videoId, "direct-fetch", url, reason);
-}
-
 let shadowInFlightVideoId: string | null = null;
 let shadowBudget = freshBudget();
 
@@ -542,43 +497,6 @@ function mintShadowUrlFor(videoId: string): void {
       logError(`minting a shadow url for videoId=${videoId} threw`, error);
       announceAcquisitionResult(videoId, "shadow-url", null, "the shadow player crashed");
     });
-}
-
-function mintUrlFor(videoId: string): void {
-  if (mintInFlightVideoId === videoId) {
-    log(`already minting for videoId=${videoId}, ignoring a second request`);
-    return;
-  }
-  if (mintInFlightVideoId !== null) {
-    log(`minting for videoId=${videoId} takes over from ${mintInFlightVideoId}`);
-    mintAbort?.abort();
-  }
-
-  const abort = new AbortController();
-  mintInFlightVideoId = videoId;
-  mintAbort = abort;
-
-  mintUrlInFrame({ videoId, signal: abort.signal })
-    .then(minted => {
-      settleMint(
-        videoId,
-        abort,
-        minted?.url ?? null,
-        minted ? "the frame minted a url for the track" : "the minting frame answered with nothing"
-      );
-    })
-    .catch(error => {
-      logError(`minting for videoId=${videoId} threw`, error);
-      settleMint(videoId, abort, null, "the minting frame crashed");
-    });
-}
-
-function abandonMintFor(videoId: string): void {
-  if (mintInFlightVideoId !== videoId) return;
-  log(`abandoning the mint for videoId=${videoId}`);
-  mintAbort?.abort();
-  mintInFlightVideoId = null;
-  mintAbort = null;
 }
 
 // -- Handing the bytes over --------------------------------------------------
@@ -650,7 +568,6 @@ function respondToPrefetchedAudioRequest(videoId: string): void {
 }
 
 function standDownFor(videoId: string): void {
-  abandonMintFor(videoId);
   if (stoodDownVideoIds.has(videoId)) return;
   stoodDownVideoIds.add(videoId);
   if (accumulator.getStats().videoId !== videoId) return;
@@ -709,7 +626,6 @@ window.addEventListener("message", event => {
   if (isSetLoggingMessage(data)) setLoggingEnabled(data.enabled);
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
-  if (isRequestMintMessage(data) && runsOrchestration) mintUrlFor(data.videoId);
   if (isRequestShadowUrlMessage(data) && runsOrchestration) mintShadowUrlFor(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) announcedListenedVideoId = data.videoId;
@@ -736,7 +652,6 @@ declare global {
     blkDisableCapture: () => void;
     blkPrefetchTrackInSlices: (workerCount?: number) => Promise<unknown>;
     blkCaptureProbe: () => unknown;
-    blkMintUrlProbe: (videoId: string) => Promise<unknown>;
     blkShadowUrlProbe: (videoId: string) => Promise<unknown>;
   }
 }
@@ -760,30 +675,6 @@ window.blkShadowUrlProbe = async (videoId: string) => {
           tokenBytes: stream.poToken?.byteLength ?? 0,
         }
       : null,
-  };
-};
-
-window.blkMintUrlProbe = async (videoId: string) => {
-  const started = performance.now();
-  const minted = await mintUrlInFrame({ videoId });
-  const elapsedMs = Math.round(performance.now() - started);
-  const framesLeft = document.querySelectorAll(`#${MINT_FRAME_ID}`).length;
-  if (!minted) return { videoId, minted: null, elapsedMs, framesLeft };
-  const stream = readMintedUrl(minted.url);
-  return {
-    videoId,
-    elapsedMs,
-    framesLeft,
-    trackDurationSeconds: minted.trackDurationSeconds,
-    minted: {
-      itag: stream?.itag ?? null,
-      contentLengthBytes: stream?.contentLengthBytes ?? null,
-      durationSeconds: stream?.durationSeconds ?? null,
-      mimeType: stream?.mimeType ?? null,
-      hasToken: stream?.poToken !== null && stream?.poToken !== undefined,
-      lastModified: String(stream?.lastModified ?? ""),
-      url: minted.url,
-    },
   };
 };
 

@@ -7,7 +7,6 @@ const ALL_ON: SourcePreference[] = [
   { id: "shadow-url", enabled: true },
   { id: "hidden-player", enabled: true },
   { id: "player-capture", enabled: true },
-  { id: "direct-fetch", enabled: true },
 ];
 
 const ids = (preferences: readonly SourcePreference[]) => preferences.map(preference => preference.id);
@@ -15,8 +14,8 @@ const ids = (preferences: readonly SourcePreference[]) => preferences.map(prefer
 describe("sourceRows", () => {
   it("describes every source in the listener's order", () => {
     const rows = sourceRows(ALL_ON);
-    expect(rows.map(row => row.id)).toEqual(["shadow-url", "hidden-player", "player-capture", "direct-fetch"]);
-    expect(rows.map(row => row.position)).toEqual([0, 1, 2, 3]);
+    expect(rows.map(row => row.id)).toEqual(["shadow-url", "hidden-player", "player-capture"]);
+    expect(rows.map(row => row.position)).toEqual([0, 1, 2]);
   });
 
   it("carries the registry's own label and hint rather than inventing copy", () => {
@@ -35,8 +34,8 @@ describe("sourceRows", () => {
     });
 
     it("shows a disabled source rather than hiding it", () => {
-      const rows = sourceRows([{ id: "direct-fetch", enabled: false }]);
-      expect(rows.find(row => row.id === "direct-fetch")?.enabled).toBe(false);
+      const rows = sourceRows([{ id: "hidden-player", enabled: false }]);
+      expect(rows.find(row => row.id === "hidden-player")?.enabled).toBe(false);
       expect(rows).toHaveLength(SOURCE_IDS.length);
     });
   });
@@ -44,11 +43,11 @@ describe("sourceRows", () => {
 
 describe("moveSource", () => {
   it("lifts a source out and drops it at the new index", () => {
-    expect(ids(moveSource(ALL_ON, 2, 0))).toEqual(["player-capture", "shadow-url", "hidden-player", "direct-fetch"]);
+    expect(ids(moveSource(ALL_ON, 2, 0))).toEqual(["player-capture", "shadow-url", "hidden-player"]);
   });
 
   it("moves a source down as well as up", () => {
-    expect(ids(moveSource(ALL_ON, 0, 2))).toEqual(["hidden-player", "player-capture", "shadow-url", "direct-fetch"]);
+    expect(ids(moveSource(ALL_ON, 0, 2))).toEqual(["hidden-player", "player-capture", "shadow-url"]);
   });
 
   describe("edge cases", () => {
@@ -60,8 +59,8 @@ describe("moveSource", () => {
       for (const [from, to] of [
         [-1, 0],
         [0, -1],
-        [4, 0],
-        [0, 4],
+        [3, 0],
+        [0, 3],
       ]) {
         expect(ids(moveSource(ALL_ON, from, to))).toEqual(ids(ALL_ON));
       }
@@ -70,8 +69,8 @@ describe("moveSource", () => {
 
   describe("invariants", () => {
     it("never loses or duplicates a source, whatever it is asked", () => {
-      for (let from = -1; from <= 4; from++) {
-        for (let to = -1; to <= 4; to++) {
+      for (let from = -1; from <= 3; from++) {
+        for (let to = -1; to <= 3; to++) {
           expect([...ids(moveSource(ALL_ON, from, to))].sort()).toEqual([...SOURCE_IDS].sort());
         }
       }
@@ -81,7 +80,6 @@ describe("moveSource", () => {
       const withOff: SourcePreference[] = [
         { id: "hidden-player", enabled: true },
         { id: "player-capture", enabled: false },
-        { id: "direct-fetch", enabled: true },
       ];
       const moved = moveSource(withOff, 1, 0);
       expect(moved[0]).toEqual({ id: "player-capture", enabled: false });
@@ -91,9 +89,9 @@ describe("moveSource", () => {
 
 describe("toggleSource", () => {
   it("turns a source off and back on", () => {
-    const off = toggleSource(ALL_ON, "direct-fetch");
-    expect(off.find(preference => preference.id === "direct-fetch")?.enabled).toBe(false);
-    expect(toggleSource(off, "direct-fetch").find(p => p.id === "direct-fetch")?.enabled).toBe(true);
+    const off = toggleSource(ALL_ON, "hidden-player");
+    expect(off.find(preference => preference.id === "hidden-player")?.enabled).toBe(false);
+    expect(toggleSource(off, "hidden-player").find(p => p.id === "hidden-player")?.enabled).toBe(true);
   });
 
   describe("invariants", () => {
@@ -123,7 +121,6 @@ describe("acquisitionWarning", () => {
         { id: "player-capture", enabled: true },
         { id: "shadow-url", enabled: false },
         { id: "hidden-player", enabled: false },
-        { id: "direct-fetch", enabled: false },
       ]);
       expect(warning).toContain("track playing now");
     });
@@ -135,7 +132,6 @@ describe("acquisitionWarning", () => {
         acquisitionWarning([
           { id: "player-capture", enabled: true },
           { id: "hidden-player", enabled: true },
-          { id: "direct-fetch", enabled: true },
         ])
       ).toBeNull();
     });

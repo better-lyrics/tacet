@@ -132,7 +132,6 @@ describe("sanitizeSettings", () => {
       sources: [
         { id: "shadow-url" as const, enabled: true },
         { id: "hidden-player" as const, enabled: true },
-        { id: "direct-fetch" as const, enabled: false },
         { id: "player-capture" as const, enabled: true },
       ],
       debugLoggingEnabled: false,
