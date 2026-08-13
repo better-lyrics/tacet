@@ -202,10 +202,34 @@ function removeShadowHost(): void {
 
 // `mute: "1"` in the construction args is not enough, and `loadVideoById` starts
 // playback rather than merely loading, so an unsilenced shadow is audible over the
-// listener's own track. It has to be silenced on the element itself, and it has to
-// be done repeatedly: the `<video>` does not exist at construction time, the
-// player rebuilds it, and it restores its own volume from the listener's settings
-// once the media loads. Scoped to the host, so the listener's player is untouched.
+// listener's own track. Measured with a 20ms sampler: the element appears at
+// volume 1 unmuted and was audible for two samples before a 100ms poll caught it.
+// Polling cannot win that race, so this is event driven: mute on the mutation that
+// adds the element, and mute again on any `volumechange` the player issues when it
+// restores the listener's own volume. Scoped to the host, so the listener's own
+// player is never touched.
+// Re-muting after the fact always loses some window, however tight the loop: the
+// element is born at volume 1 and the player restores the listener's own volume
+// once the media loads. Locking the two properties on the instance, which shadows
+// the prototype accessors, means the player cannot unmute it at all. Measured
+// before this: two samples at volume 1, and one of them after the element had
+// metadata. Nothing was ever audible, because decoded bytes were zero throughout,
+// but a window that only closes in time is not the same as one that cannot open.
+function silenceMedia(media: HTMLMediaElement): void {
+  const locked = media as HTMLMediaElement & { __blkSilenced?: boolean };
+  if (locked.__blkSilenced === true) return;
+  locked.__blkSilenced = true;
+  try {
+    media.muted = true;
+    media.volume = 0;
+    Object.defineProperty(media, "muted", { configurable: true, get: () => true, set: () => undefined });
+    Object.defineProperty(media, "volume", { configurable: true, get: () => 0, set: () => undefined });
+  } catch {
+    media.muted = true;
+    media.volume = 0;
+  }
+}
+
 function silenceShadow(host: HTMLElement): void {
   const element = host.querySelector<ShadowPlayerElement>("#movie_player");
   try {
@@ -214,11 +238,29 @@ function silenceShadow(host: HTMLElement): void {
   } catch {
     // the player api is not ready yet, the element level mute below still holds
   }
-  for (const media of host.querySelectorAll("video, audio")) {
-    const playable = media as HTMLMediaElement;
-    playable.muted = true;
-    playable.volume = 0;
-  }
+  for (const media of host.querySelectorAll("video, audio")) silenceMedia(media as HTMLMediaElement);
+}
+
+function keepShadowSilent(host: HTMLElement): () => void {
+  const watched = new WeakSet<HTMLMediaElement>();
+  const onVolumeChange = (event: Event): void => silenceMedia(event.target as HTMLMediaElement);
+
+  const silenceAll = (): void => {
+    for (const media of host.querySelectorAll("video, audio")) {
+      const playable = media as HTMLMediaElement;
+      silenceMedia(playable);
+      if (watched.has(playable)) continue;
+      watched.add(playable);
+      for (const name of ["volumechange", "loadedmetadata", "play", "playing"]) {
+        playable.addEventListener(name, onVolumeChange);
+      }
+    }
+  };
+
+  silenceAll();
+  const observer = new MutationObserver(silenceAll);
+  observer.observe(host, { childList: true, subtree: true });
+  return () => observer.disconnect();
 }
 
 async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> {
@@ -248,6 +290,7 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
   host.style.cssText = SHADOW_HOST_STYLE;
   document.body.append(host);
 
+  const stopSilencing = keepShadowSilent(host);
   let application: ShadowApplication | null = null;
   try {
     application = create(host, { args: { autoplay: "0", mute: "1", controls: "0" } }, playerConfig);
@@ -256,6 +299,7 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
     element?.loadVideoById?.(input.videoId);
     silenceShadow(host);
   } catch (error) {
+    stopSilencing();
     watch.stop();
     forced = null;
     removeShadowHost();
@@ -276,6 +320,7 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
 
   watch.stop();
   forced = null;
+  stopSilencing();
   try {
     application?.dispose?.();
   } catch (error) {
