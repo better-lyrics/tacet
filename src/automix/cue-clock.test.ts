@@ -19,9 +19,9 @@ describe("remainingForCue", () => {
     expect(remainingForCue({ ...wholeTrack, deckDurationSeconds: 200 })).toBeCloseTo(60, 10);
   });
 
-  it("falls back to the deck when the track's clock is unreadable", () => {
+  it("says nothing when the track's clock is unreadable, rather than guessing from the deck", () => {
     const noClock = { ...wholeTrack, trackDurationSeconds: Number.NaN };
-    expect(remainingForCue(noClock)).toBeCloseTo(59.9, 10);
+    expect(remainingForCue(noClock)).toBeNaN();
   });
 
   describe("edge cases", () => {
@@ -39,8 +39,8 @@ describe("remainingForCue", () => {
       expect(remainingForCue(blind)).toBeNaN();
     });
 
-    it("treats a zero-length track as unreadable and falls back", () => {
-      expect(remainingForCue({ ...wholeTrack, trackDurationSeconds: 0 })).toBeCloseTo(59.9, 10);
+    it("treats a zero-length track as unreadable", () => {
+      expect(remainingForCue({ ...wholeTrack, trackDurationSeconds: 0 })).toBeNaN();
     });
 
     it("treats a NaN deck position as unreadable, which is what a stopped deck reports", () => {
@@ -78,6 +78,16 @@ describe("remainingForCue", () => {
         deckPositionSeconds: 5,
       };
       expect(remainingForCue(shortDeck)).toBeCloseTo(195, 10);
+    });
+
+    it("regression: stems covering 0.9 of the track never make the cue think the track is ending", () => {
+      const nearlySpentDeck: CueClockInput = {
+        trackDurationSeconds: Number.NaN,
+        trackPositionSeconds: 190,
+        deckDurationSeconds: 198,
+        deckPositionSeconds: 190,
+      };
+      expect(remainingForCue(nearlySpentDeck)).toBeNaN();
     });
   });
 });

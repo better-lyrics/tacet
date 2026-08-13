@@ -55,11 +55,16 @@ export interface RequestPrefetchMessage {
 export interface RequestNextPrefetchMessage {
   type: "blk-request-next-prefetch";
   videoId: string;
+  // Anything speculative competes with the listener's own stream, so warming the
+  // next track belongs in the tail of a track rather than the head. Only the
+  // page world can say when that is, because only it has the clock.
+  warm?: boolean;
 }
 
 export interface NextTrackMessage {
   type: "blk-next-track";
   videoId: string;
+  warm?: boolean;
 }
 
 export interface RequestQueueTracksMessage {

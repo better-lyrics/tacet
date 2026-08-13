@@ -18,9 +18,7 @@ function remainingIn(durationSeconds: number, positionSeconds: number): number {
 }
 
 function remainingForCue(input: CueClockInput): number {
-  const inTrack = remainingIn(input.trackDurationSeconds, input.trackPositionSeconds);
-  if (!Number.isNaN(inTrack)) return inTrack;
-  return remainingIn(input.deckDurationSeconds, input.deckPositionSeconds);
+  return remainingIn(input.trackDurationSeconds, input.trackPositionSeconds);
 }
 
 function fadeCeilingSeconds(input: CueClockInput): number {

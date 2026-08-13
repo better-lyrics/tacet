@@ -11,9 +11,10 @@ function playerReporting(videoData: unknown, duration: number): YtPlayer {
 
 describe("readPlayerSnapshot", () => {
   it("reports the track the player names, with its duration", () => {
-    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 215.16))).toEqual({
+    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 215.16), 216)).toEqual({
       videoId: "abc123",
-      durationSeconds: 215.16,
+      durationSeconds: 216,
+      durationTrusted: true,
     });
   });
 
@@ -31,7 +32,22 @@ describe("readPlayerSnapshot", () => {
     expect(readPlayerSnapshot(playerReporting({ video_id: "oodQMZLjoBU" }, 237), 237, false)).toEqual({
       videoId: "oodQMZLjoBU",
       durationSeconds: 237,
+      durationTrusted: true,
     });
+  });
+
+  it("distrusts the length while the bar is still timing an ad the attribute has released", () => {
+    const barStillOnTheAd = readPlayerSnapshot(
+      playerReporting({ video_id: "oodQMZLjoBU", isAd: null }, 237),
+      14,
+      false
+    );
+    expect(barStillOnTheAd?.durationSeconds).toBe(14);
+    expect(barStillOnTheAd?.durationTrusted).toBe(false);
+  });
+
+  it("distrusts the length during a gapless append, where the two clocks describe different things", () => {
+    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 49.9), 315)?.durationTrusted).toBe(false);
   });
 
   it("refuses a player that has not loaded a track yet", () => {

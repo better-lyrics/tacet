@@ -2,6 +2,7 @@
 
 import { enabledOrder, nextSource, sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
+import { AheadStaging } from "@/orchestrator/ahead-staging";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { deliveredBy } from "@/orchestrator/delivery";
 import {
@@ -100,13 +101,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
   let prefetchVideoId: string | null = null;
+  let warmAllowedFor: string | null = null;
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
-  let staged: { videoId: string; vocals: Blob; instrumental: Blob } | null = null;
-  let stagedVocals: ChunkAssembler | null = null;
-  let stagedInstrumental: ChunkAssembler | null = null;
-  let stagedDoneReceived = false;
+  const aheadStaging = new AheadStaging();
   let crossfadingInto: string | null = null;
   let crossfadingIntoKind: LandingKind = "stems";
   let crossfadeArmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -157,10 +156,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function resetStaging(): void {
-    staged = null;
-    stagedVocals = null;
-    stagedInstrumental = null;
-    stagedDoneReceived = false;
+    aheadStaging.clear();
   }
 
   function postToPageWorld(
@@ -196,6 +192,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       resetStemAssembly();
       resetStaging();
       prefetchVideoId = null;
+      warmAllowedFor = null;
       climb = null;
 
       if (landing === "release") {
@@ -233,6 +230,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     resetStemAssembly();
     resetStaging();
     prefetchVideoId = null;
+    warmAllowedFor = null;
     climb = null;
     dispatch({ type: "track-changed", videoId });
     probeCacheFor(videoId);
@@ -348,9 +346,19 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isNextTrackMessage(data)) {
-      if (data.videoId === state.videoId || data.videoId === prefetchVideoId) return;
+      if (data.videoId === state.videoId) return;
+      // The same next track is announced repeatedly. Once the page world's clock
+      // reaches the tail it announces it again with permission to warm, and that
+      // permission is the only new information, so re-probe rather than ignore.
+      if (data.videoId === prefetchVideoId) {
+        if (data.warm !== true || warmAllowedFor === data.videoId) return;
+        warmAllowedFor = data.videoId;
+        probeCacheFor(data.videoId);
+        return;
+      }
       resetStaging();
       prefetchVideoId = data.videoId;
+      warmAllowedFor = data.warm === true ? data.videoId : null;
       trackStatusStore.setActivity(data.videoId, "queued");
       log(`next up is ${data.videoId}, checking whether it needs separating`);
       probeCacheFor(data.videoId);
@@ -411,48 +419,39 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function stageStemChunk(message: StemChunkMessage): void {
-    const target =
-      message.stem === "vocals"
-        ? (stagedVocals ??= createChunkAssembler())
-        : (stagedInstrumental ??= createChunkAssembler());
-    try {
-      target.addChunk(message.index, message.total, message.data);
-    } catch (error) {
-      logError(`could not stage ${message.stem} for ${message.videoId}`, error);
-      resetStaging();
+    const took = aheadStaging.addChunk(message.videoId, message.stem, message.index, message.total, message.data);
+    if (!took) {
+      logError(
+        `could not stage ${message.stem} for ${message.videoId}`,
+        new Error(`chunk ${message.index} of ${message.total} was refused`)
+      );
       return;
     }
     finishStagingIfReady(message.videoId);
   }
 
   function finishStagingIfReady(videoId: string): void {
-    if (!stagedDoneReceived || !stagedVocals?.isComplete() || !stagedInstrumental?.isComplete()) return;
+    const blobs = aheadStaging.finish(videoId);
+    if (blobs === null) return;
 
-    const vocals = decodeStemBlob(stagedVocals);
-    const instrumental = decodeStemBlob(stagedInstrumental);
-    stagedVocals = null;
-    stagedInstrumental = null;
-    stagedDoneReceived = false;
-    staged = { videoId, vocals, instrumental };
     trackStatusStore.setActivity(videoId, "ready");
-
     trackStatusStore.setCached(videoId, true);
-    const kilobytes = Math.round((vocals.size + instrumental.size) / 1024);
+    const kilobytes = Math.round((blobs.vocals.size + blobs.instrumental.size) / 1024);
     log(`staged ${videoId} for a transition, ${kilobytes} kB of Opus held`);
     const ready: StagedReadyMessage = { type: "blk-staged-ready", videoId };
     postToPageWorld(ready);
   }
 
   function sendStagedDeck(videoId: string): void {
-    const held = staged;
-    if (!held || held.videoId !== videoId) {
+    const held = aheadStaging.heldFor(videoId);
+    if (held === null) {
       log(`the page world asked for ${videoId} but nothing is staged under it`);
       return;
     }
 
     Promise.all([decodeOpusToPcm(held.vocals), decodeOpusToPcm(held.instrumental)])
       .then(([vocals, instrumental]) => {
-        if (staged?.videoId !== videoId) return;
+        if (aheadStaging.heldVideoId !== videoId) return;
         const message: StageDeckMessage = {
           type: "blk-stage-deck",
           videoId,
@@ -463,7 +462,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         const frames = vocals.channels[0]?.length ?? 0;
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
         postToPageWorld(message, transfer);
-        staged = null;
+        aheadStaging.releaseHeld(videoId);
         log(`handed ${videoId} to the idle deck, ${frames} frames`);
       })
       .catch(error => {
@@ -579,6 +578,10 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isCacheMissMessage(message)) {
       trackStatusStore.setCached(message.videoId, false);
       if (message.videoId === prefetchVideoId) {
+        if (warmAllowedFor !== message.videoId) {
+          log(`next track ${message.videoId} is not separated yet, waiting for the tail of this track to warm it`);
+          return;
+        }
         trackStatusStore.setActivity(message.videoId, "downloading");
         log(`next track ${message.videoId} is not separated yet, warming it`);
         postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
@@ -607,7 +610,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
     if (isTrackDoneMessage(message)) {
       if (isStagingTarget(message.videoId)) {
-        stagedDoneReceived = true;
+        aheadStaging.markDone(message.videoId);
         finishStagingIfReady(message.videoId);
         return;
       }

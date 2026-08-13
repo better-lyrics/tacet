@@ -3,11 +3,12 @@ import { isAdPlaying } from "@/capture/ad-state";
 import { readPlayerDuration, readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
-import { chooseTrackDuration, readClockDuration } from "@/pageworld/track-duration";
+import { chooseTrackDuration, clocksAgree, readClockDuration } from "@/pageworld/track-duration";
 
 interface PlayerSnapshot {
   videoId: string;
   durationSeconds: number;
+  durationTrusted: boolean;
 }
 
 function readPlayerSnapshot(
@@ -21,10 +22,15 @@ function readPlayerSnapshot(
   if (!videoData || videoData.isAd === true) return null;
   if (typeof videoData.video_id !== "string" || !videoData.video_id) return null;
 
-  const durationSeconds = chooseTrackDuration(clockDurationSeconds, readPlayerDuration(player));
+  const playerDurationSeconds = readPlayerDuration(player);
+  const durationSeconds = chooseTrackDuration(clockDurationSeconds, playerDurationSeconds);
   if (durationSeconds <= 0) return null;
 
-  return { videoId: videoData.video_id, durationSeconds };
+  return {
+    videoId: videoData.video_id,
+    durationSeconds,
+    durationTrusted: clocksAgree(clockDurationSeconds, playerDurationSeconds),
+  };
 }
 
 function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {

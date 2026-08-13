@@ -22,4 +22,21 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
   return Number.isFinite(playerSeconds) && playerSeconds > 0 ? playerSeconds : 0;
 }
 
-export { PLAYER_BAR_CLOCK_SELECTOR, chooseTrackDuration, parseClockDuration, readClockDuration };
+// -- Whether that length is certain enough to fade on --------------------------
+
+const CLOCK_AGREEMENT_TOLERANCE_S = 5;
+
+function clocksAgree(clockSeconds: number, playerSeconds: number): boolean {
+  if (!Number.isFinite(clockSeconds) || clockSeconds <= 0) return false;
+  if (!Number.isFinite(playerSeconds) || playerSeconds <= 0) return false;
+  return Math.abs(clockSeconds - playerSeconds) <= CLOCK_AGREEMENT_TOLERANCE_S;
+}
+
+export {
+  CLOCK_AGREEMENT_TOLERANCE_S,
+  PLAYER_BAR_CLOCK_SELECTOR,
+  chooseTrackDuration,
+  clocksAgree,
+  parseClockDuration,
+  readClockDuration,
+};

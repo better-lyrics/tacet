@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideStagedSource, isStagingSpent } from "@/automix/staged-source";
+import { decideStagedSource, isStagingSpent, mayArmStaging } from "@/automix/staged-source";
 import type { StagedKind, StagedSourceInput } from "@/automix/staged-source";
 import type { StagedState } from "@/automix/transition-cue";
 
@@ -293,6 +293,49 @@ describe("isStagingSpent", () => {
   describe("regressions", () => {
     it("regression: a natural advance with separation off releases the staged mix rather than retaining it", () => {
       expect(isStagingSpent({ stagedVideoId: "b", nextTrackVideoId: null, listenerVideoId: "b" })).toBe(true);
+    });
+  });
+});
+
+describe("mayArmStaging", () => {
+  const FADE = 8;
+  const LEAD = 6;
+
+  it("arms once the track is inside the fade plus its decode lead", () => {
+    expect(mayArmStaging(14, FADE, LEAD)).toBe(true);
+    expect(mayArmStaging(9, FADE, LEAD)).toBe(true);
+  });
+
+  it("refuses while there is most of a track still to play", () => {
+    expect(mayArmStaging(207, FADE, LEAD)).toBe(false);
+    expect(mayArmStaging(15, FADE, LEAD)).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("refuses an unreadable clock rather than arming blind", () => {
+      expect(mayArmStaging(Number.NaN, FADE, LEAD)).toBe(false);
+      expect(mayArmStaging(-1, FADE, LEAD)).toBe(false);
+    });
+
+    it("refuses when crossfade is off or nonsensical", () => {
+      expect(mayArmStaging(5, 0, LEAD)).toBe(false);
+      expect(mayArmStaging(5, Number.NaN, LEAD)).toBe(false);
+    });
+
+    it("treats an unreadable decode lead as no lead at all", () => {
+      expect(mayArmStaging(FADE, FADE, Number.NaN)).toBe(true);
+      expect(mayArmStaging(FADE + 1, FADE, Number.NaN)).toBe(false);
+    });
+
+    it("still arms at the very end of a track", () => {
+      expect(mayArmStaging(0, FADE, LEAD)).toBe(true);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: the next track is not armed to fade nine seconds into a 216 s track", () => {
+      const nineSecondsIn = 216 - 9;
+      expect(mayArmStaging(nineSecondsIn, FADE, LEAD)).toBe(false);
     });
   });
 });

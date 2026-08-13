@@ -630,8 +630,8 @@ function resolveFallbackArtwork(videoId: string): void {
     });
 }
 
-function announceNextTrack(next: QueueTrack): void {
-  const message: NextTrackMessage = { type: "blk-next-track", videoId: next.videoId };
+function announceNextTrack(next: QueueTrack, warm: boolean): void {
+  const message: NextTrackMessage = { type: "blk-next-track", videoId: next.videoId, warm };
   window.postMessage(message, window.location.origin);
 }
 
@@ -659,7 +659,7 @@ window.addEventListener("message", event => {
       log(`no next track in the queue after ${data.videoId}`);
       return;
     }
-    announceNextTrack(next);
+    announceNextTrack(next, data.warm === true);
   }
   if (isRequestQueueTracksMessage(data) && runsOrchestration) answerQueueTracksRequest();
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);

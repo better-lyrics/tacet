@@ -3,7 +3,7 @@ import type { PublishInput } from "@/pageworld/player-bridge";
 import { describe, expect, it } from "vitest";
 
 const playing: PublishInput = {
-  snapshot: { videoId: "DJCB1ZlseJ8", durationSeconds: 215.1 },
+  snapshot: { videoId: "DJCB1ZlseJ8", durationSeconds: 215.1, durationTrusted: true },
   betterLyricsPublishing: false,
 };
 

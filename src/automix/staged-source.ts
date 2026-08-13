@@ -62,6 +62,14 @@ function decideStagedSource(input: StagedSourceInput): StagedSourceChoice {
   return { kind: "take" };
 }
 
+// -- When a track may be armed to fade at all --------------------------------
+
+function mayArmStaging(remainingSeconds: number, fadeSeconds: number, decodeLeadSeconds: number): boolean {
+  if (!usable(remainingSeconds) || !usable(fadeSeconds) || fadeSeconds <= 0) return false;
+  const lead = usable(decodeLeadSeconds) ? decodeLeadSeconds : 0;
+  return remainingSeconds <= fadeSeconds + lead;
+}
+
 // -- When what is staged stops being worth holding ---------------------------
 
 interface SpentStagingInput {
@@ -77,5 +85,5 @@ function isStagingSpent(input: SpentStagingInput): boolean {
   return nextTrackVideoId !== null && stagedVideoId !== nextTrackVideoId;
 }
 
-export { decideStagedSource, isStagingSpent };
+export { decideStagedSource, isStagingSpent, mayArmStaging };
 export type { HeldSource, OfferedSource, SpentStagingInput, StagedKind, StagedSourceChoice, StagedSourceInput };
