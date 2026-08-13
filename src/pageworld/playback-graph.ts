@@ -21,13 +21,13 @@ const logger = createLogger("page");
 
 const PAUSE_SETTLE_MS = 600;
 const SWAP_SECONDS = 0.12;
-// The element and the deck carry the same music, so this handover is correlated
-// and both sides ramp linearly, summing to one throughout. Its length is a
-// perceptual choice rather than an arithmetic one: at the old 20 ms the change
-// of signal reads as an event, and the two are not identical signals, because
-// separation error, Opus and a resample all sit between them. Spread over long
-// enough and the same change becomes a morph the ear does not flag.
-const HANDOVER_SECONDS = 0.25;
+// Both sides ramp linearly and sum to one, so on perfectly aligned audio this
+// length would not matter. It matters, which is the finding: stretched to 250 ms
+// the handover was audibly worse, a smear rather than a blip, and a longer
+// crossfade can only expose what a shorter one hides. So the two sources are
+// offset in time, and until that offset is measured and closed, the length has
+// to stay short enough to keep the overlap brief.
+const HANDOVER_SECONDS = 0.02;
 // How far ahead a quieter passage is worth waiting for. The listener is on the
 // original throughout the wait, which is vanilla YouTube Music and therefore the
 // floor, so the only cost of waiting is separation applying a little later.
