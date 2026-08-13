@@ -14,7 +14,6 @@
     "../src/acquisition/sabr-parts.ts",
     "../src/acquisition/sabr-request.ts",
     "../src/acquisition/sabr-client.ts",
-    "../src/acquisition/player-response.ts",
     "../src/acquisition/minted-url.ts",
     "../src/acquisition/acquire.ts",
     "../src/acquisition/sources.ts",
