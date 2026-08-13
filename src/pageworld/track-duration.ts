@@ -40,6 +40,19 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
 // not consulted at all.
 const CLOCK_SETTLE_MS = 3000;
 
+// The bar rounds to whole seconds, so its total can flicker between two adjacent
+// values without describing a different track: an incoming track was measured
+// reading 218 and then 219 before holding, which reset the window and delayed
+// trust by a second. Exact equality would let a bar that oscillates between the
+// pair defer trust for ever. A second of slack absorbs that and still catches
+// every real change, because a bar handing over from an ad moves in jumps, 14 to
+// 46 to 237.
+//
+// The slack is measured against the anchor rather than the previous reading, so
+// a total creeping a second at a time still resets. Chaining it against the last
+// reading would let an unbounded drift through one second per sample.
+const CLOCK_JITTER_S = 1;
+
 interface ClockSettling {
   seconds: number;
   changedAtMs: number;
@@ -47,8 +60,9 @@ interface ClockSettling {
 
 function noteClockDuration(previous: ClockSettling | null, seconds: number, nowMs: number): ClockSettling | null {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  if (previous === null || previous.seconds !== seconds) return { seconds, changedAtMs: nowMs };
-  return previous;
+  if (previous === null) return { seconds, changedAtMs: nowMs };
+  if (Math.abs(seconds - previous.seconds) <= CLOCK_JITTER_S) return previous;
+  return { seconds, changedAtMs: nowMs };
 }
 
 function clockDurationSettled(settling: ClockSettling | null, nowMs: number): boolean {
@@ -57,6 +71,7 @@ function clockDurationSettled(settling: ClockSettling | null, nowMs: number): bo
 }
 
 export {
+  CLOCK_JITTER_S,
   CLOCK_SETTLE_MS,
   PLAYER_BAR_CLOCK_SELECTOR,
   chooseTrackDuration,
