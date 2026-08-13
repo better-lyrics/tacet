@@ -3,15 +3,12 @@ import { createTabRegistry } from "@/orchestrator/tab-registry";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
-import { bytesToBase64 } from "@/relay/base64";
 import {
   type ModelChoice,
   type SettingsChangedMessage,
   type SettingsMessage,
-  type ObservedRequestsMessage,
   isAcquireTrackCommand,
   isCaptureChunkMessage,
-  isObservedRequestsCommand,
   isProbeCacheCommand,
   isClearModelCacheCommand,
   isClearStemCacheCommand,
@@ -55,106 +52,6 @@ function delay(ms: number): Promise<void> {
 function modelChoiceFor(settings: Settings): ModelChoice {
   return { modelUrl: getModelUrl(settings.modelVariant), modelSha256: getModelSha256(settings.modelVariant) };
 }
-
-// -- Watching the player's own media requests ---------------------------------
-
-const MEDIA_URL_PATTERN = "https://*.googlevideo.com/*";
-const CONTROL_URL_PATTERN = "https://music.youtube.com/*";
-const OBSERVED_REQUEST_LIMIT = 8;
-
-interface ObservedRequest {
-  at: number;
-  url: string;
-  method: string;
-  bodyBytes: number;
-  body: string;
-}
-
-const observedRequests: ObservedRequest[] = [];
-const observedCounts: Record<string, number> = {};
-
-const OBSERVED_STORAGE_KEY = "blk-observed-requests";
-
-function rememberObserved(): void {
-  chrome.storage.session
-    ?.set({ [OBSERVED_STORAGE_KEY]: { counts: observedCounts, requests: observedRequests } })
-    .catch(error => logger.error("could not stash what the player asked for", error));
-}
-
-async function recallObserved(): Promise<void> {
-  const stored = await chrome.storage.session?.get(OBSERVED_STORAGE_KEY);
-  const held = stored?.[OBSERVED_STORAGE_KEY] as { counts?: Record<string, number>; requests?: ObservedRequest[] };
-  if (!held) return;
-  Object.assign(observedCounts, held.counts ?? {});
-  observedRequests.push(...(held.requests ?? []));
-}
-
-interface RawBodyCarrier {
-  requestBody?: { raw?: { bytes?: ArrayBuffer }[] | undefined } | undefined;
-}
-
-function rawBodyOf(details: RawBodyCarrier): Uint8Array | null {
-  const raw = details.requestBody?.raw;
-  if (!raw || raw.length === 0) return null;
-  const parts = raw.map(entry => (entry.bytes ? new Uint8Array(entry.bytes) : new Uint8Array()));
-  const total = parts.reduce((sum: number, part: Uint8Array) => sum + part.length, 0);
-  if (total === 0) return null;
-  const joined = new Uint8Array(total);
-  let at = 0;
-  for (const part of parts) {
-    joined.set(part, at);
-    at += part.length;
-  }
-  return joined;
-}
-
-function observePlayerRequests(): void {
-  if (!chrome.webRequest?.onBeforeRequest) {
-    logger.error("this build cannot watch the player's own requests", new Error("no webRequest.onBeforeRequest"));
-    return;
-  }
-  chrome.webRequest.onBeforeRequest.addListener(
-    details => {
-      const body = rawBodyOf(details);
-      const host = new URL(details.url).hostname.endsWith("googlevideo.com") ? "googlevideo" : "ytm";
-      const kind = `${host}-${details.method}${body ? "-with-body" : "-no-body"}`;
-      observedCounts[kind] = (observedCounts[kind] ?? 0) + 1;
-      if (body) {
-        observedRequests.push({
-          at: Date.now(),
-          url: details.url,
-          method: details.method,
-          bodyBytes: body.length,
-          body: bytesToBase64(body),
-        });
-        while (observedRequests.length > OBSERVED_REQUEST_LIMIT) observedRequests.shift();
-      }
-      rememberObserved();
-      return undefined;
-    },
-    { urls: [MEDIA_URL_PATTERN, CONTROL_URL_PATTERN] },
-    ["requestBody"]
-  );
-  logger.log("watching the player's own media requests");
-}
-
-observePlayerRequests();
-recallObserved().catch(error => logger.error("could not recall what the player asked for", error));
-
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (!isObservedRequestsCommand(message)) return undefined;
-  recallObserved()
-    .catch(() => undefined)
-    .finally(() => {
-      const response: ObservedRequestsMessage = {
-        type: "blk-observed-requests",
-        counts: observedCounts,
-        requests: observedRequests,
-      };
-      sendResponse(response);
-    });
-  return true;
-});
 
 // -- Track pipeline relay --------------------------------------------------
 

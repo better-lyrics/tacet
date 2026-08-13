@@ -45,39 +45,6 @@ export interface CaptureChunkMessage {
   data: string;
 }
 
-export interface ObservedRequestsCommand {
-  type: "blk-observed-requests-please";
-}
-
-export interface ObservedRequestRecord {
-  at: number;
-  url: string;
-  method: string;
-  bodyBytes: number;
-  body: string;
-}
-
-export interface ObservedRequestsMessage {
-  type: "blk-observed-requests";
-  counts: Record<string, number>;
-  requests: ObservedRequestRecord[];
-}
-
-export function isObservedRequestsCommand(data: unknown): data is ObservedRequestsCommand {
-  return (
-    typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-observed-requests-please"
-  );
-}
-
-export function isObservedRequestsMessage(data: unknown): data is ObservedRequestsMessage {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    (data as { type?: unknown }).type === "blk-observed-requests" &&
-    Array.isArray((data as { requests?: unknown }).requests)
-  );
-}
-
 export interface AcquireTrackCommand {
   type: "blk-acquire-track";
   videoId: string;
@@ -321,24 +288,15 @@ export interface StatusTrackRecord {
   artist: string | null;
   artworkUrl: string | null;
   cached: boolean | null;
-  // What the track coming next is doing. Absent on the now row, which has its
-  // own `separation` field, and absent from an older tab that predates it.
   activity?: string | null;
   fraction?: number | null;
 }
 
 export interface TrackStatusMessage {
   type: "blk-track-status";
-  // Either row is null whenever there is nothing to show there: no queue, no
-  // YouTube Music tab, or nothing after the track playing.
   now: StatusTrackRecord | null;
   next: StatusTrackRecord | null;
-  // null whenever no pipeline is running, which is the whole of sing-along
-  // being switched off.
   separation: { label: string; percent: number | null; fill: number } | null;
-  // The source that delivered the track playing now, as its display label.
-  // null whenever nothing has been acquired for it, which includes a cache hit,
-  // where no source ever runs.
   deliveredBy?: string | null;
 }
 
