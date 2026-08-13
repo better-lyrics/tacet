@@ -91,7 +91,7 @@ interface KaraokePipelineOptions {
 }
 
 interface KaraokePipeline {
-  engage(mixLevel: number): void;
+  engage(mixLevel: number, glideSeconds?: number): void;
   setCrossfadeSeconds(seconds: number): void;
   deliveredSource(videoId: string): SourceId | null;
   destroy(): void;
@@ -739,9 +739,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       .catch(error => logError("failed to read the auto-separate setting", error));
   }
 
-  function engage(mixLevel: number): void {
+  function engage(mixLevel: number, glideSeconds?: number): void {
     pendingMixLevel = mixLevel;
-    postToPageWorld({ type: "blk-set-mix-level", mixLevel });
+    postToPageWorld({ type: "blk-set-mix-level", mixLevel, glideSeconds });
 
     if (mixLevel === NEUTRAL_MIX_LEVEL) return;
     if (state.status === "waiting-for-capture") {

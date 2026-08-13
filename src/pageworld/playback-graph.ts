@@ -7,7 +7,7 @@ import type { AudibleSource } from "@/pageworld/audible-source";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
 import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
-import { NEUTRAL_MIX_LEVEL, listenerGain } from "@/pageworld/gain-law";
+import { MIX_GLIDE_SECONDS, NEUTRAL_MIX_LEVEL, listenerGain } from "@/pageworld/gain-law";
 import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
@@ -32,12 +32,6 @@ const HANDOVER_SECONDS = 0.02;
 // original throughout the wait, which is vanilla YouTube Music and therefore the
 // floor, so the only cost of waiting is separation applying a little later.
 const SWAP_SEARCH_SECONDS = 3;
-// With the fader already armed, the deck would otherwise arrive with the vocals
-// removed, so separation lands as a jump from full mix to karaoke. Engaging at
-// neutral and easing to the armed level reads as somebody pulling the fader, and
-// it also means the swap itself happens while the deck is playing the full mix,
-// which is the most correlated it can be with the element it is replacing.
-const ARM_SETTLE_SECONDS = 1.6;
 const ELEMENT_STALL_SECONDS = 2;
 const PAUSE_CHECK_ATTEMPTS = 20;
 
@@ -117,7 +111,7 @@ interface PlaybackGraph {
     trackId: string | null
   ): void;
   loadMix(mix: AudioBuffer, trackId: string | null): void;
-  setMixLevel(mixLevel: number): void;
+  setMixLevel(mixLevel: number, seconds?: number): void;
   stopStems(reason?: string): void;
   resumeStems(): void;
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
@@ -298,8 +292,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       return;
     }
     deck().setMixLevel(NEUTRAL_MIX_LEVEL, 0);
-    deck().setMixLevel(currentMixLevel, ARM_SETTLE_SECONDS);
-    logger.log(`easing the vocals to ${currentMixLevel.toFixed(2)} over ${ARM_SETTLE_SECONDS} s`);
+    deck().setMixLevel(currentMixLevel, MIX_GLIDE_SECONDS);
+    logger.log(`easing the vocals to ${currentMixLevel.toFixed(2)} over ${MIX_GLIDE_SECONDS} s`);
   }
 
   function stopDeck(): void {
@@ -484,9 +478,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     deferredHandover = null;
   }
 
-  function setMixLevel(mixLevel: number): void {
+  function setMixLevel(mixLevel: number, seconds?: number): void {
     currentMixLevel = mixLevel;
-    deck().setMixLevel(mixLevel);
+    deck().setMixLevel(mixLevel, seconds);
   }
 
   function recoverIfStopped(): boolean {

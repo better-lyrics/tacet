@@ -35,15 +35,15 @@
   scale: 0.96;
 }
 .blyrics-sing:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, var(--blk-accent));
+  outline: 2px solid var(--blk-accent);
   outline-offset: 2px;
 }
 .blyrics-sing--active {
-  color: color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, #fff);
+  color: color-mix(in srgb, var(--blk-accent) 45%, #fff);
   background-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, transparent),
-    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 22%, transparent)
+    color-mix(in srgb, var(--blk-accent) 45%, transparent),
+    color-mix(in srgb, var(--blk-accent) 22%, transparent)
   );
   box-shadow: inset rgba(255, 255, 255, 0.18) 0 1px 0 0;
 }
@@ -65,16 +65,16 @@
   color: hsla(0, 0%, 100%, 0.95);
 }
 .blyrics-sing.blyrics-dock__control:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, var(--blk-accent));
+  outline: 2px solid var(--blk-accent);
   outline-offset: 2px;
 }
 
 .blyrics-sing.blyrics-dock__control.blyrics-dock__control--active {
-  color: color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, #fff);
+  color: color-mix(in srgb, var(--blk-accent) 45%, #fff);
   background-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 45%, transparent),
-    color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 22%, transparent)
+    color-mix(in srgb, var(--blk-accent) 45%, transparent),
+    color-mix(in srgb, var(--blk-accent) 22%, transparent)
   );
   box-shadow: inset rgba(255, 255, 255, 0.18) 0 1px 0 0;
 }
@@ -90,7 +90,7 @@
   background-color: transparent;
   background-image: none;
   box-shadow: none;
-  color: color-mix(in srgb, var(--dock-pill-accent, var(--blk-accent)) 40%, #fff);
+  color: color-mix(in srgb, var(--blk-accent) 40%, #fff);
 }
 .blyrics-sing--bar .blyrics-sing__glyph--busy > span {
   width: 24px;
@@ -192,7 +192,7 @@
   cursor: grabbing;
 }
 .blyrics-mix-track:focus-visible {
-  outline: 2px solid var(--dock-pill-accent, var(--blk-accent));
+  outline: 2px solid var(--blk-accent);
   outline-offset: 3px;
 }
 
@@ -213,7 +213,7 @@
   left: 0;
   right: 0;
   border-radius: 9px;
-  background: var(--dock-pill-accent, var(--blk-accent));
+  background: var(--blk-accent);
 }
 .blyrics-mix-thumb {
   position: absolute;
@@ -438,7 +438,7 @@
   inset: 0 100% 0 0;
   background: color-mix(
     in srgb,
-    var(--dock-pill-accent, var(--blk-accent)) 42%,
+    var(--blk-accent) 42%,
     transparent
   );
   border-right: 1.5px solid hsla(0, 0%, 100%, 0.9);
@@ -477,7 +477,7 @@
     inset: 0;
     background: color-mix(
       in srgb,
-      var(--dock-pill-accent, var(--blk-accent)) 24%,
+      var(--blk-accent) 24%,
       transparent
     );
     border-color: transparent;

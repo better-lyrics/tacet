@@ -749,9 +749,9 @@ function discardGraph(): void {
 }
 
 function applyTrack(graph: PlaybackGraph, track: LoadedTrack): void {
+  graph.setMixLevel(pendingMixLevel);
   if (track.kind === "mix") graph.loadMix(track.mix, track.videoId);
   else graph.loadStems(track.vocals, track.instrumental, track.sampleRate, track.videoId);
-  graph.setMixLevel(pendingMixLevel);
   engagedTrack = track;
   awaitingReconfirmation = false;
   logger.log(`${track.kind} playing for videoId=${track.videoId}, mix level ${pendingMixLevel}`);
@@ -923,7 +923,7 @@ window.addEventListener("message", event => {
 
   if (isSetMixLevelMessage(data)) {
     pendingMixLevel = data.mixLevel;
-    cachedGraph?.setMixLevel(data.mixLevel);
+    cachedGraph?.setMixLevel(data.mixLevel, data.glideSeconds);
     return;
   }
 

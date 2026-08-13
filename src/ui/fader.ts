@@ -20,6 +20,7 @@ import {
 import { type CardAnchor, DOCK_PILL_SELECTOR, resolveCardAnchor } from "@/ui/card-anchor";
 import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { computeCardPosition } from "@/ui/fader-position";
+import { MIX_GLIDE_SECONDS } from "@/pageworld/gain-law";
 import { createSpring } from "@/ui/spring";
 import type { Spring, SpringDeps, SpringMode } from "@/ui/spring";
 import { wipeElapsedMs } from "@/ui/wipe-anchor";
@@ -39,7 +40,7 @@ const DOCK_EXPANDED_CLASS = "blyrics-dock__inner--expanded";
 
 interface CreateFaderControlOptions {
   host?: FaderHost;
-  onChange(mixLevel: number): void;
+  onChange(mixLevel: number, glideSeconds: number): void;
   onOpenChange?(open: boolean): void;
   requestAnimationFrame?: SpringDeps["requestAnimationFrame"];
   prefersReducedMotion?: SpringDeps["prefersReducedMotion"];
@@ -297,7 +298,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     track.setAttribute("aria-valuenow", String(Math.round(frame.effectiveValue * 100)));
     track.setAttribute("aria-valuetext", frame.label);
     if (announce) flashLabel(frame.label);
-    options.onChange(frame.mixLevel);
+    options.onChange(frame.mixLevel, mode === "drag" ? 0 : MIX_GLIDE_SECONDS);
   }
 
   // -- Dock expansion coupling --------------------------------------------------

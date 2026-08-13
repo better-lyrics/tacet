@@ -3,6 +3,12 @@ const MAX_MIX_LEVEL = 1;
 const NEUTRAL_MIX_LEVEL = MAX_MIX_LEVEL;
 const INSTRUMENTAL_GAIN = 1;
 
+// How long a mix level takes to move when nobody is holding the fader. A click
+// toggle, and the reveal when separation lands with the fader already armed,
+// are the same gesture to the ear and share this. A drag passes zero instead,
+// because direct manipulation has to track the finger.
+const MIX_GLIDE_SECONDS = 0.6;
+
 interface StemGains {
   vocalsGain: number;
   instrumentalGain: number;
@@ -30,6 +36,7 @@ export {
   MAX_MIX_LEVEL,
   NEUTRAL_MIX_LEVEL,
   INSTRUMENTAL_GAIN,
+  MIX_GLIDE_SECONDS,
   clampMixLevel,
   gainsForMixLevel,
   listenerGain,
