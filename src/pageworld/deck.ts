@@ -2,6 +2,7 @@
 
 import { GAIN_RAMP_SECONDS, rampGainFromZero, rampGainTo } from "@/pageworld/gain-ramp";
 import { gainsForMixLevel } from "@/pageworld/gain-law";
+import { FRAME_SECONDS } from "@/pageworld/swap-window";
 
 interface DeckDeps {
   context: AudioContext;
@@ -46,13 +47,14 @@ interface Deck {
   stopAt(when: number): void;
   fadeOutAndStop(seconds?: number): void;
   fadeIn(seconds?: number): void;
-  setMixLevel(mixLevel: number): void;
+  setMixLevel(mixLevel: number, seconds?: number): void;
   hasStems(): boolean;
   isPlaying(): boolean;
   hasFinished(): boolean;
   trackId(): string | null;
   durationSeconds(): number;
   positionNow(): number;
+  envelope(): Float32Array;
   gainParam(): AudioParam;
   setGain(value: number, seconds?: number): void;
   describe(): DeckState;
@@ -68,23 +70,41 @@ interface LoadedAudio {
   vocalsRms: number;
   instrumentalRms: number;
   combinedPeak: number;
+  envelope: Float32Array;
 }
 
 interface Loudness {
   vocalsRms: number;
   instrumentalRms: number;
   combinedPeak: number;
+  // RMS per FRAME_SECONDS of what this deck will play, measured once here
+  // because anything on the probe path has to be O(1).
+  envelope: Float32Array;
+}
+
+function envelopeFor(frames: number, sampleRate: number): { frameLength: number; sums: Float32Array } {
+  const frameLength = Math.max(1, Math.round(sampleRate * FRAME_SECONDS));
+  return { frameLength, sums: new Float32Array(Math.max(1, Math.ceil(frames / frameLength))) };
+}
+
+function envelopeFromSums(sums: Float32Array, frameLength: number, channels: number): Float32Array {
+  const divisor = Math.max(1, frameLength * channels);
+  for (let i = 0; i < sums.length; i++) sums[i] = Math.sqrt(sums[i] / divisor);
+  return sums;
 }
 
 function measureMixLoudness(mix: AudioBuffer): Loudness {
   let sum = 0;
   let peak = 0;
   let counted = 0;
+  const { frameLength, sums } = envelopeFor(mix.length, mix.sampleRate);
 
   for (let channel = 0; channel < mix.numberOfChannels; channel++) {
     const samples = mix.getChannelData(channel);
     for (let n = 0; n < samples.length; n++) {
-      sum += samples[n] * samples[n];
+      const square = samples[n] * samples[n];
+      sum += square;
+      sums[(n / frameLength) | 0] += square;
       const level = Math.abs(samples[n]);
       if (level > peak) peak = level;
     }
@@ -95,6 +115,7 @@ function measureMixLoudness(mix: AudioBuffer): Loudness {
     vocalsRms: 0,
     instrumentalRms: Math.sqrt(sum / Math.max(1, counted)),
     combinedPeak: peak,
+    envelope: envelopeFromSums(sums, frameLength, mix.numberOfChannels),
   };
 }
 
@@ -105,6 +126,7 @@ function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null):
   let instrumentalSum = 0;
   let peak = 0;
   let counted = 0;
+  const { frameLength, sums } = envelopeFor(instrumental.length, instrumental.sampleRate);
 
   const channels = Math.min(vocals.numberOfChannels, instrumental.numberOfChannels);
   for (let channel = 0; channel < channels; channel++) {
@@ -114,8 +136,11 @@ function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null):
     for (let n = 0; n < frames; n++) {
       vocalsSum += v[n] * v[n];
       instrumentalSum += i[n] * i[n];
-      const combined = Math.abs(v[n] + i[n]);
-      if (combined > peak) peak = combined;
+      const combined = v[n] + i[n];
+      // The envelope describes what the listener will hear, which is the sum.
+      sums[(n / frameLength) | 0] += combined * combined;
+      const level = Math.abs(combined);
+      if (level > peak) peak = level;
     }
     counted += frames;
   }
@@ -125,6 +150,7 @@ function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null):
     vocalsRms: Math.sqrt(vocalsSum / divisor),
     instrumentalRms: Math.sqrt(instrumentalSum / divisor),
     combinedPeak: peak,
+    envelope: envelopeFromSums(sums, frameLength, channels),
   };
 }
 
@@ -175,11 +201,11 @@ function createDeck(deps: DeckDeps): Deck {
   let startedAtContextTime = 0;
   let finished = false;
 
-  function applyMixLevel(mixLevel: number): void {
+  function applyMixLevel(mixLevel: number, seconds?: number): void {
     currentMixLevel = mixLevel;
     const gains = gainsForMixLevel(mixLevel);
-    rampGainTo(vocalsGainNode.gain, context, gains.vocalsGain);
-    rampGainTo(instrumentalGainNode.gain, context, gains.instrumentalGain);
+    rampGainTo(vocalsGainNode.gain, context, gains.vocalsGain, seconds);
+    rampGainTo(instrumentalGainNode.gain, context, gains.instrumentalGain, seconds);
   }
 
   function stop(): void {
@@ -320,6 +346,7 @@ function createDeck(deps: DeckDeps): Deck {
     trackId: () => loaded?.trackId ?? null,
     durationSeconds: () => loaded?.durationSeconds ?? 0,
     positionNow,
+    envelope: () => loaded?.envelope ?? new Float32Array(0),
     gainParam: () => deckGainNode.gain,
     setGain: (value, seconds) => rampGainTo(deckGainNode.gain, context, value, seconds),
     describe,
