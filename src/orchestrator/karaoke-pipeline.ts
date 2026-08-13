@@ -6,6 +6,7 @@ import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { deliveredBy } from "@/orchestrator/delivery";
 import {
   type CaptureStandDownMessage,
+  type ListeningToMessage,
   type RequestCapturedAudioMessage,
   type RequestShadowUrlMessage,
   type RequestNextPrefetchMessage,
@@ -168,6 +169,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | LoadStemsMessage
       | StopStemsMessage
       | CaptureStandDownMessage
+      | ListeningToMessage
       | RequestPrefetchMessage
       | RequestShadowUrlMessage
       | RequestNextPrefetchMessage
@@ -185,6 +187,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     observedTrack = observed;
     const { videoId } = observed;
     if (videoId === state.videoId) return;
+
+    postToPageWorld({ type: "blk-listening-to", videoId });
 
     if (videoId === crossfadingInto) {
       const landing = decideCrossfadeLanding({ kind: crossfadingIntoKind, status: state.status });

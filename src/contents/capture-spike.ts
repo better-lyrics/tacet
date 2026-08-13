@@ -20,6 +20,7 @@ import {
   isRequestPrefetchMessage,
   isRequestPrefetchedAudioMessage,
   isRequestQueueTracksMessage,
+  isListeningToMessage,
   isRequestShadowUrlMessage,
 } from "@/capture/bridge-protocol";
 import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
@@ -635,6 +636,7 @@ window.addEventListener("message", event => {
   if (isSetLoggingMessage(data)) setLoggingEnabled(data.enabled);
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
+  if (isListeningToMessage(data) && runsOrchestration) noteListenedTrack(data.videoId);
   if (isRequestShadowUrlMessage(data) && runsOrchestration) {
     noteListenedTrack(data.videoId);
     mintShadowUrlFor(data.videoId);

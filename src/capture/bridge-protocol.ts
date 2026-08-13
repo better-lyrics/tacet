@@ -113,6 +113,20 @@ export interface RequestShadowUrlMessage {
   videoId: string;
 }
 
+export interface ListeningToMessage {
+  type: "blk-listening-to";
+  videoId: string;
+}
+
+export function isListeningToMessage(data: unknown): data is ListeningToMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-listening-to" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
 export interface AcquisitionResultMessage {
   type: "blk-acquisition-result";
   videoId: string;
