@@ -20,17 +20,22 @@ const SOURCES: readonly SourceDefinition[] = [
     hint: "Asks this page for a download link, then fetches the track itself. Any track, and the fastest.",
     reach: "any-track",
   },
-  {
-    id: "hidden-player",
-    label: "Hidden player",
-    hint: "A second player streams an upcoming track. Any track, and costs memory for the tab.",
-    reach: "any-track",
-  },
+  // Player capture sits above the hidden player deliberately. The shadow stands
+  // down for 30 minutes after two unattested mints, and when it does, the free
+  // source should cover the track playing now before a frame is spawned and costs
+  // the tab 35 MB it never gets back. The hidden player still covers the track
+  // that is coming next, which player capture cannot reach at all.
   {
     id: "player-capture",
     label: "Player capture",
     hint: "Copies what your player is already streaming. Free, and only the track playing now.",
     reach: "playing-track",
+  },
+  {
+    id: "hidden-player",
+    label: "Hidden player",
+    hint: "A second player streams an upcoming track. Any track, and costs memory for the tab.",
+    reach: "any-track",
   },
   {
     id: "direct-fetch",

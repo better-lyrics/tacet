@@ -49,15 +49,15 @@ describe("nextSource", () => {
   });
 
   it("moves down the order as rungs are tried", () => {
-    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["shadow-url"] })).toBe("hidden-player");
-    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["shadow-url", "hidden-player"] })).toBe(
-      "player-capture"
+    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["shadow-url"] })).toBe("player-capture");
+    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["shadow-url", "player-capture"] })).toBe(
+      "hidden-player"
     );
     expect(
       nextSource({
         order: DEFAULT_ORDER,
         playingTrack: true,
-        tried: ["shadow-url", "hidden-player", "player-capture"],
+        tried: ["shadow-url", "player-capture", "hidden-player"],
       })
     ).toBe("direct-fetch");
   });
