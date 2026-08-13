@@ -42,7 +42,9 @@ describe("round trip", () => {
     it("round-trips a buffer large enough to require chunked encoding", () => {
       const bytes = new Uint8Array(500_000);
       for (let i = 0; i < bytes.length; i++) bytes[i] = i % 256;
-      expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes);
+      const round = base64ToBytes(bytesToBase64(bytes));
+      expect(round).toHaveLength(bytes.length);
+      expect(round.every((value, index) => value === bytes[index])).toBe(true);
     });
 
     it("round-trips lengths that are not multiples of 3", () => {

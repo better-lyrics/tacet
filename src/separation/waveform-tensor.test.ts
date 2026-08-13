@@ -32,8 +32,10 @@ describe("buildWaveformTensorData", () => {
     }
     const flat = buildWaveformTensorData([left, right]);
 
-    expect(flat.subarray(0, SEGMENT_SAMPLES)).toEqual(left);
-    expect(flat.subarray(SEGMENT_SAMPLES, 2 * SEGMENT_SAMPLES)).toEqual(right);
+    expect(flat.subarray(0, SEGMENT_SAMPLES).every((value, index) => value === left[index])).toBe(true);
+    expect(flat.subarray(SEGMENT_SAMPLES, 2 * SEGMENT_SAMPLES).every((value, index) => value === right[index])).toBe(
+      true
+    );
   });
 
   it("does not mutate the input channels", () => {
