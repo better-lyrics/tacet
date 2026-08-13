@@ -221,7 +221,17 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
   return element.buffered.length === 0 ? 0 : element.buffered.end(element.buffered.length - 1);
 }
 
+function announceAheadDownloadProgress(): void {
+  const videoId = slicedPrefetchVideoId;
+  if (videoId === null || !slicedPrefetchIsAhead || !hiddenPlayerOwns(videoId)) return;
+  const fraction = hiddenPlayerProgress();
+  if (!Number.isFinite(fraction)) return;
+  const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction, source: "hidden-player" };
+  window.postMessage(message, window.location.origin);
+}
+
 function announceDownloadProgress(element: HTMLVideoElement): void {
+  announceAheadDownloadProgress();
   const videoId = listenedVideoId();
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
   if (prefetchStateByVideoId.get(videoId) === "done") return;
