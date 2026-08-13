@@ -127,7 +127,10 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
     onCrossfadeStarted: durationSeconds => control.showCrossfade(durationSeconds),
   });
 
-  const mount = attachFaderMount({ button: control.button, setHost: control.setHost }, { placement });
+  const mount = attachFaderMount(
+    { button: control.button, setHost: control.setHost, reanchorWipe: control.reanchorWipe },
+    { placement }
+  );
   pipeline.setCrossfadeSeconds(crossfadeSeconds);
 
   return {

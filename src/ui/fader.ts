@@ -22,6 +22,7 @@ import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { computeCardPosition } from "@/ui/fader-position";
 import { createSpring } from "@/ui/spring";
 import type { Spring, SpringDeps, SpringMode } from "@/ui/spring";
+import { wipeElapsedMs } from "@/ui/wipe-anchor";
 
 type FaderHost = "dock" | "bar";
 type GlyphKind = "mic" | "note";
@@ -51,6 +52,7 @@ interface FaderControl {
   setHost(next: FaderHost): void;
   setBusy(busy: boolean): void;
   showCrossfade(durationSeconds: number): void;
+  reanchorWipe(): void;
   destroy(): void;
 }
 
@@ -481,12 +483,20 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   let wipe: HTMLSpanElement | null = null;
   let wipeTimer: ReturnType<typeof setTimeout> | null = null;
+  let wipeStartedAtMs = 0;
+  let wipeDurationMs = 0;
 
   function clearWipe(): void {
     if (wipeTimer !== null) clearTimeout(wipeTimer);
     wipeTimer = null;
     wipe?.remove();
     wipe = null;
+  }
+
+  function anchorWipe(): void {
+    if (wipe === null || typeof wipe.getAnimations !== "function") return;
+    const elapsed = wipeElapsedMs(wipeStartedAtMs, performance.now(), wipeDurationMs);
+    for (const animation of wipe.getAnimations({ subtree: true })) animation.currentTime = elapsed;
   }
 
   function showCrossfade(durationSeconds: number): void {
@@ -496,10 +506,12 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     const band = document.createElement("i");
     wipe = document.createElement("span");
     wipe.className = "blyrics-sing__wipe";
-    wipe.style.setProperty("--fade-ms", `${Math.round(durationSeconds * 1000)}ms`);
+    wipeDurationMs = Math.round(durationSeconds * 1000);
+    wipeStartedAtMs = performance.now();
+    wipe.style.setProperty("--fade-ms", `${wipeDurationMs}ms`);
     wipe.appendChild(band);
     button.appendChild(wipe);
-    wipeTimer = setTimeout(clearWipe, durationSeconds * 1000);
+    wipeTimer = setTimeout(clearWipe, wipeDurationMs);
   }
 
   function setHost(next: FaderHost): void {
@@ -510,6 +522,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     menu.classList.toggle(DOCK_MENU_CLASS, next === "dock");
     menu.classList.toggle(BAR_MENU_CLASS, next === "bar");
     if (next !== "dock") stopWatchingDockCollapse();
+    // Every remount arrives through here, and a remount is what restarts the
+    // wipe, so this is the one place that has to put it back where the clock
+    // says it should be.
+    anchorWipe();
   }
 
   function destroy(): void {
@@ -525,7 +541,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     button.remove();
   }
 
-  return { button, menu, getHost: () => host, setHost, setBusy, showCrossfade, destroy };
+  return { button, menu, getHost: () => host, setHost, setBusy, showCrossfade, reanchorWipe: anchorWipe, destroy };
 }
 
 export { createFaderControl };

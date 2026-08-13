@@ -17,7 +17,7 @@ function hasBetterLyrics(root: ParentNode = document): boolean {
   return root.querySelector(BETTER_LYRICS_STYLE_LINK_SELECTOR) !== null;
 }
 
-type FaderMountControl = Pick<FaderControl, "button" | "setHost">;
+type FaderMountControl = Pick<FaderControl, "button" | "setHost" | "reanchorWipe">;
 
 interface AttachFaderMountOptions {
   placement?: FaderPlacement;
@@ -81,6 +81,11 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
     requestFrame(() => {
       queued = false;
       resolver.resolve();
+      // Better Lyrics re-inserting its own dock node carries our button along
+      // with it, so the parent check still matches and `mountTo` never runs,
+      // but the re-insertion has already restarted the wipe's animation. Every
+      // such change reaches this observer, so the wipe is put back here too.
+      control.reanchorWipe();
     });
   });
   observer.observe(observeRoot, { childList: true, subtree: true });
