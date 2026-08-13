@@ -70,6 +70,10 @@ const accumulator = createCaptureAccumulator();
 
 let announcedListenedVideoId: string | null = null;
 
+function noteListenedTrack(videoId: string): void {
+  announcedListenedVideoId = videoId;
+}
+
 function listenedVideoId(): string | null {
   return announcedListenedVideoId ?? getVideoIdFromSearch(window.location.search);
 }
@@ -568,12 +572,17 @@ function respondToPrefetchedAudioRequest(videoId: string): void {
 }
 
 function standDownFor(videoId: string): void {
+  if (runsOrchestration) noteListenedTrack(videoId);
   if (stoodDownVideoIds.has(videoId)) return;
   stoodDownVideoIds.add(videoId);
-  if (accumulator.getStats().videoId !== videoId) return;
-  const retainedBefore = accumulator.getStats().retainedChunkCount;
+  const held = accumulator.getStats();
+  accumulator.setActiveVideoId(videoId);
   accumulator.standDown();
-  log(`capture stood down for videoId=${videoId}, dropped ${retainedBefore} retained chunk(s)`);
+  log(
+    held.videoId === videoId
+      ? `capture stood down for videoId=${videoId}, dropped ${held.retainedChunkCount} retained chunk(s)`
+      : `capture stood down for videoId=${videoId}, dropped ${held.retainedChunkCount} chunk(s) held under ${held.videoId ?? "no track"}`
+  );
 }
 
 // -- The queue's own artwork, and the fallback for rows without it -------------
@@ -626,9 +635,12 @@ window.addEventListener("message", event => {
   if (isSetLoggingMessage(data)) setLoggingEnabled(data.enabled);
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
-  if (isRequestShadowUrlMessage(data) && runsOrchestration) mintShadowUrlFor(data.videoId);
+  if (isRequestShadowUrlMessage(data) && runsOrchestration) {
+    noteListenedTrack(data.videoId);
+    mintShadowUrlFor(data.videoId);
+  }
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
-    if (data.ahead !== true) announcedListenedVideoId = data.videoId;
+    if (data.ahead !== true) noteListenedTrack(data.videoId);
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
   }
 
@@ -691,6 +703,7 @@ window.blkCaptureProbe = () => {
       initSegmentCount: stats.initSegmentCount,
       hitCap: stats.hitCap,
       stoodDown: stats.stoodDown,
+      plannedBytes: planFirstPlusMedia(accumulator.getChunks()).reduce((sum, part) => sum + part.byteLength, 0),
     },
     prefetchState: videoId ? prefetchStateByVideoId.get(videoId) ?? null : null,
     hiddenPlayerOwnsCurrent: videoId ? hiddenPlayerOwns(videoId) : false,
