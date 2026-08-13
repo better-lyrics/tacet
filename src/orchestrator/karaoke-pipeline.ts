@@ -8,6 +8,7 @@ import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
   type RequestMintMessage,
+  type RequestShadowUrlMessage,
   type RequestNextPrefetchMessage,
   type RequestPrefetchMessage,
   isAcquisitionResultMessage,
@@ -170,6 +171,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | CaptureStandDownMessage
       | RequestPrefetchMessage
       | RequestMintMessage
+      | RequestShadowUrlMessage
       | RequestNextPrefetchMessage
       | StagedReadyMessage
       | StageDeckMessage
@@ -665,6 +667,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function startSource(videoId: string, source: SourceId): void {
+    if (source === "shadow-url") {
+      log(`acquiring ${videoId} from a url a shadow player mints in this page`);
+      postToPageWorld({ type: "blk-request-shadow-url", videoId });
+      return;
+    }
     if (source === "direct-fetch") {
       log(`acquiring ${videoId} from a url its own player mints`);
       postToPageWorld({ type: "blk-request-mint", videoId });

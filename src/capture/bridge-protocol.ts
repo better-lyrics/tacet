@@ -120,6 +120,11 @@ export interface RequestMintMessage {
   videoId: string;
 }
 
+export interface RequestShadowUrlMessage {
+  type: "blk-request-shadow-url";
+  videoId: string;
+}
+
 export interface AcquisitionResultMessage {
   type: "blk-acquisition-result";
   videoId: string;
@@ -133,6 +138,15 @@ export function isRequestMintMessage(data: unknown): data is RequestMintMessage 
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-request-mint" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isRequestShadowUrlMessage(data: unknown): data is RequestShadowUrlMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-request-shadow-url" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }

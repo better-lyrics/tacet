@@ -4,6 +4,7 @@ import type { SourcePreference } from "@/acquisition/sources";
 import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
 
 const ALL_ON: SourcePreference[] = [
+  { id: "shadow-url", enabled: true },
   { id: "hidden-player", enabled: true },
   { id: "player-capture", enabled: true },
   { id: "direct-fetch", enabled: true },
@@ -14,8 +15,8 @@ const ids = (preferences: readonly SourcePreference[]) => preferences.map(prefer
 describe("sourceRows", () => {
   it("describes every source in the listener's order", () => {
     const rows = sourceRows(ALL_ON);
-    expect(rows.map(row => row.id)).toEqual(["hidden-player", "player-capture", "direct-fetch"]);
-    expect(rows.map(row => row.position)).toEqual([0, 1, 2]);
+    expect(rows.map(row => row.id)).toEqual(["shadow-url", "hidden-player", "player-capture", "direct-fetch"]);
+    expect(rows.map(row => row.position)).toEqual([0, 1, 2, 3]);
   });
 
   it("carries the registry's own label and hint rather than inventing copy", () => {
@@ -43,11 +44,11 @@ describe("sourceRows", () => {
 
 describe("moveSource", () => {
   it("lifts a source out and drops it at the new index", () => {
-    expect(ids(moveSource(ALL_ON, 2, 0))).toEqual(["direct-fetch", "hidden-player", "player-capture"]);
+    expect(ids(moveSource(ALL_ON, 2, 0))).toEqual(["player-capture", "shadow-url", "hidden-player", "direct-fetch"]);
   });
 
   it("moves a source down as well as up", () => {
-    expect(ids(moveSource(ALL_ON, 0, 2))).toEqual(["player-capture", "direct-fetch", "hidden-player"]);
+    expect(ids(moveSource(ALL_ON, 0, 2))).toEqual(["hidden-player", "player-capture", "shadow-url", "direct-fetch"]);
   });
 
   describe("edge cases", () => {
@@ -59,8 +60,8 @@ describe("moveSource", () => {
       for (const [from, to] of [
         [-1, 0],
         [0, -1],
-        [3, 0],
-        [0, 3],
+        [4, 0],
+        [0, 4],
       ]) {
         expect(ids(moveSource(ALL_ON, from, to))).toEqual(ids(ALL_ON));
       }
@@ -69,8 +70,8 @@ describe("moveSource", () => {
 
   describe("invariants", () => {
     it("never loses or duplicates a source, whatever it is asked", () => {
-      for (let from = -1; from <= 3; from++) {
-        for (let to = -1; to <= 3; to++) {
+      for (let from = -1; from <= 4; from++) {
+        for (let to = -1; to <= 4; to++) {
           expect([...ids(moveSource(ALL_ON, from, to))].sort()).toEqual([...SOURCE_IDS].sort());
         }
       }
@@ -120,6 +121,7 @@ describe("acquisitionWarning", () => {
     it("warns when only the playing track can be reached", () => {
       const warning = acquisitionWarning([
         { id: "player-capture", enabled: true },
+        { id: "shadow-url", enabled: false },
         { id: "hidden-player", enabled: false },
         { id: "direct-fetch", enabled: false },
       ]);

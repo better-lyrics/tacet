@@ -1,6 +1,6 @@
 // -- What a source is ----------------------------------------------------------
 
-type SourceId = "hidden-player" | "player-capture" | "direct-fetch";
+type SourceId = "shadow-url" | "hidden-player" | "player-capture" | "direct-fetch";
 
 type SourceReach = "playing-track" | "any-track";
 
@@ -14,6 +14,12 @@ interface SourceDefinition {
 // -- The registry, in the order it is tried by default --------------------------
 
 const SOURCES: readonly SourceDefinition[] = [
+  {
+    id: "shadow-url",
+    label: "Shadow player",
+    hint: "Asks this page for a download link, then fetches the track itself. Any track, and the fastest.",
+    reach: "any-track",
+  },
   {
     id: "hidden-player",
     label: "Hidden player",

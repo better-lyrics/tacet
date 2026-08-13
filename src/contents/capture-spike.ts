@@ -21,9 +21,15 @@ import {
   isRequestPrefetchMessage,
   isRequestPrefetchedAudioMessage,
   isRequestQueueTracksMessage,
+  isRequestShadowUrlMessage,
 } from "@/capture/bridge-protocol";
 import { readMintedUrl } from "@/acquisition/minted-url";
+import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
+import { mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
+
+// The format the listener's own player streams on High, which is the parity bar.
+const SHADOW_ITAG = 141;
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { runMintCapture } from "@/capture/mint-runner";
 import { collectMatching, installUrlTap } from "@/capture/url-tap";
@@ -508,6 +514,36 @@ function settleMint(videoId: string, abort: AbortController, url: string | null,
   announceAcquisitionResult(videoId, "direct-fetch", url, reason);
 }
 
+let shadowInFlightVideoId: string | null = null;
+let shadowBudget = freshBudget();
+
+function mintShadowUrlFor(videoId: string): void {
+  if (shadowInFlightVideoId !== null) {
+    log(`already minting a shadow url for ${shadowInFlightVideoId}, ignoring the request for ${videoId}`);
+    return;
+  }
+  const verdict = mayMint(shadowBudget, Date.now());
+  if (!verdict.allowed) {
+    announceAcquisitionResult(videoId, "shadow-url", null, verdict.reason);
+    return;
+  }
+
+  shadowInFlightVideoId = videoId;
+  shadowBudget = recordMintStarted(shadowBudget, Date.now());
+  mintShadowUrl({ videoId, itag: SHADOW_ITAG })
+    .then(result => {
+      shadowInFlightVideoId = null;
+      shadowBudget = recordMintOutcome(shadowBudget, result.minted !== null, Date.now());
+      announceAcquisitionResult(videoId, "shadow-url", result.minted?.url ?? null, result.reason);
+    })
+    .catch(error => {
+      shadowInFlightVideoId = null;
+      shadowBudget = recordMintOutcome(shadowBudget, false, Date.now());
+      logError(`minting a shadow url for videoId=${videoId} threw`, error);
+      announceAcquisitionResult(videoId, "shadow-url", null, "the shadow player crashed");
+    });
+}
+
 function mintUrlFor(videoId: string): void {
   if (mintInFlightVideoId === videoId) {
     log(`already minting for videoId=${videoId}, ignoring a second request`);
@@ -674,6 +710,7 @@ window.addEventListener("message", event => {
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
   if (isRequestMintMessage(data) && runsOrchestration) mintUrlFor(data.videoId);
+  if (isRequestShadowUrlMessage(data) && runsOrchestration) mintShadowUrlFor(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) announcedListenedVideoId = data.videoId;
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });

@@ -37,6 +37,7 @@ describe("reaches", () => {
 
   it("keeps player capture off a track that is not playing", () => {
     expect(reaches("player-capture", false)).toBe(false);
+    expect(reaches("shadow-url", false)).toBe(true);
     expect(reaches("hidden-player", false)).toBe(true);
     expect(reaches("direct-fetch", false)).toBe(true);
   });
@@ -44,14 +45,21 @@ describe("reaches", () => {
 
 describe("nextSource", () => {
   it("takes the first source in the listener's order", () => {
-    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: [] })).toBe("hidden-player");
+    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: [] })).toBe("shadow-url");
   });
 
   it("moves down the order as rungs are tried", () => {
-    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["hidden-player"] })).toBe("player-capture");
-    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["hidden-player", "player-capture"] })).toBe(
-      "direct-fetch"
+    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["shadow-url"] })).toBe("hidden-player");
+    expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: ["shadow-url", "hidden-player"] })).toBe(
+      "player-capture"
     );
+    expect(
+      nextSource({
+        order: DEFAULT_ORDER,
+        playingTrack: true,
+        tried: ["shadow-url", "hidden-player", "player-capture"],
+      })
+    ).toBe("direct-fetch");
   });
 
   it("follows an order the listener rearranged", () => {
@@ -109,8 +117,9 @@ describe("sanitizeSourcePreferences", () => {
         { id: "hidden-player", enabled: true },
         { id: "player-capture", enabled: true },
         { id: "direct-fetch", enabled: true },
+        { id: "shadow-url", enabled: true },
       ])
-    ).toEqual(["hidden-player", "player-capture", "direct-fetch"]);
+    ).toEqual(["hidden-player", "player-capture", "direct-fetch", "shadow-url"]);
   });
 
   it("carries enablement alongside the order", () => {
@@ -130,6 +139,7 @@ describe("sanitizeSourcePreferences", () => {
     it("drops names it does not recognise", () => {
       expect(ids(["torrent", { id: "player-capture" }, 7])).toEqual([
         "player-capture",
+        "shadow-url",
         "hidden-player",
         "direct-fetch",
       ]);
@@ -139,6 +149,7 @@ describe("sanitizeSourcePreferences", () => {
       expect(ids([{ id: "player-capture" }, { id: "player-capture" }, { id: "direct-fetch" }])).toEqual([
         "player-capture",
         "direct-fetch",
+        "shadow-url",
         "hidden-player",
       ]);
     });
@@ -147,6 +158,7 @@ describe("sanitizeSourcePreferences", () => {
       expect(sanitizeSourcePreferences(["direct-fetch", "hidden-player"])).toEqual([
         { id: "direct-fetch", enabled: true },
         { id: "hidden-player", enabled: true },
+        { id: "shadow-url", enabled: true },
         { id: "player-capture", enabled: true },
       ]);
     });
