@@ -1,9 +1,12 @@
 const QUEUE_ITEM_SELECTOR = "ytmusic-player-queue-item";
 const SELECTED_ATTRIBUTE = "selected";
+const PLAY_STATE_ATTRIBUTE = "play-button-state";
+const IDLE_PLAY_STATE = "default";
 
 interface QueueItem {
   videoId: string | null;
   selected: boolean;
+  playState?: string | null;
   title?: string | null;
   artist?: string | null;
   artworkUrl?: string | null;
@@ -12,10 +15,7 @@ interface QueueItem {
 function nextVideoIdInQueue(items: readonly QueueItem[], currentVideoId: string | null): string | null {
   if (items.length === 0) return null;
 
-  let currentIndex = items.findIndex(item => item.selected);
-  if (currentIndex === -1 && currentVideoId) {
-    currentIndex = items.findIndex(item => item.videoId === currentVideoId);
-  }
+  const currentIndex = currentIndexInQueue(items, currentVideoId);
   if (currentIndex === -1 || currentIndex >= items.length - 1) return null;
 
   const next = items[currentIndex + 1].videoId;
@@ -112,6 +112,7 @@ function readQueueItems(doc: Document): QueueItem[] {
   return Array.from(doc.querySelectorAll<PolymerQueueItem>(QUEUE_ITEM_SELECTOR)).map(element => ({
     videoId: readQueueItemVideoId(element),
     selected: element.hasAttribute(SELECTED_ATTRIBUTE),
+    playState: element.getAttribute(PLAY_STATE_ATTRIBUTE),
     artworkUrl: readQueueItemArtwork(element),
     ...readQueueItemText(element),
   }));
@@ -133,11 +134,36 @@ function describeQueueItem(item: QueueItem | undefined, videoId: string): QueueT
   };
 }
 
+// Which row the listener is on, asked of the queue itself rather than of any id.
+//
+// `selected` is not that answer. Measured on a real radio queue of 71 rows, two
+// carried it: index 1, three tracks stale, and index 4, the track actually
+// playing. Taking the first named a track the listener had already heard as the
+// one coming next, which staged the wrong track, crossfaded into a previous song,
+// and then aborted the fade because the player landed somewhere else entirely.
+//
+// `play-button-state` is that answer. It read `playing` on exactly one row, the
+// right one, while every other row read `default`. It is a statement about what
+// is playing rather than a label somebody attached to a row, which is the same
+// reason the player bar beats a videoId everywhere else in this codebase. The id
+// is the last resort precisely because it is the least trustworthy input here.
 function currentIndexInQueue(items: readonly QueueItem[], currentVideoId: string | null): number {
-  const selected = items.findIndex(item => item.selected);
-  if (selected !== -1) return selected;
-  if (!currentVideoId) return -1;
-  return items.findIndex(item => item.videoId === currentVideoId);
+  const playing = items.findIndex(
+    item => typeof item.playState === "string" && item.playState !== "" && item.playState !== IDLE_PLAY_STATE
+  );
+  if (playing !== -1) return playing;
+
+  const selected = items.map((item, index) => (item.selected ? index : -1)).filter(index => index !== -1);
+  if (selected.length === 1) return selected[0];
+
+  if (currentVideoId) {
+    const match = items.findIndex(item => item.videoId === currentVideoId);
+    if (match !== -1) return match;
+  }
+
+  // Several rows claim the selection and nothing else can break the tie. The
+  // stale ones sit above the live one, so the last is the least wrong.
+  return selected.length > 0 ? selected[selected.length - 1] : -1;
 }
 
 function currentTrackInQueue(items: readonly QueueItem[], currentVideoId: string | null): QueueTrack | null {
@@ -162,6 +188,8 @@ export {
   nextTrackInQueue,
   currentTrackInQueue,
   readQueueItems,
+  IDLE_PLAY_STATE,
+  PLAY_STATE_ATTRIBUTE,
   QUEUE_ITEM_SELECTOR,
   SELECTED_ATTRIBUTE,
 };
