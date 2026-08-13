@@ -200,7 +200,9 @@ function silenceShadow(host: HTMLElement): void {
   try {
     element?.mute?.();
     element?.setVolume?.(0);
-  } catch {}
+  } catch (error) {
+    log(`the shadow player refused a mute, falling back to the element: ${String(error)}`);
+  }
   for (const media of host.querySelectorAll("video, audio")) silenceMedia(media as HTMLMediaElement);
 }
 
