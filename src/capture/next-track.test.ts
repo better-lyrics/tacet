@@ -1,4 +1,10 @@
-import { type QueueItem, currentTrackInQueue, nextTrackInQueue, nextVideoIdInQueue } from "@/capture/next-track";
+import {
+  type QueueItem,
+  currentTrackInQueue,
+  dropSpareCounterparts,
+  nextTrackInQueue,
+  nextVideoIdInQueue,
+} from "@/capture/next-track";
 import { describe, expect, it } from "vitest";
 
 function queue(videoIds: (string | null)[], selectedIndex: number): QueueItem[] {
@@ -148,11 +154,6 @@ describe("nextTrackInQueue", () => {
       expect(nextTrackInQueue(items, IDS[0])?.artworkUrl).toBeNull();
     });
 
-    // The shape below is the real one, measured on a radio queue of 71 rows: two
-    // carried `selected`, the first three tracks stale, and exactly one carried
-    // play-button-state "playing". Following the stale selection named a track
-    // the listener had already heard as the one coming next, which staged the
-    // wrong track and crossfaded into a previous song.
     const realQueueShape: QueueItem[] = [
       { videoId: "played-one", selected: false, playState: "default" },
       { videoId: "stale-selected", selected: true, playState: "default" },
@@ -191,6 +192,71 @@ describe("nextTrackInQueue", () => {
         { videoId: "genuinely-next", selected: false, playState: "default" },
       ];
       expect(nextVideoIdInQueue(items, null)).toBe("genuinely-next");
+    });
+  });
+});
+
+describe("dropSpareCounterparts", () => {
+  const measured: QueueItem[] = [
+    { videoId: "9E3jQcUkXdQ", selected: false, playState: "default", wrapper: 0, counterpart: false },
+    { videoId: "0LMwgWFzDjU", selected: true, playState: "default", wrapper: 0, counterpart: true },
+    { videoId: "5Y3rAfAafcQ", selected: true, playState: "paused", wrapper: 1, counterpart: false },
+    { videoId: "S51-qzfLdIc", selected: false, playState: "default", wrapper: 1, counterpart: true },
+    { videoId: "qU9mHegkTc4", selected: false, playState: "default", wrapper: null, counterpart: false },
+  ];
+
+  it("keeps one row per wrapper, preferring the primary", () => {
+    expect(dropSpareCounterparts(measured).map(item => item.videoId)).toEqual([
+      "9E3jQcUkXdQ",
+      "5Y3rAfAafcQ",
+      "qU9mHegkTc4",
+    ]);
+  });
+
+  it("leaves a row that belongs to no wrapper alone", () => {
+    const items: QueueItem[] = [{ videoId: "alone", selected: false }];
+    expect(dropSpareCounterparts(items)).toEqual(items);
+  });
+
+  describe("edge cases", () => {
+    it("keeps the counterpart when the counterpart is the row that is playing", () => {
+      const items: QueueItem[] = [
+        { videoId: "song-version", selected: false, playState: "default", wrapper: 0, counterpart: false },
+        { videoId: "video-version", selected: false, playState: "playing", wrapper: 0, counterpart: true },
+      ];
+      expect(dropSpareCounterparts(items).map(item => item.videoId)).toEqual(["video-version"]);
+    });
+
+    it("keeps a lone counterpart rather than dropping the wrapper entirely", () => {
+      const items: QueueItem[] = [{ videoId: "only", selected: false, wrapper: 0, counterpart: true }];
+      expect(dropSpareCounterparts(items).map(item => item.videoId)).toEqual(["only"]);
+    });
+
+    it("answers with nothing for an empty queue", () => {
+      expect(dropSpareCounterparts([])).toEqual([]);
+    });
+  });
+
+  describe("invariants", () => {
+    it("never returns more than one row per wrapper", () => {
+      const wrappers = dropSpareCounterparts(measured).map(item => item.wrapper);
+      const named = wrappers.filter(wrapper => typeof wrapper === "number");
+      expect(new Set(named).size).toBe(named.length);
+    });
+
+    it("never invents a row or reorders what it keeps", () => {
+      const kept = dropSpareCounterparts(measured);
+      expect(measured.filter(item => kept.includes(item))).toEqual(kept);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: the track after a wrapped row is the next song, not its own counterpart", () => {
+      expect(nextVideoIdInQueue(dropSpareCounterparts(measured), "5Y3rAfAafcQ")).toBe("qU9mHegkTc4");
+    });
+
+    it("regression: without the filter the queue names the same song as next", () => {
+      expect(nextVideoIdInQueue(measured, "5Y3rAfAafcQ")).toBe("S51-qzfLdIc");
     });
   });
 });
