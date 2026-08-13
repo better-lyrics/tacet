@@ -27,7 +27,6 @@ import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/ac
 import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
 
-const SHADOW_ITAG = 141;
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs, shouldHoldCapture } from "@/capture/capture-coverage";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
@@ -504,7 +503,7 @@ function mintShadowUrlFor(videoId: string): void {
 
   shadowInFlightVideoId = videoId;
   shadowBudget = recordMintStarted(shadowBudget, Date.now());
-  mintShadowUrl({ videoId, itag: SHADOW_ITAG })
+  mintShadowUrl({ videoId })
     .then(result => {
       shadowInFlightVideoId = null;
       shadowBudget = recordMintOutcome(shadowBudget, result.minted !== null, Date.now());
@@ -678,12 +677,13 @@ declare global {
 
 window.blkShadowUrlProbe = async (videoId: string) => {
   const started = performance.now();
-  const result = await mintShadowUrl({ videoId, itag: SHADOW_ITAG });
+  const result = await mintShadowUrl({ videoId });
   const stream = result.minted;
   return {
     videoId,
     elapsedMs: Math.round(performance.now() - started),
     reason: result.reason,
+    observed: result.observed,
     shadowsLeft: document.querySelectorAll(`#${SHADOW_HOST_ID}`).length,
     budget: mayMint(shadowBudget, Date.now()),
     minted: stream

@@ -1,4 +1,6 @@
-import { chooseShadowUrl } from "@/acquisition/shadow-url";
+import { chooseShadowUrl, judgeShadowUrl } from "@/acquisition/shadow-url";
+import { readMintedUrl } from "@/acquisition/minted-url";
+import { chooseBestAudioFormat, isAudioFormat } from "@/acquisition/audio-format";
 import type { MintedStream } from "@/acquisition/minted-url";
 import { log } from "@/capture/log";
 
@@ -42,20 +44,15 @@ function page(): PageWithPlayer {
 
 // -- Taking the format choice away from the player's own chooser -----------------
 
-interface ForcedFormat {
-  videoId: string;
-  itag: number;
-}
+let forced: string | null = null;
 
-let forced: ForcedFormat | null = null;
-
-const expectedLengths = new Map<string, number>();
+const chosenFormats = new Map<string, { itag: number; contentLengthBytes: number | null }>();
 
 function isPlayerRequest(url: unknown): boolean {
   return /\/youtubei\/v1\/player(\?|$)/.test(String(url).split("#")[0]);
 }
 
-function rewritePlayerResponse(raw: string, videoId: string, itag: number | null): string {
+function rewritePlayerResponse(raw: string, videoId: string, wanted: boolean): string {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -67,16 +64,16 @@ function rewritePlayerResponse(raw: string, videoId: string, itag: number | null
   const formats = streaming.adaptiveFormats;
   if (!Array.isArray(formats)) return raw;
 
-  const isAudio = (format: unknown): boolean =>
-    String((format as { mimeType?: unknown }).mimeType ?? "").startsWith("audio");
-  const itagOf = (format: unknown): string => String((format as { itag?: unknown }).itag);
+  const best = chooseBestAudioFormat(formats);
+  if (best === null) return raw;
+  chosenFormats.set(videoId, { itag: best.itag, contentLengthBytes: best.contentLengthBytes });
 
-  const wanted = formats.find(format => isAudio(format) && itagOf(format) === String(itag));
-  const length = Number((wanted as { contentLength?: unknown } | undefined)?.contentLength);
-  if (Number.isFinite(length) && length > 0) expectedLengths.set(videoId, length);
-
-  if (itag === null || wanted === undefined) return raw;
-  streaming.adaptiveFormats = formats.filter(format => !isAudio(format)).concat([wanted]);
+  if (!wanted) return raw;
+  const keep = formats.find(
+    format => isAudioFormat(format) && Number((format as { itag?: unknown }).itag) === best.itag
+  );
+  if (keep === undefined) return raw;
+  streaming.adaptiveFormats = formats.filter(format => !isAudioFormat(format)).concat([keep]);
   return JSON.stringify(parsed);
 }
 
@@ -126,9 +123,9 @@ function installPlayerResponseFilter(): void {
       }
       if (videoId !== null) {
         const target = videoId;
-        const itag = forced !== null && forced.videoId === target ? forced.itag : null;
+        const ours = forced === target;
         const transform = (raw: unknown): unknown =>
-          typeof raw === "string" ? rewritePlayerResponse(raw, target, itag) : raw;
+          typeof raw === "string" ? rewritePlayerResponse(raw, target, ours) : raw;
         Object.defineProperty(this, "responseText", {
           configurable: true,
           get(this: XMLHttpRequest) {
@@ -164,14 +161,21 @@ function observeMediaUrls(): { urls: string[]; stop: () => void } {
 
 interface ShadowMintInput {
   videoId: string;
-  itag: number;
   timeoutMs?: number;
+}
+
+interface ObservedUrl {
+  itag: number | null;
+  contentLengthBytes: number | null;
+  tokenBytes: number;
+  verdict: string;
 }
 
 interface ShadowMintResult {
   minted: MintedStream | null;
   reason: string;
   elapsedMs: number;
+  observed: ObservedUrl[];
 }
 
 function removeShadowHost(): void {
@@ -230,10 +234,12 @@ function keepShadowSilent(host: HTMLElement): () => void {
 
 async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> {
   const started = performance.now();
+  let observed: ObservedUrl[] = [];
   const finish = (minted: MintedStream | null, reason: string): ShadowMintResult => ({
     minted,
     reason,
     elapsedMs: Math.round(performance.now() - started),
+    observed,
   });
 
   const create = page().yt?.player?.Application?.create;
@@ -245,8 +251,8 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
 
   installPlayerResponseFilter();
   removeShadowHost();
-  expectedLengths.delete(input.videoId);
-  forced = { videoId: input.videoId, itag: input.itag };
+  chosenFormats.delete(input.videoId);
+  forced = input.videoId;
 
   const watch = observeMediaUrls();
   const host = document.createElement("div");
@@ -276,12 +282,22 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
   while (performance.now() - started < timeoutMs) {
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
     silenceShadow(host);
-    minted = chooseShadowUrl(watch.urls, {
-      itag: input.itag,
-      contentLengthBytes: expectedLengths.get(input.videoId) ?? null,
-    });
+    const chosen = chosenFormats.get(input.videoId);
+    if (chosen === undefined) continue;
+    minted = chooseShadowUrl(watch.urls, chosen);
     if (minted) break;
   }
+
+  const target = chosenFormats.get(input.videoId) ?? { itag: -1, contentLengthBytes: null };
+  observed = watch.urls.map(url => {
+    const read = readMintedUrl(url);
+    return {
+      itag: read?.itag ?? null,
+      contentLengthBytes: read?.contentLengthBytes ?? null,
+      tokenBytes: read?.poToken?.byteLength ?? 0,
+      verdict: judgeShadowUrl(read, target).reason,
+    };
+  });
 
   watch.stop();
   forced = null;
@@ -293,9 +309,13 @@ async function mintShadowUrl(input: ShadowMintInput): Promise<ShadowMintResult> 
   }
   removeShadowHost();
 
-  if (!minted) return finish(null, `no attested url appeared for ${input.videoId} within ${timeoutMs}ms`);
+  if (!minted) {
+    const chosen = chosenFormats.get(input.videoId);
+    const wanted = chosen ? `itag ${chosen.itag}` : "no format at all, the player response was never seen";
+    return finish(null, `no attested url for ${wanted} appeared for ${input.videoId} within ${timeoutMs}ms`);
+  }
   return finish(minted, `minted itag ${minted.itag} for ${input.videoId}`);
 }
 
 export { DEFAULT_TIMEOUT_MS, SHADOW_HOST_ID, installPlayerResponseFilter, mintShadowUrl, rewritePlayerResponse };
-export type { ShadowMintInput, ShadowMintResult };
+export type { ObservedUrl, ShadowMintInput, ShadowMintResult };
