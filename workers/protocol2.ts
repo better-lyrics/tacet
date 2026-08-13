@@ -321,6 +321,10 @@ export interface StatusTrackRecord {
   artist: string | null;
   artworkUrl: string | null;
   cached: boolean | null;
+  // What the track coming next is doing. Absent on the now row, which has its
+  // own `separation` field, and absent from an older tab that predates it.
+  activity?: string | null;
+  fraction?: number | null;
 }
 
 export interface TrackStatusMessage {

@@ -1,11 +1,16 @@
 // -- What the popup's status section shows -------------------------------------
 
+import { advanceAhead } from "@/orchestrator/ahead-status";
+import type { AheadActivity } from "@/orchestrator/ahead-status";
+
 interface StatusTrack {
   videoId: string;
   title: string | null;
   artist: string | null;
   artworkUrl: string | null;
   cached: boolean | null;
+  activity: AheadActivity | null;
+  fraction: number | null;
 }
 
 interface TrackNames {
@@ -25,6 +30,7 @@ interface TrackStatusStore {
   setTracks(tracks: { now: TrackNames | null; next: TrackNames | null }): void;
   setArtwork(videoId: string, artworkUrl: string): void;
   setCached(videoId: string, cached: boolean): void;
+  setActivity(videoId: string, activity: AheadActivity, fraction?: number | null): void;
   clear(): void;
 }
 
@@ -45,6 +51,8 @@ function fillSlot(previous: QueueTracks, names: TrackNames | null): StatusTrack 
     artist: names.artist ?? known?.artist ?? null,
     artworkUrl: names.artworkUrl ?? known?.artworkUrl ?? null,
     cached: known?.cached ?? null,
+    activity: known?.activity ?? null,
+    fraction: known?.fraction ?? null,
   };
 }
 
@@ -70,6 +78,13 @@ function createTrackStatusStore(): TrackStatusStore {
 
     setCached(videoId, cached) {
       amend(videoId, { cached });
+    },
+
+    setActivity(videoId, activity, fraction = null) {
+      const held = knownTrack(current, videoId);
+      if (held === null) return;
+      const next = advanceAhead(held.activity, activity);
+      amend(videoId, { activity: next, fraction: next === activity ? fraction : held.fraction });
     },
 
     clear() {

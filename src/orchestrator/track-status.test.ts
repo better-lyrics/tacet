@@ -21,8 +21,8 @@ describe("track status store", () => {
       const store = createTrackStatusStore();
       store.setTracks({ now: NOW, next: NEXT });
       expect(store.get()).toEqual({
-        now: { ...NOW, cached: null },
-        next: { ...NEXT, cached: null },
+        now: { ...NOW, cached: null, activity: null, fraction: null },
+        next: { ...NEXT, cached: null, activity: null, fraction: null },
       });
     });
 
@@ -78,7 +78,7 @@ describe("track status store", () => {
       store.setTracks({ now: NOW, next: NEXT });
       store.setCached("abc", true);
       store.setTracks({ now: THIRD, next: null });
-      expect(store.get().now).toEqual({ ...THIRD, cached: null });
+      expect(store.get().now).toEqual({ ...THIRD, cached: null, activity: null, fraction: null });
     });
 
     it("never reports a row under a videoId it no longer holds", () => {
@@ -96,7 +96,7 @@ describe("track status store", () => {
       store.setTracks({ now: NOW, next: NEXT });
       store.setCached("xyz", true);
       store.setTracks({ now: names("xyz", "Show Me How"), next: THIRD });
-      expect(store.get().now).toEqual({ ...NEXT, cached: true });
+      expect(store.get().now).toEqual({ ...NEXT, cached: true, activity: null, fraction: null });
     });
 
     it("regression: a repeat read keeps artwork that already arrived", () => {
@@ -121,7 +121,7 @@ describe("track status store", () => {
       store.setTracks({ now: THIRD, next: null });
       store.setArtwork("abc", "stale art");
       store.setCached("abc", true);
-      expect(store.get().now).toEqual({ ...THIRD, cached: null });
+      expect(store.get().now).toEqual({ ...THIRD, cached: null, activity: null, fraction: null });
     });
 
     it("regression: a repeat with a missing name does not blank the one already shown", () => {
@@ -129,6 +129,60 @@ describe("track status store", () => {
       store.setTracks({ now: NOW, next: null });
       store.setTracks({ now: names("abc", null), next: null });
       expect(store.get().now).toMatchObject({ title: "Numb", artist: "Men I Trust", artworkUrl: ART });
+    });
+  });
+});
+
+describe("setActivity", () => {
+  it("records what the track coming next is doing", () => {
+    const store = createTrackStatusStore();
+    store.setTracks({ now: NOW, next: NEXT });
+    store.setActivity(NEXT.videoId, "downloading", 0.25);
+    expect(store.get().next?.activity).toBe("downloading");
+    expect(store.get().next?.fraction).toBe(0.25);
+  });
+
+  describe("edge cases", () => {
+    it("ignores a track it has never heard of", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      store.setActivity("unknown", "separating");
+      expect(store.get().now?.activity).toBeNull();
+      expect(store.get().next?.activity).toBeNull();
+    });
+
+    it("keeps the progress of the activity in force when a later message goes backwards", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      store.setActivity(NEXT.videoId, "separating", 0.6);
+      store.setActivity(NEXT.videoId, "downloading", 0.1);
+      expect(store.get().next?.activity).toBe("separating");
+      expect(store.get().next?.fraction).toBe(0.6);
+    });
+  });
+
+  describe("invariants", () => {
+    it("touches only the row it names", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      store.setActivity(NEXT.videoId, "ready");
+      expect(store.get().now?.activity).toBeNull();
+    });
+
+    it("a genuinely new track in the slot starts with no activity", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      store.setActivity(NEXT.videoId, "ready");
+      store.setTracks({ now: NEXT, next: THIRD });
+      expect(store.get().next?.activity).toBeNull();
+    });
+
+    it("an advance carries the activity with the track it belongs to", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      store.setActivity(NEXT.videoId, "ready");
+      store.setTracks({ now: NEXT, next: THIRD });
+      expect(store.get().now?.activity).toBe("ready");
     });
   });
 });

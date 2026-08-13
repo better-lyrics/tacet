@@ -351,6 +351,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       if (data.videoId === state.videoId || data.videoId === prefetchVideoId) return;
       resetStaging();
       prefetchVideoId = data.videoId;
+      trackStatusStore.setActivity(data.videoId, "queued");
       log(`next up is ${data.videoId}, checking whether it needs separating`);
       probeCacheFor(data.videoId);
       return;
@@ -381,6 +382,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isDownloadProgressMessage(data)) {
+      if (isStagingTarget(data.videoId)) trackStatusStore.setActivity(data.videoId, "downloading", data.fraction);
       dispatch({ type: "download-progress", videoId: data.videoId, fraction: data.fraction, source: data.source });
       return;
     }
@@ -432,6 +434,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     stagedInstrumental = null;
     stagedDoneReceived = false;
     staged = { videoId, vocals, instrumental };
+    trackStatusStore.setActivity(videoId, "ready");
 
     trackStatusStore.setCached(videoId, true);
     const kilobytes = Math.round((vocals.size + instrumental.size) / 1024);
@@ -565,6 +568,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isCacheHitMessage(message)) {
       trackStatusStore.setCached(message.videoId, true);
       if (isStagingTarget(message.videoId)) {
+        trackStatusStore.setActivity(message.videoId, "ready");
         log(`next track ${message.videoId} is already separated, staging it`);
         return;
       }
@@ -578,6 +582,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isCacheMissMessage(message)) {
       trackStatusStore.setCached(message.videoId, false);
       if (message.videoId === prefetchVideoId) {
+        trackStatusStore.setActivity(message.videoId, "downloading");
         log(`next track ${message.videoId} is not separated yet, warming it`);
         postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
         return;
@@ -593,6 +598,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isTrackProgressMessage(message)) {
+      if (isStagingTarget(message.videoId) && message.total > 0) {
+        trackStatusStore.setActivity(message.videoId, "separating", message.processed / message.total);
+      }
       dispatch({ type: "progress", videoId: message.videoId, processed: message.processed, total: message.total });
       return;
     }
@@ -612,6 +620,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isTrackErrorMessage(message)) {
+      if (isStagingTarget(message.videoId)) trackStatusStore.setActivity(message.videoId, "unavailable");
       logError(`pipeline failed for ${message.videoId}: ${message.code}`, message.message);
       dispatch({ type: "failed", videoId: message.videoId, reason: message.message });
     }
@@ -708,6 +717,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           log(`next track ${videoId} acquired, waiting for ${state.videoId} to finish before separating it`);
           return;
         }
+        trackStatusStore.setActivity(videoId, "separating");
         log(`next track ${videoId} acquired, separating it ahead of time`);
         const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
         window.postMessage(request, window.location.origin);
