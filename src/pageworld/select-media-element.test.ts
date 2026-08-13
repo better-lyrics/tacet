@@ -1,6 +1,7 @@
 import {
   FALLBACK_ELEMENT_SELECTOR,
   SHADOW_ELEMENT_SELECTOR,
+  capturesFrom,
   selectPlaybackElement,
 } from "@/pageworld/select-media-element";
 import type { MediaElementCandidate } from "@/pageworld/select-media-element";
@@ -90,6 +91,31 @@ describe("selectPlaybackElement", () => {
 
     it("regression: a shadow alone selects nothing rather than itself", () => {
       expect(selectPlaybackElement([shadowCandidate("shadow", 4096)])).toBeNull();
+    });
+  });
+});
+
+describe("capturesFrom", () => {
+  const element = (selector: string) => ({ matches: (query: string) => query === selector });
+
+  it("captures the listener's own player", () => {
+    expect(capturesFrom(element(FALLBACK_ELEMENT_SELECTOR))).toBe(true);
+  });
+
+  it("refuses the shadow player's own media", () => {
+    expect(capturesFrom(element(SHADOW_ELEMENT_SELECTOR))).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("captures an append it cannot attribute, because losing the listener's capture is worse", () => {
+      expect(capturesFrom(null)).toBe(true);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a shadow's stream is a second stream under the listener's videoId", () => {
+      expect(capturesFrom(element(SHADOW_ELEMENT_SELECTOR))).toBe(false);
+      expect(capturesFrom(element(FALLBACK_ELEMENT_SELECTOR))).toBe(true);
     });
   });
 });
