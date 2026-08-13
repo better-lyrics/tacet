@@ -31,7 +31,6 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
 // on the track after it read 29.9, 49.9, 59.9, 79.8 against a steady bar of 134.
 // A symmetric tolerance refuses both, and a one-sided one still refuses the tail,
 // which is precisely where a fade is armed and waiting.
-//
 // What separates the one case this guard exists for is not size but movement.
 // The bar still timing an ad the attribute has released reads its total as the
 // ad's and then changes it when the real track starts, measured as 0:13, 0:14,
@@ -40,17 +39,6 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
 // not consulted at all.
 const CLOCK_SETTLE_MS = 3000;
 
-// The bar rounds to whole seconds, so its total can flicker between two adjacent
-// values without describing a different track: an incoming track was measured
-// reading 218 and then 219 before holding, which reset the window and delayed
-// trust by a second. Exact equality would let a bar that oscillates between the
-// pair defer trust for ever. A second of slack absorbs that and still catches
-// every real change, because a bar handing over from an ad moves in jumps, 14 to
-// 46 to 237.
-//
-// The slack is measured against the anchor rather than the previous reading, so
-// a total creeping a second at a time still resets. Chaining it against the last
-// reading would let an unbounded drift through one second per sample.
 const CLOCK_JITTER_S = 1;
 
 interface ClockSettling {

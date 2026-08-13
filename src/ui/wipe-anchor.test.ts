@@ -53,9 +53,6 @@ describe("wipeElapsedMs", () => {
 
   describe("regressions", () => {
     it("regression: a dock remount midway resumes rather than restarting", () => {
-      // Better Lyrics rebuilding its dock re-appends the button, which restarts
-      // the CSS animation from zero. Four seconds into an eight second fade the
-      // wipe belongs at the midpoint, not at the left edge.
       expect(wipeElapsedMs(0, 4000, FADE_MS)).toBe(4000);
     });
 

@@ -3,7 +3,6 @@ import { FRAME_SECONDS, chooseSwapDelaySeconds } from "@/pageworld/swap-window";
 
 const FRAME = FRAME_SECONDS;
 
-// One entry per FRAME_SECONDS, so `loud(50)` is a second of loud music.
 const loud = (frames: number): number[] => new Array(frames).fill(0.3);
 const quiet = (frames: number): number[] => new Array(frames).fill(0.01);
 
@@ -13,7 +12,6 @@ function delayFor(envelope: number[], fromSeconds: number, fadeSeconds = 0.25, w
 
 describe("chooseSwapDelaySeconds", () => {
   it("waits for a quiet passage inside the search window", () => {
-    // Loud for half a second, then quiet.
     const envelope = [...loud(25), ...quiet(50), ...loud(50)];
     expect(delayFor(envelope, 0)).toBeCloseTo(25 * FRAME, 5);
   });
@@ -58,8 +56,6 @@ describe("chooseSwapDelaySeconds", () => {
     });
 
     it("finds a quiet window on a quiet track, judging against its neighbours", () => {
-      // A quiet track with a near-silent gap. An absolute threshold would miss
-      // this, and a relative one should not.
       const envelope = [...new Array(25).fill(0.02), ...new Array(50).fill(0.0005), ...new Array(50).fill(0.02)];
       expect(delayFor(envelope, 0)).toBeCloseTo(25 * FRAME, 5);
     });
@@ -89,8 +85,6 @@ describe("chooseSwapDelaySeconds", () => {
 
   describe("regressions", () => {
     it("regression: a fade longer than the quiet gap does not pick that gap", () => {
-      // A 0.1s gap cannot hold a 0.5s fade, so the surrounding music would play
-      // through most of it and the artifact would be as loud as ever.
       const envelope = [...loud(25), ...quiet(5), ...loud(120)];
       expect(delayFor(envelope, 0, 0.5, 2)).toBe(0);
     });

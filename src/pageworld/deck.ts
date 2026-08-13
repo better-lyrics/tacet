@@ -77,8 +77,6 @@ interface Loudness {
   vocalsRms: number;
   instrumentalRms: number;
   combinedPeak: number;
-  // RMS per FRAME_SECONDS of what this deck will play, measured once here
-  // because anything on the probe path has to be O(1).
   envelope: Float32Array;
 }
 
@@ -137,7 +135,6 @@ function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null):
       vocalsSum += v[n] * v[n];
       instrumentalSum += i[n] * i[n];
       const combined = v[n] + i[n];
-      // The envelope describes what the listener will hear, which is the sum.
       sums[(n / frameLength) | 0] += combined * combined;
       const level = Math.abs(combined);
       if (level > peak) peak = level;

@@ -160,8 +160,6 @@ describe("a settled bar clock", () => {
     });
 
     it("a total creeping a second at a time is not jitter and resets", () => {
-      // Measured against the anchor, not the previous reading, so 220 is two
-      // away from 218 and counts as a change however slowly it got there.
       expect(
         settleOver([
           [218, 0],
@@ -221,9 +219,6 @@ describe("a settled bar clock", () => {
     });
 
     it("regression: an ad handing over is a jump, so the slack never absorbs it", () => {
-      // 0:13, 0:14, 0:46, then the real 3:57. The 13 to 14 step is inside the
-      // slack, and every later one is far outside it, so the window still
-      // resets on the handover itself.
       expect(
         settleOver([
           [13, 0],

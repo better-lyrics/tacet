@@ -5,8 +5,6 @@ import type { StagedKind } from "@/automix/staged-source";
 export interface SetMixLevelMessage {
   type: "blk-set-mix-level";
   mixLevel: number;
-  // Zero while dragging, so the level tracks the finger. Non-zero for a click,
-  // which is a request for a state rather than a position.
   glideSeconds?: number;
 }
 

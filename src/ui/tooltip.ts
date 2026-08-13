@@ -120,8 +120,6 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   function show(): void {
     if (open || suppressed || !content) return;
     open = true;
-    // Placed before it opens, so the first position is not animated in from
-    // wherever the card happened to sit last time.
     place();
     card.classList.add("is-open");
   }

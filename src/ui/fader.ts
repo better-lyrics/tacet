@@ -523,9 +523,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     menu.classList.toggle(DOCK_MENU_CLASS, next === "dock");
     menu.classList.toggle(BAR_MENU_CLASS, next === "bar");
     if (next !== "dock") stopWatchingDockCollapse();
-    // Every remount arrives through here, and a remount is what restarts the
-    // wipe, so this is the one place that has to put it back where the clock
-    // says it should be.
     anchorWipe();
   }
 

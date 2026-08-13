@@ -4,8 +4,10 @@ const GAIN_RAMP_SECONDS = 0.02;
 
 function rampGainTo(param: AudioParam, context: BaseAudioContext, value: number, seconds = GAIN_RAMP_SECONDS): void {
   const now = context.currentTime;
+  const held = param.value;
   param.cancelAndHoldAtTime(now);
   if (Number.isFinite(seconds) && seconds > 0) {
+    param.setValueAtTime(held, now);
     param.linearRampToValueAtTime(value, now + seconds);
     return;
   }

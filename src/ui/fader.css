@@ -1,9 +1,6 @@
 :root {
   --blk-accent: #f20c32;
-  /* The glyph when sing-along is on. Mostly white so it reads as lit against
-     the accent pill behind it, with enough of the accent left to still look
-     like the product rather than a plain highlight. */
-  --blk-glyph-active: color-mix(in srgb, var(--blk-accent) 28%, #fff);
+  --blk-glyph-active: color-mix(in srgb, var(--blk-accent) 20%, #fff);
 }
 
 @property --glyph-o {
@@ -90,9 +87,6 @@
   border-radius: 50%;
   color: rgb(144, 144, 144);
 }
-/* No pill behind the glyph in this host, so the tint on the icon is the only
-   thing carrying the accent and the only thing separating this from the grey
-   inactive state. Weighted well toward white, but not all the way to it. */
 .blyrics-sing--bar.blyrics-sing--active {
   background-color: transparent;
   background-image: none;
@@ -339,10 +333,6 @@
     width 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)),
     opacity 140ms var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
-/* `left` is derived from the width, so animating one without the other walks
-   the card sideways. On the same curve the centre stays algebraically fixed and
-   the card grows from the middle. Only while open, or the first placement
-   slides in from wherever the card last sat. */
 .blyrics-mix-tip.is-open {
   opacity: 1;
   transition:

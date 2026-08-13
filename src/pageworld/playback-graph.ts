@@ -21,16 +21,7 @@ const logger = createLogger("page");
 
 const PAUSE_SETTLE_MS = 600;
 const SWAP_SECONDS = 0.12;
-// Both sides ramp linearly and sum to one, so on perfectly aligned audio this
-// length would not matter. It matters, which is the finding: stretched to 250 ms
-// the handover was audibly worse, a smear rather than a blip, and a longer
-// crossfade can only expose what a shorter one hides. So the two sources are
-// offset in time, and until that offset is measured and closed, the length has
-// to stay short enough to keep the overlap brief.
 const HANDOVER_SECONDS = 0.02;
-// How far ahead a quieter passage is worth waiting for. The listener is on the
-// original throughout the wait, which is vanilla YouTube Music and therefore the
-// floor, so the only cost of waiting is separation applying a little later.
 const SWAP_SEARCH_SECONDS = 3;
 const ELEMENT_STALL_SECONDS = 2;
 const PAUSE_CHECK_ATTEMPTS = 20;
@@ -444,9 +435,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       return;
     }
 
-    // Deferring is only ever worth it while the original is still carrying the
-    // listener, so nothing here may leave them on silence. The gain moves inside
-    // startSourcesAtPlayhead, once the wait is over.
     const delay = chooseSwapDelaySeconds({
       envelope: deck().envelope(),
       frameSeconds: FRAME_SECONDS,
@@ -463,8 +451,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     logger.log(`holding the handover ${delay.toFixed(2)} s for a quieter passage`);
     deferredHandover = setTimeout(() => {
       deferredHandover = null;
-      // Anything that moved in the meantime makes the chosen moment wrong, and
-      // a stale handover is worse than an unhidden one.
       if (bypass.isBypassed() || isCrossfading() || element.paused) return;
       if (deck().trackId() !== waitingFor) return;
       if (deps.playerTrackId() !== null && deps.playerTrackId() !== waitingFor) return;
