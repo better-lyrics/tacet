@@ -3,6 +3,7 @@ import {
   type TrackPipelineOutboundMessage,
   isAcquireFailedMessage,
   isAcquireTrackCommand,
+  isRelayedThroughBackground,
   isTrackPipelineOutboundMessage,
 } from "./protocol2";
 
@@ -106,6 +107,42 @@ describe("isAcquireFailedMessage", () => {
       for (const nonsense of [null, undefined, 7, "text", []]) {
         expect(isAcquireFailedMessage(nonsense)).toBe(false);
       }
+    });
+  });
+});
+
+describe("isRelayedThroughBackground", () => {
+  const probe = { type: "blk-probe-cache", videoId: "abc" };
+  const forget = { type: "blk-forget-track", videoId: "abc" };
+  const acquire = { type: "blk-acquire-track", videoId: "abc", url: "https://example.test/x" };
+  const chunk = { type: "blk-capture-chunk", videoId: "abc", mimeType: "audio/webm", index: 0, total: 1, data: "AA" };
+  const cancel = { type: "blk-cancel-separation" };
+
+  it("names every command the background relays", () => {
+    for (const message of [probe, forget, acquire, chunk]) {
+      expect(isRelayedThroughBackground(message)).toBe(true);
+    }
+  });
+
+  it("leaves the one command nothing relays to reach the offscreen straight from the tab", () => {
+    expect(isRelayedThroughBackground(cancel)).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("treats anything unreadable as not relayed", () => {
+      for (const message of [null, undefined, {}, 7, "blk-probe-cache", { type: "blk-probe-cache" }]) {
+        expect(isRelayedThroughBackground(message)).toBe(false);
+      }
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a capture chunk taken from both senders was fed to the pipeline twice", () => {
+      expect(isRelayedThroughBackground(chunk)).toBe(true);
+    });
+
+    it("regression: an acquire taken from both senders pulled every track over the network twice", () => {
+      expect(isRelayedThroughBackground(acquire)).toBe(true);
     });
   });
 });

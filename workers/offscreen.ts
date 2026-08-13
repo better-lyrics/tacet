@@ -18,6 +18,7 @@ import {
   isForgetTrackCommand,
   isGetCacheStatusCommand,
   isProbeCacheCommand,
+  isRelayedThroughBackground,
   isSettingsChangedMessage,
   isSettingsMessage,
 } from "./protocol2.js";
@@ -121,7 +122,9 @@ function getModelChoice(): ModelChoice {
 const separationHost = new SeparationHost();
 const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes, getModelChoice);
 
-chrome.runtime.onMessage.addListener(message => {
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (sender.tab !== undefined && isRelayedThroughBackground(message)) return undefined;
+
   if (isCaptureChunkMessage(message)) {
     trackPipeline.handleCaptureChunk(message);
     return;
@@ -293,7 +296,9 @@ async function analyseCachedStems(): Promise<StemAnalysis[]> {
   return results;
 }
 
-chrome.runtime.onMessage.addListener(message => {
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (sender.tab !== undefined && isRelayedThroughBackground(message)) return undefined;
+
   if (isForgetTrackCommand(message)) {
     trackPipeline.forgetTrack(message.videoId).catch(error => {
       logger.error("could not forget a track", error);

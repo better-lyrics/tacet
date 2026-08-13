@@ -433,3 +433,22 @@ const TRACK_PIPELINE_OUTBOUND_GUARDS: Record<TrackPipelineOutboundMessage["type"
 export function isTrackPipelineOutboundMessage(data: unknown): data is TrackPipelineOutboundMessage {
   return Object.values(TRACK_PIPELINE_OUTBOUND_GUARDS).some(guard => guard(data));
 }
+
+// -- Who is allowed to deliver a command to the offscreen document ------------
+
+// chrome.runtime.sendMessage from a content script reaches every extension
+// context, so the offscreen document receives the tab's own command as well as
+// the background's relay of it. Measured with diag-double-delivery: 20 of 20
+// capture chunks arrived twice, 1 to 3 ms apart, the first with a tab sender and
+// the second without, and every track was therefore pulled twice. The background
+// owns delivery, because only it can start the offscreen document and record
+// which tab to answer. blk-cancel-separation is deliberately absent: nothing
+// relays it, so the offscreen must take that one straight from the tab.
+export function isRelayedThroughBackground(data: unknown): boolean {
+  return (
+    isProbeCacheCommand(data) ||
+    isForgetTrackCommand(data) ||
+    isAcquireTrackCommand(data) ||
+    isCaptureChunkMessage(data)
+  );
+}
