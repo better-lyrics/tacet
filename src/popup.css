@@ -1054,7 +1054,11 @@ body {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  color: var(--blk-text-3);
+  color: var(--blk-text-2);
+}
+
+.blk-source:hover .blk-source__speed {
+  color: var(--blk-text-1);
 }
 
 .blk-source__hint {
