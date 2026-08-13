@@ -332,8 +332,16 @@
     width 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)),
     opacity 140ms var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
+/* `left` is derived from the width, so animating one without the other walks
+   the card sideways. On the same curve the centre stays algebraically fixed and
+   the card grows from the middle. Only while open, or the first placement
+   slides in from wherever the card last sat. */
 .blyrics-mix-tip.is-open {
   opacity: 1;
+  transition:
+    left 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)),
+    width 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)),
+    opacity 140ms var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
 
 .blyrics-mix-tip__stack {
