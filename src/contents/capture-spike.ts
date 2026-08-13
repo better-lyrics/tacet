@@ -25,7 +25,7 @@ import {
 } from "@/capture/bridge-protocol";
 import { readMintedUrl } from "@/acquisition/minted-url";
 import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
-import { mintShadowUrl } from "@/capture/shadow-player";
+import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
 
 // The format the listener's own player streams on High, which is the parity bar.
@@ -737,8 +737,31 @@ declare global {
     blkPrefetchTrackInSlices: (workerCount?: number) => Promise<unknown>;
     blkCaptureProbe: () => unknown;
     blkMintUrlProbe: (videoId: string) => Promise<unknown>;
+    blkShadowUrlProbe: (videoId: string) => Promise<unknown>;
   }
 }
+
+window.blkShadowUrlProbe = async (videoId: string) => {
+  const started = performance.now();
+  const result = await mintShadowUrl({ videoId, itag: SHADOW_ITAG });
+  const stream = result.minted;
+  return {
+    videoId,
+    elapsedMs: Math.round(performance.now() - started),
+    reason: result.reason,
+    shadowsLeft: document.querySelectorAll(`#${SHADOW_HOST_ID}`).length,
+    budget: mayMint(shadowBudget, Date.now()),
+    minted: stream
+      ? {
+          itag: stream.itag,
+          contentLengthBytes: stream.contentLengthBytes,
+          durationSeconds: stream.durationSeconds,
+          mimeType: stream.mimeType,
+          tokenBytes: stream.poToken?.byteLength ?? 0,
+        }
+      : null,
+  };
+};
 
 window.blkMintUrlProbe = async (videoId: string) => {
   const started = performance.now();
