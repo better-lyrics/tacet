@@ -2,7 +2,7 @@ import "./popup.css";
 import tacetIconUrl from "data-base64:../assets/brand/logo.png";
 import Sortable from "sortablejs";
 import { sanitizeSourcePreferences } from "@/acquisition/sources";
-import type { SourcePreference } from "@/acquisition/sources";
+import type { SourcePreference, SourceSpeed, SourceSpeedRank } from "@/acquisition/sources";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { sizedArtworkUrl } from "@/capture/artwork-url";
 import { separationFill, separationText } from "@/orchestrator/separation-status";
@@ -108,9 +108,9 @@ function createExternalLink(href: string, label: string, className: string): HTM
   return link;
 }
 
-function createFilledIcon(pathData: string, size: number): SVGSVGElement {
+function createFilledIcon(pathData: string, size: number, viewBox = "0 0 24 24"): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("viewBox", viewBox);
   svg.setAttribute("width", String(size));
   svg.setAttribute("height", String(size));
   svg.setAttribute("fill", "currentColor");
@@ -395,6 +395,57 @@ const DRAG_HANDLE_PATH =
   "4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0M14 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0 4a1.5 " +
   "1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0";
 
+const SPEED_GAUGE_VIEW_BOX = "0 -960 960 960";
+const SPEED_GAUGE_PX = 14;
+
+const SPEED_GAUGE_1_PATH =
+  "M480-316.5q38-.5 56-27.5l169-253q9-14-2.5-25.5T677-625L424-456q-27 18-28.5 55t22.5 61q24 24 62 " +
+  "23.5Zm0-483.5q36 0 71 6t68 19q16 6 34 22.5t10 31.5q-8 15-36 20t-45-1q-25-9-50.5-13.5T480-720q-133 " +
+  "0-226.5 93.5T160-400q0 42 11.5 83t32.5 77h552q23-38 " +
+  "33.5-79t10.5-85q0-26-4.5-51T782-504q-6-17-2-33t18-27q13-10 28.5-6t21.5 18q15 35 23 71.5t9 74.5q1 " +
+  "57-13 109t-41 99q-11 18-30 28t-40 10H204q-21 0-40-10t-30-28q-26-45-40-95.5T80-400q0-83 " +
+  "31.5-155.5t86-127Q252-737 325-768.5T480-800Zm7 313Z";
+
+const SPEED_GAUGE_2_PATH =
+  "M448-328q34 14 65.5 2.5T555-372q22-74 40-146t34-145q4-18-12.5-25.5T589-682q-46 60-90.5 " +
+  "119.5T410-440q-21 30-6.5 64t44.5 48ZM205-160q-21 0-40-9.5T135-198q-26-45-40-95.5T81-400q0-94 " +
+  "39.5-173T227-708q57-47 126.5-71T496-800q16 1 24 14t6 29q-2 16-14.5 26.5T483-720q-55-1-108 18t-95 " +
+  "54q-54 45-86.5 109T161-400q0 42 11.5 83t32.5 77h551q23-38 " +
+  "33.5-78.5T800-400q0-59-22.5-116T717-615q-12-14-9-29t14-25q11-10 28-10.5t32 16.5q51 55 74.5 " +
+  "124.5T880-400q0 53-13 104.5T826-198q-10 19-29.5 28.5T756-160H205Zm275-241Z";
+
+const SPEED_GAUGE_3_PATH =
+  "M513-328q30-14 44.5-48t-6.5-64q-44-63-88.5-122.5T372-682q-11-14-27.5-6.5T332-663q16 73 34 145t40 " +
+  "146q10 35 41.5 46.5T513-328ZM205-160q-21 0-40.5-9.5T135-198q-28-46-41-97.5T81-400q0-69 " +
+  "23.5-138.5T179-663q15-17 32-16.5t28 10.5q11 10 14 25t-9 29q-38 42-60.5 99T161-400q0 41 10.5 " +
+  "81.5T205-240h551q21-36 32.5-77t11.5-83q0-75-32.5-139T681-648q-42-35-95-54t-108-18q-16 " +
+  "0-28.5-10.5T435-757q-2-16 6-29t24-14q73-3 142.5 21T734-708q67 56 106.5 135T880-400q0 56-14 " +
+  "106.5T826-198q-11 19-30 28.5t-40 9.5H205Zm276-241Z";
+
+const SPEED_GAUGE_4_PATH =
+  "M536-343q26-26 24-60.5T530-459q-60-47-122-87t-125-80q-14-9-26 3t-3 26q40 63 80 125.5T418-347q20 29 " +
+  "56 29.5t62-25.5ZM205-160q-22 0-40.5-9.5T135-198q-28-48-42-100.5T79-406q0-35 7-69t21-66q6-15 " +
+  "22-20.5t30 2.5q14 8 19.5 23.5T178-504q-9 24-14 49t-5 51q0 44 11.5 85.5T205-240h551q21-36 " +
+  "32.5-76.5T800-400q0-133-93.5-226.5T480-720q-27 0-53 5t-51 14q-16 " +
+  "5-31-.5T322-722q-8-15-2-30.5t21-21.5q33-13 68-19.5t71-6.5q83 0 155.5 31.5t127 86q54.5 54.5 86 " +
+  "127T880-400q0 54-14 105t-40 97q-11 19-30 28.5t-40 9.5H205Zm274-238Z";
+
+const SPEED_GAUGE_PATHS: Record<SourceSpeedRank, string> = {
+  1: SPEED_GAUGE_1_PATH,
+  2: SPEED_GAUGE_2_PATH,
+  3: SPEED_GAUGE_3_PATH,
+  4: SPEED_GAUGE_4_PATH,
+};
+
+function createSpeedGauge(speed: SourceSpeed): HTMLElement {
+  const gauge = createElement("span", "blk-source__speed");
+  gauge.setAttribute("role", "img");
+  gauge.setAttribute("aria-label", speed.hint);
+  gauge.title = speed.hint;
+  gauge.append(createFilledIcon(SPEED_GAUGE_PATHS[speed.rank], SPEED_GAUGE_PX, SPEED_GAUGE_VIEW_BOX));
+  return gauge;
+}
+
 interface SourcesPanel {
   element: HTMLElement;
   render(preferences: readonly SourcePreference[]): void;
@@ -440,12 +491,14 @@ function createSourcesPanel(
       handle.setAttribute("aria-hidden", "true");
 
       const text = createElement("div", "blk-source__text");
+      const head = createElement("span", "blk-source__head");
       const name = createElement("span", "blk-source__name");
       name.id = nextLabelId();
       name.textContent = row.label;
+      head.append(name, createSpeedGauge(row.speed));
       const detail = createElement("span", "blk-source__hint");
       detail.textContent = row.hint;
-      text.append(name, detail);
+      text.append(head, detail);
 
       const toggle = createElement("button", "blk-toggle");
       toggle.type = "button";

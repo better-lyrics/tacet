@@ -1038,10 +1038,23 @@ body {
   min-width: 0;
 }
 
+.blk-source__head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .blk-source__name {
   font-size: 12px;
   font-weight: 600;
   color: var(--blk-text);
+}
+
+.blk-source__speed {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--blk-text-3);
 }
 
 .blk-source__hint {

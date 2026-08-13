@@ -28,6 +28,33 @@ describe("the source registry", () => {
     expect(isSourceId(null)).toBe(false);
     expect(isSourceId(0)).toBe(false);
   });
+
+  describe("speed", () => {
+    it("gives every source a gauge the popup can draw and something to read", () => {
+      for (const source of SOURCES) {
+        expect([1, 2, 3, 4]).toContain(source.speed.rank);
+        expect(source.speed.hint.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("ranks the shadow player above the hidden player, and both above player capture", () => {
+      expect(sourceById("shadow-url").speed.rank).toBeGreaterThan(sourceById("hidden-player").speed.rank);
+      expect(sourceById("hidden-player").speed.rank).toBeGreaterThan(sourceById("player-capture").speed.rank);
+    });
+
+    describe("invariants", () => {
+      it("orders the registry fastest first, which is what the default order promises", () => {
+        const ranks = SOURCES.map(source => source.speed.rank);
+        expect(ranks).toEqual([...ranks].sort((a, b) => b - a));
+      });
+
+      it("says how fast a source is once, in the gauge rather than in the hint", () => {
+        for (const source of SOURCES) {
+          expect(source.hint).not.toMatch(/second|real time|minute/i);
+        }
+      });
+    });
+  });
 });
 
 describe("reaches", () => {

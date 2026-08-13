@@ -1,5 +1,5 @@
 import { SOURCE_IDS, sanitizeSourcePreferences, sourceById } from "@/acquisition/sources";
-import type { SourceId, SourcePreference } from "@/acquisition/sources";
+import type { SourceId, SourcePreference, SourceSpeed } from "@/acquisition/sources";
 
 // -- What a row in the sources list shows ----------------------------------------
 
@@ -7,6 +7,7 @@ interface SourceRow {
   id: SourceId;
   label: string;
   hint: string;
+  speed: SourceSpeed;
   enabled: boolean;
   position: number;
 }
@@ -16,6 +17,7 @@ function sourceRows(preferences: readonly SourcePreference[]): SourceRow[] {
     id: preference.id,
     label: sourceById(preference.id).label,
     hint: sourceById(preference.id).hint,
+    speed: sourceById(preference.id).speed,
     enabled: preference.enabled,
     position: index,
   }));

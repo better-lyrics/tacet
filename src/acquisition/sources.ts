@@ -4,11 +4,19 @@ type SourceId = "shadow-url" | "hidden-player" | "player-capture";
 
 type SourceReach = "playing-track" | "any-track";
 
+type SourceSpeedRank = 1 | 2 | 3 | 4;
+
+interface SourceSpeed {
+  rank: SourceSpeedRank;
+  hint: string;
+}
+
 interface SourceDefinition {
   id: SourceId;
   label: string;
   hint: string;
   reach: SourceReach;
+  speed: SourceSpeed;
 }
 
 // -- The registry, in the order it is tried by default --------------------------
@@ -17,23 +25,23 @@ const SOURCES: readonly SourceDefinition[] = [
   {
     id: "shadow-url",
     label: "Shadow player",
-    hint: "Gets a link from this page, then downloads it. Any track, a few seconds.",
+    hint: "Gets a link from this page, then downloads it. Any track.",
     reach: "any-track",
+    speed: { rank: 4, hint: "A few seconds a track" },
   },
   {
     id: "hidden-player",
     label: "Hidden player",
-    hint: "Loads the track in a background player. Any track, about ten seconds.",
+    hint: "Loads the track in a background player. Any track.",
     reach: "any-track",
+    speed: { rank: 3, hint: "About ten seconds a track" },
   },
-  // Player capture is passive rather than a rung the ladder starts: it is always
-  // running, so `maybeAcquireCurrent` skips past it. It sits last because it is
-  // the floor, not because it is tried last.
   {
     id: "player-capture",
     label: "Player capture",
-    hint: "Copies whatever you play as it streams. Current track only, in real time.",
+    hint: "Copies whatever you play as it streams. Current track only.",
     reach: "playing-track",
+    speed: { rank: 1, hint: "As slow as the track is long" },
   },
 ];
 
@@ -106,4 +114,4 @@ function nextSource(input: LadderInput): SourceId | null {
 }
 
 export { SOURCES, SOURCE_IDS, enabledOrder, isSourceId, nextSource, reaches, sanitizeSourcePreferences, sourceById };
-export type { LadderInput, SourceId, SourceDefinition, SourcePreference, SourceReach };
+export type { LadderInput, SourceId, SourceDefinition, SourcePreference, SourceReach, SourceSpeed, SourceSpeedRank };
