@@ -4,25 +4,24 @@ import { isStagingSpent } from "@/automix/staged-source";
 import type { HeldSource, StagedKind } from "@/automix/staged-source";
 import type { StagedState } from "@/automix/transition-cue";
 
-interface StagedStems {
-  vocals: Float32Array<ArrayBuffer>[];
-  instrumental: Float32Array<ArrayBuffer>[];
-  sampleRate: number;
-}
-
 interface MixBuffer {
   duration: number;
   numberOfChannels: number;
   length: number;
 }
 
-type StagedAudio<Mix> = { kind: "stems"; stems: StagedStems } | { kind: "mix"; mix: Mix };
+interface StagedStems<Mix> {
+  vocals: Mix;
+  instrumental: Mix;
+}
+
+type StagedAudio<Mix> = { kind: "stems"; stems: StagedStems<Mix> } | { kind: "mix"; mix: Mix };
 
 interface Held<Mix> {
   videoId: string;
   kind: StagedKind;
   state: Exclude<StagedState, "none">;
-  stems: StagedStems | null;
+  stems: StagedStems<Mix> | null;
   mix: Mix | null;
 }
 
@@ -69,7 +68,7 @@ class Staging<Mix extends MixBuffer = AudioBuffer> {
     return this.held.videoId;
   }
 
-  takeStems(videoId: string, stems: StagedStems): boolean {
+  takeStems(videoId: string, stems: StagedStems<Mix>): boolean {
     if (this.held === null || this.held.videoId !== videoId || this.held.kind !== "stems") return false;
     this.held = { ...this.held, state: "ready", stems, mix: null };
     return true;
@@ -123,8 +122,7 @@ class Staging<Mix extends MixBuffer = AudioBuffer> {
       return { kind: "mix", mix: held.mix, durationSeconds: held.mix.duration };
     }
     if (held.stems === null) return null;
-    const frames = held.stems.vocals[0]?.length ?? 0;
-    return { kind: "stems", stems: held.stems, durationSeconds: frames / held.stems.sampleRate };
+    return { kind: "stems", stems: held.stems, durationSeconds: held.stems.instrumental.duration };
   }
 
   releaseIfSpent(nextTrackVideoId: string | null, listenerVideoId: string | null): boolean {
@@ -138,7 +136,8 @@ class Staging<Mix extends MixBuffer = AudioBuffer> {
     if (held === null) return 0;
     if (held.mix !== null) return held.mix.numberOfChannels * held.mix.length * 4;
     if (held.stems === null) return 0;
-    return [...held.stems.vocals, ...held.stems.instrumental].reduce((total, channel) => total + channel.byteLength, 0);
+    const { vocals, instrumental } = held.stems;
+    return (vocals.numberOfChannels * vocals.length + instrumental.numberOfChannels * instrumental.length) * 4;
   }
 
   describe(): { videoId: string | null; state: StagedState; kind: StagedKind; durationSeconds: number | null } {

@@ -28,6 +28,7 @@ import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { currentPlayerSnapshot, playerCurrentTime, playerVideoElement } from "@/pageworld/player-state";
 import { Staging } from "@/pageworld/staging";
+import { toStemBuffers } from "@/pageworld/stem-buffers";
 import {
   type CrossfadeAbortedMessage,
   type CrossfadeStartedMessage,
@@ -79,9 +80,8 @@ interface LoadedStems {
   kind: "stems";
   videoId: string;
   durationSeconds: number;
-  vocals: Float32Array<ArrayBuffer>[];
-  instrumental: Float32Array<ArrayBuffer>[];
-  sampleRate: number;
+  vocals: AudioBuffer;
+  instrumental: AudioBuffer;
 }
 
 interface LoadedMix {
@@ -189,18 +189,14 @@ declare global {
 
 // -- Diagnostics --------------------------------------------------------------
 
-function bufferBytes(buffer: AudioBuffer | null): number {
-  return buffer === null ? 0 : buffer.numberOfChannels * buffer.length * 4;
-}
-
-function channelBytes(channels: Float32Array<ArrayBuffer>[] | undefined): number {
-  return (channels ?? []).reduce((total, channel) => total + channel.byteLength, 0);
+function bufferBytes(buffer: AudioBuffer): number {
+  return buffer.numberOfChannels * buffer.length * 4;
 }
 
 function trackBytes(track: LoadedTrack | null): number {
   if (track === null) return 0;
   if (track.kind === "mix") return bufferBytes(track.mix);
-  return channelBytes(track.vocals) + channelBytes(track.instrumental);
+  return bufferBytes(track.vocals) + bufferBytes(track.instrumental);
 }
 
 window.blkTransitionProbe = () => {
@@ -344,17 +340,18 @@ window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
   const sampleRate = 44100;
   const outgoingIsReal = graph.describe().stemsPlaying;
   if (!outgoingIsReal) {
-    graph.loadStems(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate, playerTrackId());
+    const held = toStemBuffers(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate);
+    graph.loadStems(held.vocals, held.instrumental, playerTrackId());
     graph.setMixLevel(1);
     await new Promise(resolve => setTimeout(resolve, 400));
   }
 
   const before = graph.describe();
   if (!before.stemsPlaying) return { error: "no deck is playing, nothing to fade out of", state: before };
+  const incoming = toStemBuffers(selfTestStems(sampleRate, 330), selfTestStems(sampleRate, 330), sampleRate);
   const result = graph.crossfadeTo({
-    vocals: selfTestStems(sampleRate, 330),
-    instrumental: selfTestStems(sampleRate, 330),
-    sampleRate,
+    vocals: incoming.vocals,
+    instrumental: incoming.instrumental,
     durationSeconds: fadeSeconds,
     incomingOffsetSeconds: 0,
   });
@@ -559,7 +556,6 @@ function stagedTrackFor(videoId: string): LoadedTrack | null {
     durationSeconds: audio.durationSeconds,
     vocals: audio.stems.vocals,
     instrumental: audio.stems.instrumental,
-    sampleRate: audio.stems.sampleRate,
   };
 }
 
@@ -590,7 +586,6 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
       : {
           vocals: incoming.vocals,
           instrumental: incoming.instrumental,
-          sampleRate: incoming.sampleRate,
           durationSeconds: clamped.seconds,
           incomingOffsetSeconds: 0,
           startInSeconds,
@@ -772,7 +767,7 @@ function discardGraph(): void {
 function applyTrack(graph: PlaybackGraph, track: LoadedTrack): void {
   graph.setMixLevel(pendingMixLevel);
   if (track.kind === "mix") graph.loadMix(track.mix, track.videoId);
-  else graph.loadStems(track.vocals, track.instrumental, track.sampleRate, track.videoId);
+  else graph.loadStems(track.vocals, track.instrumental, track.videoId);
   engagedTrack = track;
   awaitingReconfirmation = false;
   logger.log(`${track.kind} playing for videoId=${track.videoId}, mix level ${pendingMixLevel}`);
@@ -954,16 +949,16 @@ window.addEventListener("message", event => {
       logger.log(`stems for ${data.videoId} arrived mid transition into ${target}, dropping them`);
       return;
     }
-    const durationSeconds = (data.vocals[0]?.length ?? 0) / data.sampleRate;
+    const buffers = toStemBuffers(data.vocals, data.instrumental, data.sampleRate);
+    const durationSeconds = buffers.instrumental.duration;
     logger.log(
-      `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
+      `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${buffers.vocals.numberOfChannels}, duration=${durationSeconds.toFixed(1)}s`
     );
     pendingTrack = {
       kind: "stems",
       videoId: data.videoId,
-      vocals: data.vocals,
-      instrumental: data.instrumental,
-      sampleRate: data.sampleRate,
+      vocals: buffers.vocals,
+      instrumental: buffers.instrumental,
       durationSeconds,
     };
     reconcile();
@@ -1000,11 +995,7 @@ window.addEventListener("message", event => {
   }
 
   if (isStageDeckMessage(data)) {
-    const took = staging.takeStems(data.videoId, {
-      vocals: data.vocals,
-      instrumental: data.instrumental,
-      sampleRate: data.sampleRate,
-    });
+    const took = staging.takeStems(data.videoId, toStemBuffers(data.vocals, data.instrumental, data.sampleRate));
     if (!took) return;
     logger.log(`${data.videoId} decoded into the idle deck, ready to fade`);
     return;

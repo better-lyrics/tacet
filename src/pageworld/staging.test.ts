@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { Staging } from "@/pageworld/staging";
 import type { MixBuffer } from "@/pageworld/staging";
 
+const framesOf = (frames: number, sampleRate: number, numberOfChannels = 2): MixBuffer => ({
+  duration: frames / sampleRate,
+  numberOfChannels,
+  length: frames,
+});
+
 const stemsOf = (frames: number, sampleRate = 48000) => ({
-  vocals: [new Float32Array(frames), new Float32Array(frames)],
-  instrumental: [new Float32Array(frames), new Float32Array(frames)],
-  sampleRate,
+  vocals: framesOf(frames, sampleRate),
+  instrumental: framesOf(frames, sampleRate),
 });
 
 const mixOf = (duration: number, numberOfChannels = 2, sampleRate = 48000): MixBuffer => ({

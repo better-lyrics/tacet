@@ -49,9 +49,8 @@ interface CrossfadeTiming {
 type HandoverKind = "transition" | "swap";
 
 interface StemsCrossfadeRequest extends CrossfadeTiming {
-  vocals: Float32Array<ArrayBuffer>[];
-  instrumental: Float32Array<ArrayBuffer>[];
-  sampleRate: number;
+  vocals: AudioBuffer;
+  instrumental: AudioBuffer;
   mix?: undefined;
 }
 
@@ -59,7 +58,6 @@ interface MixCrossfadeRequest extends CrossfadeTiming {
   mix: AudioBuffer;
   vocals?: undefined;
   instrumental?: undefined;
-  sampleRate?: undefined;
 }
 
 type CrossfadeRequest = StemsCrossfadeRequest | MixCrossfadeRequest;
@@ -95,12 +93,7 @@ interface GraphState {
 }
 
 interface PlaybackGraph {
-  loadStems(
-    vocals: Float32Array<ArrayBuffer>[],
-    instrumental: Float32Array<ArrayBuffer>[],
-    sampleRate: number,
-    trackId: string | null
-  ): void;
+  loadStems(vocals: AudioBuffer, instrumental: AudioBuffer, trackId: string | null): void;
   loadMix(mix: AudioBuffer, trackId: string | null): void;
   setMixLevel(mixLevel: number, seconds?: number): void;
   stopStems(reason?: string): void;
@@ -118,13 +111,7 @@ interface PlaybackGraph {
 function deckLoadFor(request: CrossfadeRequest): DeckLoad {
   const trackId = request.videoId ?? null;
   if (request.mix !== undefined) return { kind: "mix", mix: request.mix, trackId };
-  return {
-    kind: "stems",
-    vocals: request.vocals,
-    instrumental: request.instrumental,
-    sampleRate: request.sampleRate,
-    trackId,
-  };
+  return { kind: "stems", vocals: request.vocals, instrumental: request.instrumental, trackId };
 }
 
 function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
@@ -372,13 +359,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     element.addEventListener("ratechange", onRateChange);
   }
 
-  function loadStems(
-    vocals: Float32Array<ArrayBuffer>[],
-    instrumental: Float32Array<ArrayBuffer>[],
-    sampleRate: number,
-    trackId: string | null
-  ): void {
-    adoptTrack({ kind: "stems", vocals, instrumental, sampleRate, trackId }, "load-stems");
+  function loadStems(vocals: AudioBuffer, instrumental: AudioBuffer, trackId: string | null): void {
+    adoptTrack({ kind: "stems", vocals, instrumental, trackId }, "load-stems");
   }
 
   function loadMix(mix: AudioBuffer, trackId: string | null): void {
@@ -404,12 +386,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     const request: CrossfadeRequest =
       load.kind === "mix"
         ? { mix: load.mix, durationSeconds: SWAP_SECONDS }
-        : {
-            vocals: load.vocals,
-            instrumental: load.instrumental,
-            sampleRate: load.sampleRate,
-            durationSeconds: SWAP_SECONDS,
-          };
+        : { vocals: load.vocals, instrumental: load.instrumental, durationSeconds: SWAP_SECONDS };
 
     const result = crossfadeTo({
       ...request,

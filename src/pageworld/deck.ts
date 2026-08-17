@@ -13,13 +13,7 @@ interface DeckDeps {
 type DeckKind = "stems" | "mix";
 
 type DeckLoad =
-  | {
-      kind: "stems";
-      vocals: Float32Array<ArrayBuffer>[];
-      instrumental: Float32Array<ArrayBuffer>[];
-      sampleRate: number;
-      trackId: string | null;
-    }
+  | { kind: "stems"; vocals: AudioBuffer; instrumental: AudioBuffer; trackId: string | null }
   | { kind: "mix"; mix: AudioBuffer; trackId: string | null };
 
 interface DeckState {
@@ -152,31 +146,14 @@ function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null):
   };
 }
 
-function createStemBuffer(
-  context: AudioContext,
-  channels: Float32Array<ArrayBuffer>[],
-  sampleRate: number
-): AudioBuffer {
-  if (channels.length === 0) {
-    throw new Error("deck: a stem needs at least one channel");
-  }
-  const buffer = context.createBuffer(channels.length, channels[0].length, sampleRate);
-  channels.forEach((channel, index) => buffer.copyToChannel(channel, index));
-  return buffer;
-}
-
 interface DeckBuffers {
   vocals: AudioBuffer | null;
   instrumental: AudioBuffer;
 }
 
-function buffersForLoad(context: AudioContext, request: DeckLoad): DeckBuffers | null {
+function buffersForLoad(request: DeckLoad): DeckBuffers {
   if (request.kind === "mix") return { vocals: null, instrumental: request.mix };
-  if (request.vocals.length === 0 || request.instrumental.length === 0) return null;
-  return {
-    vocals: createStemBuffer(context, request.vocals, request.sampleRate),
-    instrumental: createStemBuffer(context, request.instrumental, request.sampleRate),
-  };
+  return { vocals: request.vocals, instrumental: request.instrumental };
 }
 
 function createDeck(deps: DeckDeps): Deck {
@@ -259,8 +236,7 @@ function createDeck(deps: DeckDeps): Deck {
 
   function load(request: DeckLoad): boolean {
     stop();
-    const buffers = buffersForLoad(context, request);
-    if (buffers === null) return false;
+    const buffers = buffersForLoad(request);
 
     finished = false;
     loaded = {
@@ -357,5 +333,5 @@ function createDeck(deps: DeckDeps): Deck {
   };
 }
 
-export { createDeck, createStemBuffer };
+export { createDeck };
 export type { Deck, DeckDeps, DeckKind, DeckLoad, DeckState };
