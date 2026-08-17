@@ -7,7 +7,7 @@ import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { describeSeparation } from "@/orchestrator/separation-status";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
-import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import { faderArmed } from "@/pageworld/gain-law";
 import type { SetLoggingMessage } from "@/pageworld/protocol";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
@@ -110,7 +110,7 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
   const control = createFaderControl({
     host: placement === "dock" && hasBetterLyrics() ? "dock" : "bar",
     onChange: (mixLevel, glideSeconds) => {
-      armed = mixLevel !== NEUTRAL_MIX_LEVEL;
+      armed = faderArmed(mixLevel);
       pipeline?.engage(mixLevel, glideSeconds);
       render();
     },

@@ -30,10 +30,11 @@ import {
   playerStateFromOwnBridge,
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
-import { separationWanted } from "@/orchestrator/separation-wanted";
+import { describeSeparationVeto, separationVeto } from "@/orchestrator/separation-wanted";
+import type { SeparationVeto } from "@/orchestrator/separation-wanted";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
-import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import { NEUTRAL_MIX_LEVEL, faderArmed } from "@/pageworld/gain-law";
 import {
   type LoadStemsMessage,
   type SetCrossfadeMessage,
@@ -645,11 +646,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Auto separate -------------------------------------------------------
 
-  function wantsSeparation(settings: Settings): boolean {
-    return separationWanted({
+  function separationVetoFor(settings: Settings): SeparationVeto | null {
+    return separationVeto({
       singAlongEnabled: settings.singAlongEnabled,
       autoSeparateEnabled: settings.autoSeparateEnabled,
-      faderArmed: pendingMixLevel !== NEUTRAL_MIX_LEVEL,
+      faderArmed: faderArmed(pendingMixLevel),
     });
   }
 
@@ -657,8 +658,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
         if (videoId !== state.videoId) return;
-        if (!wantsSeparation(settings)) {
-          log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
+        const veto = separationVetoFor(settings);
+        if (veto) {
+          log(`not acquiring ${videoId}, ${describeSeparationVeto(veto)}`);
           return;
         }
         if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
@@ -719,8 +721,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
         if (videoId !== prefetchVideoId) return;
-        if (!wantsSeparation(settings)) {
-          log(`next track ${videoId} acquired, held for a crossfade but not separated`);
+        const veto = separationVetoFor(settings);
+        if (veto) {
+          log(
+            `next track ${videoId} acquired, held for a crossfade but not separated: ${describeSeparationVeto(veto)}`
+          );
           return;
         }
         if (state.status !== "engaged" && state.status !== "failed") {
@@ -732,27 +737,27 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
         window.postMessage(request, window.location.origin);
       })
-      .catch(error => logError("failed to read the auto-separate setting", error));
+      .catch(error => logError("failed to read the settings", error));
   }
 
   function maybeAutoEngage(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
-        if (!wantsSeparation(settings)) return;
+        if (separationVetoFor(settings) !== null) return;
         if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
 
         log(`auto-separating ${videoId}`);
         dispatch({ type: "engage", videoId });
         requestCapturedAudio(videoId);
       })
-      .catch(error => logError("failed to read the auto-separate setting", error));
+      .catch(error => logError("failed to read the settings", error));
   }
 
   function engage(mixLevel: number, glideSeconds?: number): void {
     pendingMixLevel = mixLevel;
     postToPageWorld({ type: "blk-set-mix-level", mixLevel, glideSeconds });
 
-    if (mixLevel === NEUTRAL_MIX_LEVEL) return;
+    if (!faderArmed(mixLevel)) return;
     if (state.status === "waiting-for-capture") {
       log(`arming ${state.videoId}, acquiring it now that the fader asked for it`);
       maybeAcquireCurrent(state.videoId);

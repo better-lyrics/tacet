@@ -1,4 +1,12 @@
-import { MAX_MIX_LEVEL, MIN_MIX_LEVEL, clampMixLevel, gainsForMixLevel, listenerGain } from "@/pageworld/gain-law";
+import {
+  MAX_MIX_LEVEL,
+  MIN_MIX_LEVEL,
+  NEUTRAL_MIX_LEVEL,
+  clampMixLevel,
+  faderArmed,
+  gainsForMixLevel,
+  listenerGain,
+} from "@/pageworld/gain-law";
 import { describe, expect, it } from "vitest";
 
 describe("gainsForMixLevel", () => {
@@ -125,6 +133,26 @@ describe("listenerGain", () => {
 
     it("is a pure function: identical input produces identical output", () => {
       expect(listenerGain(0.42, false)).toBe(listenerGain(0.42, false));
+    });
+  });
+});
+
+describe("faderArmed", () => {
+  it("is not armed while the fader sits at the neutral level", () => {
+    expect(faderArmed(NEUTRAL_MIX_LEVEL)).toBe(false);
+  });
+
+  it.each([0, 0.25, 0.5, 0.75])("is armed once the listener pulls the fader down to %s", mixLevel => {
+    expect(faderArmed(mixLevel)).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("counts a level above neutral as armed, since only neutral means the listener asked for nothing", () => {
+      expect(faderArmed(MAX_MIX_LEVEL + 0.5)).toBe(true);
+    });
+
+    it("counts the minimum as armed", () => {
+      expect(faderArmed(MIN_MIX_LEVEL)).toBe(true);
     });
   });
 });
