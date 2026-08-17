@@ -192,7 +192,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     postToPageWorld({ type: "blk-listening-to", videoId });
 
     if (videoId === crossfadingInto) {
-      const landing = decideCrossfadeLanding({ kind: crossfadingIntoKind, status: state.status });
+      const landing = decideCrossfadeLanding({
+        kind: crossfadingIntoKind,
+        status: state.status,
+        separating: separationVetoFor() === null,
+      });
       disarmCrossfade();
       resetStemAssembly();
       resetStaging();
