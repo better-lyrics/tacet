@@ -663,6 +663,8 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     () => {
       if (generation !== transitionGeneration) return;
       trackBeforeCrossfade = null;
+      const released = graph.releaseIdleDeck();
+      if (released > 0) logger.log(`released ${released} idle deck(s) after the transition into ${videoId}`);
     },
     startsInMs + clamped.seconds * 1000 + TRANSITION_RELEASE_MS
   );

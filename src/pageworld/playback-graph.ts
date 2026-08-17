@@ -102,6 +102,7 @@ interface PlaybackGraph {
   abortCrossfade(reason: string): boolean;
   suppressDriftFor(seconds: number): void;
   recoverIfStopped(): boolean;
+  releaseIdleDeck(): number;
   recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }>;
   heldBuffers(): AudioBuffer[];
   isEngaged(): boolean;
@@ -465,6 +466,15 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     return true;
   }
 
+  function releaseIdleDeck(): number {
+    let released = 0;
+    for (const [index, each] of decks.entries()) {
+      if (index === activeDeck) continue;
+      if (each.release()) released++;
+    }
+    return released;
+  }
+
   function stopStems(reason = "the deck was released"): void {
     cancelDeferredHandover();
     if (abortCrossfade(`the stems were released mid fade, ${reason}`)) return;
@@ -665,6 +675,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     crossfadeTo,
     abortCrossfade,
     recoverIfStopped,
+    releaseIdleDeck,
     suppressDriftFor: suppressDrift,
     recordOutput,
     heldBuffers: () => [...decks[0].heldBuffers(), ...decks[1].heldBuffers()],

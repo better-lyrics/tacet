@@ -39,6 +39,7 @@ interface Deck {
   load(request: DeckLoad): boolean;
   startAt(offsetSeconds: number, when?: number): void;
   stop(): void;
+  release(): boolean;
   stopAt(when: number): void;
   fadeOutAndStop(seconds?: number): void;
   fadeIn(seconds?: number): void;
@@ -198,6 +199,13 @@ function createDeck(deps: DeckDeps): Deck {
     instrumentalSource = null;
   }
 
+  function release(): boolean {
+    if (instrumentalSource !== null) return false;
+    loaded = null;
+    finished = false;
+    return true;
+  }
+
   function releaseWhenEnded(vocals: AudioBufferSourceNode | null, instrumental: AudioBufferSourceNode): void {
     instrumental.onended = () => {
       if (instrumentalSource !== instrumental) return;
@@ -321,6 +329,7 @@ function createDeck(deps: DeckDeps): Deck {
     load,
     startAt,
     stop,
+    release,
     stopAt,
     fadeOutAndStop,
     fadeIn: seconds => rampGainFromZero(deckGainNode.gain, context, seconds),
