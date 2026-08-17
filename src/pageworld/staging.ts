@@ -131,13 +131,16 @@ class Staging<Mix extends MixBuffer = AudioBuffer> {
     return true;
   }
 
-  heldBytes(): number {
+  heldBuffers(): Mix[] {
     const held = this.held;
-    if (held === null) return 0;
-    if (held.mix !== null) return held.mix.numberOfChannels * held.mix.length * 4;
-    if (held.stems === null) return 0;
-    const { vocals, instrumental } = held.stems;
-    return (vocals.numberOfChannels * vocals.length + instrumental.numberOfChannels * instrumental.length) * 4;
+    if (held === null) return [];
+    if (held.mix !== null) return [held.mix];
+    if (held.stems === null) return [];
+    return [held.stems.vocals, held.stems.instrumental];
+  }
+
+  heldBytes(): number {
+    return this.heldBuffers().reduce((total, buffer) => total + buffer.numberOfChannels * buffer.length * 4, 0);
   }
 
   describe(): { videoId: string | null; state: StagedState; kind: StagedKind; durationSeconds: number | null } {

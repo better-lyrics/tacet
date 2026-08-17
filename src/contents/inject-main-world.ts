@@ -193,10 +193,24 @@ function bufferBytes(buffer: AudioBuffer): number {
   return buffer.numberOfChannels * buffer.length * 4;
 }
 
+function trackBuffers(track: LoadedTrack | null): AudioBuffer[] {
+  if (track === null) return [];
+  if (track.kind === "mix") return [track.mix];
+  return [track.vocals, track.instrumental];
+}
+
 function trackBytes(track: LoadedTrack | null): number {
-  if (track === null) return 0;
-  if (track.kind === "mix") return bufferBytes(track.mix);
-  return bufferBytes(track.vocals) + bufferBytes(track.instrumental);
+  return trackBuffers(track).reduce((total, buffer) => total + bufferBytes(buffer), 0);
+}
+
+function uniqueHeldBytes(): number {
+  const unique = new Set<AudioBuffer>();
+  for (const track of [pendingTrack, engagedTrack, trackBeforeCrossfade]) {
+    for (const buffer of trackBuffers(track)) unique.add(buffer);
+  }
+  for (const buffer of staging.heldBuffers()) unique.add(buffer);
+  for (const buffer of cachedGraph?.heldBuffers() ?? []) unique.add(buffer);
+  return [...unique].reduce((total, buffer) => total + bufferBytes(buffer), 0);
 }
 
 window.blkTransitionProbe = () => {
@@ -310,6 +324,7 @@ window.blkKaraokeProbe = () => {
       trackBeforeCrossfade: trackBeforeCrossfade === pendingTrack ? 0 : trackBytes(trackBeforeCrossfade),
       staging: staging.heldBytes(),
       decks: cachedGraph?.describe().decks.map(deck => deck.heldBytes) ?? null,
+      total: uniqueHeldBytes(),
     },
     graph: cachedGraph?.describe() ?? null,
   };

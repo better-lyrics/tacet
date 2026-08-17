@@ -103,6 +103,7 @@ interface PlaybackGraph {
   suppressDriftFor(seconds: number): void;
   recoverIfStopped(): boolean;
   recordOutput(seconds: number): Promise<{ samples: Float32Array; sampleRate: number }>;
+  heldBuffers(): AudioBuffer[];
   isEngaged(): boolean;
   dispose(): void;
   describe(): GraphState;
@@ -666,6 +667,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     recoverIfStopped,
     suppressDriftFor: suppressDrift,
     recordOutput,
+    heldBuffers: () => [...decks[0].heldBuffers(), ...decks[1].heldBuffers()],
     isEngaged: () => !bypass.isBypassed(),
     dispose,
     describe,

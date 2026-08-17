@@ -52,6 +52,7 @@ interface Deck {
   envelope(): Float32Array;
   gainParam(): AudioParam;
   setGain(value: number, seconds?: number): void;
+  heldBuffers(): AudioBuffer[];
   describe(): DeckState;
   dispose(): void;
 }
@@ -154,6 +155,11 @@ interface DeckBuffers {
 function buffersForLoad(request: DeckLoad): DeckBuffers {
   if (request.kind === "mix") return { vocals: null, instrumental: request.mix };
   return { vocals: request.vocals, instrumental: request.instrumental };
+}
+
+function heldBuffersOf(loaded: LoadedAudio | null): AudioBuffer[] {
+  if (loaded === null) return [];
+  return loaded.vocals === null ? [loaded.instrumental] : [loaded.vocals, loaded.instrumental];
 }
 
 function createDeck(deps: DeckDeps): Deck {
@@ -328,6 +334,7 @@ function createDeck(deps: DeckDeps): Deck {
     envelope: () => loaded?.envelope ?? new Float32Array(0),
     gainParam: () => deckGainNode.gain,
     setGain: (value, seconds) => rampGainTo(deckGainNode.gain, context, value, seconds),
+    heldBuffers: () => heldBuffersOf(loaded),
     describe,
     dispose,
   };
