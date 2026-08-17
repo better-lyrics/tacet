@@ -1,14 +1,14 @@
 import faderCss from "data-text:../ui/fader.css";
 import { type RequestQueueTracksMessage, isQueueTracksMessage, isTrackArtworkMessage } from "@/capture/bridge-protocol";
-import type { SourceId } from "@/acquisition/sources";
 import { describeBusy } from "@/orchestrator/busy-tooltip";
 import { describeDelivery } from "@/orchestrator/delivery";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
+import type { KaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { describeSeparation } from "@/orchestrator/separation-status";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { faderArmed } from "@/pageworld/gain-law";
-import type { SetLoggingMessage } from "@/pageworld/protocol";
+import type { SetCrossfadeMessage, SetLoggingMessage } from "@/pageworld/protocol";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
@@ -88,69 +88,58 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 // -- Master switch ---------------------------------------------------------
 
 let latest: KaraokeState | null = null;
+let faderRender: (() => void) | null = null;
+let faderCrossfade: ((durationSeconds: number) => void) | null = null;
 
 interface MountedFader {
   destroy(): void;
   setPlacement(next: FaderPlacement): void;
-  setSettings(settings: Settings): void;
-  setCrossfadeSeconds(seconds: number): void;
-  deliveredSource(videoId: string): SourceId | null;
 }
 
-function mountFader(settings: Settings, placement: FaderPlacement, crossfadeSeconds: number): MountedFader {
+function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): MountedFader {
   injectStylesheet();
 
-  let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
-  let tooltip: Tooltip | undefined;
   let armed = false;
 
   function render(): void {
-    if (latest && tooltip) renderKaraokeState(control, tooltip, latest, armed);
+    if (latest) renderKaraokeState(control, tooltip, latest, armed);
   }
 
   const control = createFaderControl({
     host: placement === "dock" && hasBetterLyrics() ? "dock" : "bar",
     onChange: (mixLevel, glideSeconds) => {
       armed = faderArmed(mixLevel);
-      pipeline?.engage(mixLevel, glideSeconds);
+      pipeline.engage(mixLevel, glideSeconds);
       render();
     },
-    onOpenChange: open => tooltip?.setSuppressed(open),
+    onOpenChange: open => tooltip.setSuppressed(open),
   });
 
-  tooltip = createTooltip(control.button);
-
-  pipeline = createKaraokePipeline({
-    settings,
-    onStateChange: state => {
-      latest = state;
-      render();
-    },
-    onCrossfadeStarted: durationSeconds => control.showCrossfade(durationSeconds),
-  });
+  const tooltip = createTooltip(control.button);
 
   const mount = attachFaderMount(
     { button: control.button, setHost: control.setHost, reanchorWipe: control.reanchorWipe },
     { placement }
   );
-  pipeline.setCrossfadeSeconds(crossfadeSeconds);
+
+  faderRender = render;
+  faderCrossfade = control.showCrossfade;
+  render();
 
   return {
     setPlacement: mount.setPlacement,
-    setSettings: next => pipeline?.setSettings(next),
-    setCrossfadeSeconds: seconds => pipeline?.setCrossfadeSeconds(seconds),
-    deliveredSource: videoId => pipeline?.deliveredSource(videoId) ?? null,
     destroy() {
+      faderRender = null;
+      faderCrossfade = null;
       mount.disconnect();
-      pipeline?.destroy();
       tooltip.destroy();
       control.destroy();
-      latest = null;
     },
   };
 }
 
-let mounted: MountedFader | null = null;
+let pipeline: KaraokePipeline | null = null;
+let fader: MountedFader | null = null;
 
 function applyLogging(enabled: boolean): void {
   setLoggingEnabled(enabled);
@@ -158,23 +147,47 @@ function applyLogging(enabled: boolean): void {
   window.postMessage(message, window.location.origin);
 }
 
+function postCrossfadeSeconds(seconds: number): void {
+  const message: SetCrossfadeMessage = { type: "blk-set-crossfade", seconds };
+  window.postMessage(message, window.location.origin);
+}
+
 function applySettings(settings: Settings): void {
   applyLogging(settings.debugLoggingEnabled);
-  const { singAlongEnabled, faderPlacement, crossfadeSeconds } = settings;
-  if (singAlongEnabled === (mounted !== null)) {
-    mounted?.setPlacement(faderPlacement);
-    mounted?.setSettings(settings);
-    mounted?.setCrossfadeSeconds(crossfadeSeconds);
-    return;
+  postCrossfadeSeconds(settings.crossfadeSeconds);
+
+  const wantPipeline = settings.singAlongEnabled || settings.crossfadeSeconds > 0;
+  if (wantPipeline && pipeline === null) {
+    pipeline = createKaraokePipeline({
+      settings,
+      onStateChange: state => {
+        latest = state;
+        faderRender?.();
+      },
+      onCrossfadeStarted: durationSeconds => faderCrossfade?.(durationSeconds),
+    });
+    logger.log("pipeline on");
+  } else if (!wantPipeline && pipeline !== null) {
+    pipeline.destroy();
+    pipeline = null;
+    latest = null;
+    logger.log("pipeline off");
   }
-  if (singAlongEnabled) {
-    mounted = mountFader(settings, faderPlacement, crossfadeSeconds);
+
+  pipeline?.setSettings(settings);
+
+  if (settings.singAlongEnabled && fader === null && pipeline !== null) {
+    fader = mountFader(pipeline, settings.faderPlacement);
     logger.log("sing-along on");
     return;
   }
-  mounted?.destroy();
-  mounted = null;
-  logger.log("sing-along off");
+  if (!settings.singAlongEnabled && fader !== null) {
+    fader.destroy();
+    fader = null;
+    logger.log("sing-along off");
+    return;
+  }
+  fader?.setPlacement(settings.faderPlacement);
 }
 
 loadSettingsFrom(chrome.storage.sync)
@@ -222,7 +235,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       now: tracks.now,
       next: tracks.next,
       separation: describeSeparation(latest),
-      deliveredBy: describeDelivery(nowVideoId ? mounted?.deliveredSource(nowVideoId) ?? null : null),
+      deliveredBy: describeDelivery(nowVideoId ? pipeline?.deliveredSource(nowVideoId) ?? null : null),
     } satisfies TrackStatusMessage);
     requestQueueTracks();
     return undefined;

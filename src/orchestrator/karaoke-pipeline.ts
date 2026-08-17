@@ -37,7 +37,6 @@ import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { NEUTRAL_MIX_LEVEL, faderArmed } from "@/pageworld/gain-law";
 import {
   type LoadStemsMessage,
-  type SetCrossfadeMessage,
   type SetMixLevelMessage,
   type StageDeckMessage,
   type StagedReadyMessage,
@@ -96,7 +95,6 @@ interface KaraokePipelineOptions {
 interface KaraokePipeline {
   engage(mixLevel: number, glideSeconds?: number): void;
   setSettings(settings: Settings): void;
-  setCrossfadeSeconds(seconds: number): void;
   deliveredSource(videoId: string): SourceId | null;
   destroy(): void;
 }
@@ -175,8 +173,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | RequestShadowUrlMessage
       | RequestNextPrefetchMessage
       | StagedReadyMessage
-      | StageDeckMessage
-      | SetCrossfadeMessage,
+      | StageDeckMessage,
     transfer?: Transferable[]
   ): void {
     window.postMessage(message, window.location.origin, transfer);
@@ -781,15 +778,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     settings = next;
   }
 
-  function setCrossfadeSeconds(seconds: number): void {
-    postToPageWorld({ type: "blk-set-crossfade", seconds });
-  }
-
   function deliveredSource(videoId: string): SourceId | null {
     return delivery?.videoId === videoId ? delivery.source : null;
   }
 
-  return { engage, setSettings, setCrossfadeSeconds, deliveredSource, destroy };
+  return { engage, setSettings, deliveredSource, destroy };
 }
 
 export { createKaraokePipeline };
