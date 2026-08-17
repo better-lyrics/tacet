@@ -253,10 +253,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function probeCacheFor(videoId: string): void {
+    const current = videoId === state.videoId;
+    const veto = current ? separationVetoFor() : null;
+    if (veto) {
+      log(`not checking the cache for ${videoId}, ${describeSeparationVeto(veto)}`);
+      return;
+    }
+
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
 
-    if (videoId === state.videoId) armAcquisitionWatchdog(videoId);
+    if (current) armAcquisitionWatchdog(videoId);
   }
 
   function armAcquisitionWatchdog(videoId: string): void {
@@ -510,6 +517,13 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function finishStemsIfReady(videoId: string): void {
     if (!doneReceived || !vocalsAssembler?.isComplete() || !instrumentalAssembler?.isComplete()) return;
     if (videoId !== state.videoId || state.status !== "processing") return;
+
+    const veto = separationVetoFor();
+    if (veto) {
+      log(`not loading the stems of ${videoId} into the deck, ${describeSeparationVeto(veto)}`);
+      resetStemAssembly();
+      return;
+    }
 
     const vocalsBlob = decodeStemBlob(vocalsAssembler);
     const instrumentalBlob = decodeStemBlob(instrumentalAssembler);
