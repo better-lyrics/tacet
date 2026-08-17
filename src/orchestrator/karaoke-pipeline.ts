@@ -757,13 +757,15 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function engage(mixLevel: number, glideSeconds?: number): void {
+    const wasArmed = faderArmed(pendingMixLevel);
     pendingMixLevel = mixLevel;
     postToPageWorld({ type: "blk-set-mix-level", mixLevel, glideSeconds });
 
     if (!faderArmed(mixLevel)) return;
     if (state.status === "waiting-for-capture") {
-      log(`arming ${state.videoId}, acquiring it now that the fader asked for it`);
-      maybeAcquireCurrent(state.videoId);
+      if (wasArmed) return;
+      log(`arming ${state.videoId}, checking the cache now that the fader asked for it`);
+      probeCacheFor(state.videoId);
       return;
     }
     if (state.status !== "ready-to-engage") return;
