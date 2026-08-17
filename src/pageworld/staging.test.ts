@@ -8,7 +8,11 @@ const stemsOf = (frames: number, sampleRate = 48000) => ({
   sampleRate,
 });
 
-const mixOf = (duration: number): MixBuffer => ({ duration });
+const mixOf = (duration: number, numberOfChannels = 2, sampleRate = 48000): MixBuffer => ({
+  duration,
+  numberOfChannels,
+  length: Math.round(duration * sampleRate),
+});
 
 const staging = () => new Staging<MixBuffer>();
 
@@ -49,6 +53,36 @@ describe("Staging", () => {
     expect(held.audio("next")).toBeNull();
     held.beginMix("next");
     expect(held.audio("next")).toBeNull();
+  });
+
+  describe("what it holds", () => {
+    it("holds no bytes with nothing staged", () => {
+      expect(staging().heldBytes()).toBe(0);
+    });
+
+    it("counts a staged mix by its channels and frames", () => {
+      const held = staging();
+      held.beginMix("next");
+      expect(held.heldBytes()).toBe(0);
+      held.takeMix("next", mixOf(10));
+      expect(held.heldBytes()).toBe(2 * 480_000 * 4);
+    });
+
+    it("counts staged stems across both stems", () => {
+      const held = staging();
+      held.offerStems("next");
+      expect(held.heldBytes()).toBe(0);
+      held.takeStems("next", stemsOf(480_000));
+      expect(held.heldBytes()).toBe(4 * 480_000 * 4);
+    });
+
+    it("holds no bytes again once it is cleared", () => {
+      const held = staging();
+      held.offerStems("next");
+      held.takeStems("next", stemsOf(4800));
+      held.clear();
+      expect(held.heldBytes()).toBe(0);
+    });
   });
 
   describe("edge cases", () => {

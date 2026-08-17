@@ -189,6 +189,20 @@ declare global {
 
 // -- Diagnostics --------------------------------------------------------------
 
+function bufferBytes(buffer: AudioBuffer | null): number {
+  return buffer === null ? 0 : buffer.numberOfChannels * buffer.length * 4;
+}
+
+function channelBytes(channels: Float32Array<ArrayBuffer>[] | undefined): number {
+  return (channels ?? []).reduce((total, channel) => total + channel.byteLength, 0);
+}
+
+function trackBytes(track: LoadedTrack | null): number {
+  if (track === null) return 0;
+  if (track.kind === "mix") return bufferBytes(track.mix);
+  return channelBytes(track.vocals) + channelBytes(track.instrumental);
+}
+
 window.blkTransitionProbe = () => {
   const state = cachedGraph?.describe() ?? null;
   const active = state ? state.decks[state.activeDeck] : null;
@@ -294,6 +308,13 @@ window.blkKaraokeProbe = () => {
     playerDurationSeconds: snapshot ? +snapshot.durationSeconds.toFixed(2) : null,
     audibleElementDecodedBytes: cachedElement ? decodedBytes(cachedElement) : 0,
     boundToPlayerElement: cachedElement !== null && cachedElement === element,
+    heldBytes: {
+      pendingTrack: trackBytes(pendingTrack),
+      engagedTrack: engagedTrack === pendingTrack ? 0 : trackBytes(engagedTrack),
+      trackBeforeCrossfade: trackBeforeCrossfade === pendingTrack ? 0 : trackBytes(trackBeforeCrossfade),
+      staging: staging.heldBytes(),
+      decks: cachedGraph?.describe().decks.map(deck => deck.heldBytes) ?? null,
+    },
     graph: cachedGraph?.describe() ?? null,
   };
 };

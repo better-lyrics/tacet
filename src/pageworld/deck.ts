@@ -38,6 +38,7 @@ interface DeckState {
   deckGain: number;
   positionSeconds: number;
   durationSeconds: number;
+  heldBytes: number;
 }
 
 interface Deck {
@@ -318,6 +319,11 @@ function createDeck(deps: DeckDeps): Deck {
       deckGain: deckGainNode.gain.value,
       positionSeconds: positionNow(),
       durationSeconds: loaded?.durationSeconds ?? 0,
+      heldBytes:
+        loaded === null
+          ? 0
+          : (loaded.vocals === null ? 0 : loaded.vocals.numberOfChannels * loaded.vocals.length * 4) +
+            loaded.instrumental.numberOfChannels * loaded.instrumental.length * 4,
     };
   }
 

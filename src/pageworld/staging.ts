@@ -12,6 +12,8 @@ interface StagedStems {
 
 interface MixBuffer {
   duration: number;
+  numberOfChannels: number;
+  length: number;
 }
 
 type StagedAudio<Mix> = { kind: "stems"; stems: StagedStems } | { kind: "mix"; mix: Mix };
@@ -129,6 +131,14 @@ class Staging<Mix extends MixBuffer = AudioBuffer> {
     if (!isStagingSpent({ stagedVideoId: this.videoId, nextTrackVideoId, listenerVideoId })) return false;
     this.clear();
     return true;
+  }
+
+  heldBytes(): number {
+    const held = this.held;
+    if (held === null) return 0;
+    if (held.mix !== null) return held.mix.numberOfChannels * held.mix.length * 4;
+    if (held.stems === null) return 0;
+    return [...held.stems.vocals, ...held.stems.instrumental].reduce((total, channel) => total + channel.byteLength, 0);
   }
 
   describe(): { videoId: string | null; state: StagedState; kind: StagedKind; durationSeconds: number | null } {
