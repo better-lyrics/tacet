@@ -7,7 +7,7 @@ import type { AudibleSource } from "@/pageworld/audible-source";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
 import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
-import { MIX_GLIDE_SECONDS, NEUTRAL_MIX_LEVEL, listenerGain } from "@/pageworld/gain-law";
+import { MIX_GLIDE_SECONDS, NEUTRAL_MIX_LEVEL, faderArmed, listenerGain } from "@/pageworld/gain-law";
 import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
@@ -278,7 +278,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     setOriginalGain(0, HANDOVER_SECONDS);
     deck().startAt(start.offsetSeconds);
     deck().fadeIn(HANDOVER_SECONDS);
-    if (currentMixLevel === NEUTRAL_MIX_LEVEL) {
+    if (!faderArmed(currentMixLevel)) {
       deck().setMixLevel(currentMixLevel);
       return;
     }
