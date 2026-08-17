@@ -49,7 +49,6 @@ import {
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
 import type { Settings } from "@/settings/settings";
-import { loadSettingsFrom } from "@/settings/storage";
 import { createLogger } from "@/shared/logger";
 import type {
   AcquireTrackCommand,
@@ -89,18 +88,21 @@ function describeError(error: unknown): string {
 }
 
 interface KaraokePipelineOptions {
+  settings: Settings;
   onStateChange(state: KaraokeState): void;
   onCrossfadeStarted(durationSeconds: number): void;
 }
 
 interface KaraokePipeline {
   engage(mixLevel: number, glideSeconds?: number): void;
+  setSettings(settings: Settings): void;
   setCrossfadeSeconds(seconds: number): void;
   deliveredSource(videoId: string): SourceId | null;
   destroy(): void;
 }
 
 function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline {
+  let settings = options.settings;
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
   let prefetchVideoId: string | null = null;
@@ -646,7 +648,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Auto separate -------------------------------------------------------
 
-  function separationVetoFor(settings: Settings): SeparationVeto | null {
+  function separationVetoFor(): SeparationVeto | null {
     return separationVeto({
       singAlongEnabled: settings.singAlongEnabled,
       autoSeparateEnabled: settings.autoSeparateEnabled,
@@ -655,36 +657,32 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function maybeAcquireCurrent(videoId: string): void {
-    loadSettingsFrom(chrome.storage.sync)
-      .then(settings => {
-        if (videoId !== state.videoId) return;
-        const veto = separationVetoFor(settings);
-        if (veto) {
-          log(`not acquiring ${videoId}, ${describeSeparationVeto(veto)}`);
-          return;
-        }
-        if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
-        if (climb.inFlight || climb.exhausted) return;
+    if (videoId !== state.videoId) return;
+    const veto = separationVetoFor();
+    if (veto) {
+      log(`not acquiring ${videoId}, ${describeSeparationVeto(veto)}`);
+      return;
+    }
+    if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
+    if (climb.inFlight || climb.exhausted) return;
 
-        const order = enabledOrder(sanitizeSourcePreferences(settings.sources));
-        for (;;) {
-          const source = nextSource({ order, playingTrack: true, tried: climb.tried });
-          if (!source) {
-            climb.exhausted = true;
-            log(`every source has been tried for ${videoId}`);
-            return;
-          }
-          climb.tried.push(source);
-          if (source === "player-capture") {
-            log(`${videoId} is covered by the listener's own playback once it buffers`);
-            continue;
-          }
-          climb.inFlight = true;
-          startSource(videoId, source);
-          return;
-        }
-      })
-      .catch(error => logError("failed to read the source order", error));
+    const order = enabledOrder(sanitizeSourcePreferences(settings.sources));
+    for (;;) {
+      const source = nextSource({ order, playingTrack: true, tried: climb.tried });
+      if (!source) {
+        climb.exhausted = true;
+        log(`every source has been tried for ${videoId}`);
+        return;
+      }
+      climb.tried.push(source);
+      if (source === "player-capture") {
+        log(`${videoId} is covered by the listener's own playback once it buffers`);
+        continue;
+      }
+      climb.inFlight = true;
+      startSource(videoId, source);
+      return;
+    }
   }
 
   function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
@@ -718,39 +716,29 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function maybeSeparateAhead(videoId: string): void {
-    loadSettingsFrom(chrome.storage.sync)
-      .then(settings => {
-        if (videoId !== prefetchVideoId) return;
-        const veto = separationVetoFor(settings);
-        if (veto) {
-          log(
-            `next track ${videoId} acquired, held for a crossfade but not separated: ${describeSeparationVeto(veto)}`
-          );
-          return;
-        }
-        if (state.status !== "engaged" && state.status !== "failed") {
-          log(`next track ${videoId} acquired, waiting for ${state.videoId} to finish before separating it`);
-          return;
-        }
-        trackStatusStore.setActivity(videoId, "separating");
-        log(`next track ${videoId} acquired, separating it ahead of time`);
-        const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
-        window.postMessage(request, window.location.origin);
-      })
-      .catch(error => logError("failed to read the settings", error));
+    if (videoId !== prefetchVideoId) return;
+    const veto = separationVetoFor();
+    if (veto) {
+      log(`next track ${videoId} acquired, held for a crossfade but not separated: ${describeSeparationVeto(veto)}`);
+      return;
+    }
+    if (state.status !== "engaged" && state.status !== "failed") {
+      log(`next track ${videoId} acquired, waiting for ${state.videoId} to finish before separating it`);
+      return;
+    }
+    trackStatusStore.setActivity(videoId, "separating");
+    log(`next track ${videoId} acquired, separating it ahead of time`);
+    const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
+    window.postMessage(request, window.location.origin);
   }
 
   function maybeAutoEngage(videoId: string): void {
-    loadSettingsFrom(chrome.storage.sync)
-      .then(settings => {
-        if (separationVetoFor(settings) !== null) return;
-        if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
+    if (separationVetoFor() !== null) return;
+    if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
 
-        log(`auto-separating ${videoId}`);
-        dispatch({ type: "engage", videoId });
-        requestCapturedAudio(videoId);
-      })
-      .catch(error => logError("failed to read the settings", error));
+    log(`auto-separating ${videoId}`);
+    dispatch({ type: "engage", videoId });
+    requestCapturedAudio(videoId);
   }
 
   function engage(mixLevel: number, glideSeconds?: number): void {
@@ -785,6 +773,10 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
   }
 
+  function setSettings(next: Settings): void {
+    settings = next;
+  }
+
   function setCrossfadeSeconds(seconds: number): void {
     postToPageWorld({ type: "blk-set-crossfade", seconds });
   }
@@ -793,7 +785,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     return delivery?.videoId === videoId ? delivery.source : null;
   }
 
-  return { engage, setCrossfadeSeconds, deliveredSource, destroy };
+  return { engage, setSettings, setCrossfadeSeconds, deliveredSource, destroy };
 }
 
 export { createKaraokePipeline };

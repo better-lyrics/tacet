@@ -92,11 +92,12 @@ let latest: KaraokeState | null = null;
 interface MountedFader {
   destroy(): void;
   setPlacement(next: FaderPlacement): void;
+  setSettings(settings: Settings): void;
   setCrossfadeSeconds(seconds: number): void;
   deliveredSource(videoId: string): SourceId | null;
 }
 
-function mountFader(placement: FaderPlacement, crossfadeSeconds: number): MountedFader {
+function mountFader(settings: Settings, placement: FaderPlacement, crossfadeSeconds: number): MountedFader {
   injectStylesheet();
 
   let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
@@ -120,6 +121,7 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
   tooltip = createTooltip(control.button);
 
   pipeline = createKaraokePipeline({
+    settings,
     onStateChange: state => {
       latest = state;
       render();
@@ -135,6 +137,7 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
 
   return {
     setPlacement: mount.setPlacement,
+    setSettings: next => pipeline?.setSettings(next),
     setCrossfadeSeconds: seconds => pipeline?.setCrossfadeSeconds(seconds),
     deliveredSource: videoId => pipeline?.deliveredSource(videoId) ?? null,
     destroy() {
@@ -160,11 +163,12 @@ function applySettings(settings: Settings): void {
   const { singAlongEnabled, faderPlacement, crossfadeSeconds } = settings;
   if (singAlongEnabled === (mounted !== null)) {
     mounted?.setPlacement(faderPlacement);
+    mounted?.setSettings(settings);
     mounted?.setCrossfadeSeconds(crossfadeSeconds);
     return;
   }
   if (singAlongEnabled) {
-    mounted = mountFader(faderPlacement, crossfadeSeconds);
+    mounted = mountFader(settings, faderPlacement, crossfadeSeconds);
     logger.log("sing-along on");
     return;
   }
