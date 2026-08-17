@@ -30,6 +30,7 @@ import {
   playerStateFromOwnBridge,
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
+import { separationWanted } from "@/orchestrator/separation-wanted";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
@@ -46,6 +47,7 @@ import {
 } from "@/pageworld/protocol";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
+import type { Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { createLogger } from "@/shared/logger";
 import type {
@@ -643,11 +645,19 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Auto separate -------------------------------------------------------
 
+  function wantsSeparation(settings: Settings): boolean {
+    return separationWanted({
+      singAlongEnabled: settings.singAlongEnabled,
+      autoSeparateEnabled: settings.autoSeparateEnabled,
+      faderArmed: pendingMixLevel !== NEUTRAL_MIX_LEVEL,
+    });
+  }
+
   function maybeAcquireCurrent(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
         if (videoId !== state.videoId) return;
-        if (!settings.autoSeparateEnabled && pendingMixLevel === NEUTRAL_MIX_LEVEL) {
+        if (!wantsSeparation(settings)) {
           log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
           return;
         }
@@ -709,7 +719,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
         if (videoId !== prefetchVideoId) return;
-        if (!settings.autoSeparateEnabled && pendingMixLevel === NEUTRAL_MIX_LEVEL) {
+        if (!wantsSeparation(settings)) {
           log(`next track ${videoId} acquired, held for a crossfade but not separated`);
           return;
         }
@@ -728,8 +738,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function maybeAutoEngage(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
-        const armed = pendingMixLevel !== NEUTRAL_MIX_LEVEL;
-        if (!settings.autoSeparateEnabled && !armed) return;
+        if (!wantsSeparation(settings)) return;
         if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
 
         log(`auto-separating ${videoId}`);
