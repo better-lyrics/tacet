@@ -7,7 +7,7 @@ import type { KaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { describeSeparation } from "@/orchestrator/separation-status";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
-import { faderArmed } from "@/pageworld/gain-law";
+import { MIX_GLIDE_SECONDS, NEUTRAL_MIX_LEVEL, faderArmed } from "@/pageworld/gain-law";
 import type { SetCrossfadeMessage, SetLoggingMessage } from "@/pageworld/protocol";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
@@ -182,6 +182,7 @@ function applySettings(settings: Settings): void {
     return;
   }
   if (!settings.singAlongEnabled && fader !== null) {
+    pipeline?.engage(NEUTRAL_MIX_LEVEL, MIX_GLIDE_SECONDS);
     fader.destroy();
     fader = null;
     logger.log("sing-along off");
