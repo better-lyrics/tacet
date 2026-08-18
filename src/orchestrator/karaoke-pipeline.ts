@@ -734,6 +734,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (videoId !== prefetchVideoId) return;
     const veto = separationVetoFor();
     if (veto) {
+      trackStatusStore.setActivity(videoId, "ready");
       log(`next track ${videoId} acquired, held for a crossfade but not separated: ${describeSeparationVeto(veto)}`);
       return;
     }

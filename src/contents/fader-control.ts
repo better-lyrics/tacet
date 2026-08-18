@@ -83,6 +83,12 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
   }
 }
 
+function renderInertFader(control: FaderControl, tooltip: Tooltip): void {
+  control.setBusy(false);
+  markFader(control.button, "inert");
+  tooltip.setContent(describeInertFader(crossfadeSeconds, trackStatusStore.get().next));
+}
+
 // -- Master switch ---------------------------------------------------------
 
 let latest: KaraokeState | null = null;
@@ -103,7 +109,10 @@ function mountFader(placement: FaderPlacement): MountedFader {
   let tooltip: Tooltip | undefined;
 
   function render(): void {
-    if (!interactive) return;
+    if (!interactive) {
+      if (tooltip) renderInertFader(control, tooltip);
+      return;
+    }
     if (latest && tooltip) renderKaraokeState(control, tooltip, latest, armed);
   }
 
@@ -126,17 +135,13 @@ function mountFader(placement: FaderPlacement): MountedFader {
 
   faderRender = render;
   faderCrossfade = control.showCrossfade;
+  trackStatusStore.subscribe(render);
   render();
 
   return {
     setPlacement: mount.setPlacement,
     setInteractive(next) {
       interactive = next;
-      if (!next) {
-        control.setBusy(false);
-        markFader(control.button, "inert");
-        tooltip?.setContent(describeInertFader(crossfadeSeconds));
-      }
       control.setInteractive(next);
       render();
     },
