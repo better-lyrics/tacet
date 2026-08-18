@@ -100,9 +100,10 @@ function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): Mount
   injectStylesheet();
 
   let armed = false;
+  let tooltip: Tooltip | undefined;
 
   function render(): void {
-    if (latest) renderKaraokeState(control, tooltip, latest, armed);
+    if (latest && tooltip) renderKaraokeState(control, tooltip, latest, armed);
   }
 
   const control = createFaderControl({
@@ -112,10 +113,10 @@ function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): Mount
       pipeline.engage(mixLevel, glideSeconds);
       render();
     },
-    onOpenChange: open => tooltip.setSuppressed(open),
+    onOpenChange: open => tooltip?.setSuppressed(open),
   });
 
-  const tooltip = createTooltip(control.button);
+  tooltip = createTooltip(control.button);
 
   const mount = attachFaderMount(
     { button: control.button, setHost: control.setHost, reanchorWipe: control.reanchorWipe },
@@ -132,7 +133,7 @@ function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): Mount
       faderRender = null;
       faderCrossfade = null;
       mount.disconnect();
-      tooltip.destroy();
+      tooltip?.destroy();
       control.destroy();
     },
   };
