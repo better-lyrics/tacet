@@ -210,7 +210,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       }
 
       if (landing === "keep-deck-and-reacquire") {
-        log(`crossfaded into ${videoId} on unseparated audio, separating it while it plays`);
+        log(`crossfaded into ${videoId} on unseparated audio`);
         dispatch({ type: "track-changed", videoId });
         probeCacheFor(videoId);
         requestNextPrefetch(videoId);
@@ -522,6 +522,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (veto) {
       log(`not loading the stems of ${videoId} into the deck, ${describeSeparationVeto(veto)}`);
       resetStemAssembly();
+      dispatch({ type: "reacquire", videoId });
       return;
     }
 
