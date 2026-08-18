@@ -29,7 +29,6 @@ interface AttachFaderMountOptions {
 
 interface FaderMountHandle {
   setPlacement(next: FaderPlacement): void;
-  disconnect(): void;
 }
 
 function attachFaderMount(control: FaderMountControl, options: AttachFaderMountOptions = {}): FaderMountHandle {
@@ -93,11 +92,6 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
       if (next === placement) return;
       placement = next;
       resolver.resolve(true);
-    },
-    disconnect() {
-      observer.disconnect();
-      resolver.dispose();
-      divider.remove();
     },
   };
 }
