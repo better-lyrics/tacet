@@ -14,7 +14,7 @@ interface CrossfadeLandingInput {
 type CrossfadeLanding = "keep-deck" | "keep-deck-and-reacquire" | "release";
 
 function decideCrossfadeLanding(input: CrossfadeLandingInput): CrossfadeLanding {
-  if (input.kind === "mix") return input.separating ? "keep-deck-and-reacquire" : "keep-deck";
+  if (input.kind === "mix") return "keep-deck-and-reacquire";
   if (!input.separating) return "keep-deck";
   return input.status === "engaged" ? "keep-deck" : "release";
 }
