@@ -937,7 +937,7 @@ async function main(): Promise<void> {
 
   const singAlongToggle = createToggle(
     "Sing-along",
-    "Separate the vocals so you can fade them down. Reload YouTube Music after changing this.",
+    "Separate the vocals so you can fade them down. Takes effect from the next track.",
     settings.singAlongEnabled,
     next => {
       saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
