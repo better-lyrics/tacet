@@ -52,6 +52,7 @@ interface FaderControl {
   getHost(): FaderHost;
   setHost(next: FaderHost): void;
   setBusy(busy: boolean): void;
+  setInteractive(next: boolean): void;
   showCrossfade(durationSeconds: number): void;
   reanchorWipe(): void;
   destroy(): void;
@@ -191,8 +192,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   document.body.appendChild(menu);
 
   let v = 0;
+  let interactive = true;
 
   const isMarkedDisabled = (): boolean => button.getAttribute("aria-disabled") === "true";
+  const mayAct = (): boolean => isFaderInteractive(isMarkedDisabled(), interactive);
 
   // -- Placement --------------------------------------------------------------
   function cardAnchor(): CardAnchor {
@@ -387,10 +390,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   }
 
   button.addEventListener("pointerdown", () => {
-    if (!isFaderInteractive(isMarkedDisabled())) return;
+    if (!mayAct()) return;
     holdHandled = false;
     holdTimer = setTimeout(() => {
-      if (!isFaderInteractive(isMarkedDisabled())) return;
+      if (!mayAct()) return;
       holdHandled = true;
       setOpen(true);
     }, HOLD_MS);
@@ -399,17 +402,17 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   button.addEventListener("pointerleave", clearHold);
   button.addEventListener("click", () => {
     if (holdHandled) return;
-    if (!isFaderInteractive(isMarkedDisabled())) return;
+    if (!mayAct()) return;
     v = v === 0 ? -1 : 0;
     commit("settle");
   });
   button.addEventListener("dblclick", () => {
-    if (!isFaderInteractive(isMarkedDisabled())) return;
+    if (!mayAct()) return;
     setOpen(true);
   });
   button.addEventListener("keydown", event => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (!isFaderInteractive(isMarkedDisabled())) return;
+      if (!mayAct()) return;
       event.preventDefault();
       setOpen(true);
     }
@@ -424,9 +427,17 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   // -- Disabled gate --------------------------------------------------------
 
   const disabledObserver = new MutationObserver(() => {
-    if (shouldCloseForDisabled(open, isMarkedDisabled())) setOpen(false);
+    if (shouldCloseForDisabled(open, !mayAct())) setOpen(false);
   });
   disabledObserver.observe(button, { attributes: true, attributeFilter: ["aria-disabled"] });
+
+  function setInteractive(next: boolean): void {
+    if (interactive === next) return;
+    interactive = next;
+    if (next) button.removeAttribute("aria-disabled");
+    else button.setAttribute("aria-disabled", "true");
+    if (shouldCloseForDisabled(open, !next)) setOpen(false);
+  }
 
   function onMenuKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
@@ -439,6 +450,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   // -- Track: drag, double-click reset, keys -------------------------------------
 
   track.addEventListener("pointerdown", event => {
+    if (!mayAct()) return;
     event.preventDefault();
     track.focus();
     track.setPointerCapture(event.pointerId);
@@ -463,11 +475,13 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   });
 
   track.addEventListener("dblclick", () => {
+    if (!mayAct()) return;
     v = 0;
     commit("settle");
   });
 
   track.addEventListener("keydown", event => {
+    if (!mayAct()) return;
     const big = event.shiftKey;
     if (event.key === "ArrowUp") v = stepValue(v, 1, big);
     else if (event.key === "ArrowDown") v = stepValue(v, -1, big);
@@ -539,7 +553,17 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     button.remove();
   }
 
-  return { button, menu, getHost: () => host, setHost, setBusy, showCrossfade, reanchorWipe: anchorWipe, destroy };
+  return {
+    button,
+    menu,
+    getHost: () => host,
+    setHost,
+    setBusy,
+    setInteractive,
+    showCrossfade,
+    reanchorWipe: anchorWipe,
+    destroy,
+  };
 }
 
 export { createFaderControl };

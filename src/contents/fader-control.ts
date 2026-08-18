@@ -16,6 +16,7 @@ import { createLogger, setLoggingEnabled } from "@/shared/logger";
 import { extensionVersion } from "@/shared/version";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
+import { describeInertFader } from "@/ui/fader-inert-tooltip";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
@@ -90,19 +91,22 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 let latest: KaraokeState | null = null;
 let faderRender: (() => void) | null = null;
 let faderCrossfade: ((durationSeconds: number) => void) | null = null;
+let crossfadeSeconds = 0;
 
 interface MountedFader {
-  destroy(): void;
   setPlacement(next: FaderPlacement): void;
+  setInteractive(next: boolean): void;
 }
 
-function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): MountedFader {
+function mountFader(placement: FaderPlacement): MountedFader {
   injectStylesheet();
 
   let armed = false;
+  let interactive = true;
   let tooltip: Tooltip | undefined;
 
   function render(): void {
+    if (!interactive) return;
     if (latest && tooltip) renderKaraokeState(control, tooltip, latest, armed);
   }
 
@@ -110,7 +114,7 @@ function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): Mount
     host: placement === "dock" && hasBetterLyrics() ? "dock" : "bar",
     onChange: (mixLevel, glideSeconds) => {
       armed = faderArmed(mixLevel);
-      pipeline.engage(mixLevel, glideSeconds);
+      pipeline?.engage(mixLevel, glideSeconds);
       render();
     },
     onOpenChange: open => tooltip?.setSuppressed(open),
@@ -129,18 +133,22 @@ function mountFader(pipeline: KaraokePipeline, placement: FaderPlacement): Mount
 
   return {
     setPlacement: mount.setPlacement,
-    destroy() {
-      faderRender = null;
-      faderCrossfade = null;
-      mount.disconnect();
-      tooltip?.destroy();
-      control.destroy();
+    setInteractive(next) {
+      interactive = next;
+      if (!next) {
+        control.setBusy(false);
+        markAvailable(control.button);
+        tooltip?.setContent(describeInertFader(crossfadeSeconds));
+      }
+      control.setInteractive(next);
+      render();
     },
   };
 }
 
 let pipeline: KaraokePipeline | null = null;
 let fader: MountedFader | null = null;
+let singAlongOn = false;
 
 function applyLogging(enabled: boolean): void {
   setLoggingEnabled(enabled);
@@ -155,6 +163,7 @@ function postCrossfadeSeconds(seconds: number): void {
 
 function applySettings(settings: Settings): void {
   applyLogging(settings.debugLoggingEnabled);
+  crossfadeSeconds = settings.crossfadeSeconds;
   postCrossfadeSeconds(settings.crossfadeSeconds);
 
   const wantPipeline = settings.singAlongEnabled || settings.crossfadeSeconds > 0;
@@ -177,19 +186,15 @@ function applySettings(settings: Settings): void {
 
   pipeline?.setSettings(settings);
 
-  if (settings.singAlongEnabled && fader === null && pipeline !== null) {
-    fader = mountFader(pipeline, settings.faderPlacement);
-    logger.log("sing-along on");
-    return;
+  if (singAlongOn !== settings.singAlongEnabled) {
+    if (!settings.singAlongEnabled) pipeline?.engage(NEUTRAL_MIX_LEVEL, MIX_GLIDE_SECONDS);
+    singAlongOn = settings.singAlongEnabled;
+    logger.log(singAlongOn ? "sing-along on" : "sing-along off");
   }
-  if (!settings.singAlongEnabled && fader !== null) {
-    pipeline?.engage(NEUTRAL_MIX_LEVEL, MIX_GLIDE_SECONDS);
-    fader.destroy();
-    fader = null;
-    logger.log("sing-along off");
-    return;
-  }
-  fader?.setPlacement(settings.faderPlacement);
+
+  if (fader === null) fader = mountFader(settings.faderPlacement);
+  fader.setInteractive(settings.singAlongEnabled);
+  fader.setPlacement(settings.faderPlacement);
 }
 
 loadSettingsFrom(chrome.storage.sync)

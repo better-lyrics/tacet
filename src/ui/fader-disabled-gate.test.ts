@@ -3,11 +3,32 @@ import { isFaderInteractive, shouldCloseForDisabled } from "@/ui/fader-disabled-
 
 describe("isFaderInteractive", () => {
   it("is interactive when not disabled", () => {
-    expect(isFaderInteractive(false)).toBe(true);
+    expect(isFaderInteractive(false, true)).toBe(true);
   });
 
   it("refuses to act while disabled", () => {
-    expect(isFaderInteractive(true)).toBe(false);
+    expect(isFaderInteractive(true, true)).toBe(false);
+  });
+
+  it("refuses to act while the control is inert", () => {
+    expect(isFaderInteractive(false, false)).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("stays refused when both reasons hold at once", () => {
+      expect(isFaderInteractive(true, false)).toBe(false);
+    });
+  });
+
+  describe("invariants", () => {
+    it("takes both reasons, so neither one alone can let an input through", () => {
+      const refused = [
+        isFaderInteractive(true, true),
+        isFaderInteractive(false, false),
+        isFaderInteractive(true, false),
+      ];
+      expect(refused).toEqual([false, false, false]);
+    });
   });
 });
 

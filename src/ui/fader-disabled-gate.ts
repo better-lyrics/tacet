@@ -1,5 +1,5 @@
-function isFaderInteractive(disabled: boolean): boolean {
-  return !disabled;
+function isFaderInteractive(markedDisabled: boolean, modeInteractive: boolean): boolean {
+  return !markedDisabled && modeInteractive;
 }
 
 function shouldCloseForDisabled(open: boolean, disabled: boolean): boolean {
