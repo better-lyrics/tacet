@@ -1,5 +1,5 @@
 import { shouldShowActivePill } from "@/ui/armed-affordance";
-import { isFaderInteractive, shouldCloseForDisabled } from "@/ui/fader-disabled-gate";
+import { isFaderInteractive, shouldCloseForDisabled, shouldSettleToNeutral } from "@/ui/fader-disabled-gate";
 import {
   dockCouplingCardClosed,
   dockCouplingCardOpened,
@@ -55,7 +55,6 @@ interface FaderControl {
   setInteractive(next: boolean): void;
   showCrossfade(durationSeconds: number): void;
   reanchorWipe(): void;
-  destroy(): void;
 }
 
 // -- Glyph stack --------------------------------------------------------------
@@ -437,6 +436,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     if (next) button.removeAttribute("aria-disabled");
     else button.setAttribute("aria-disabled", "true");
     if (shouldCloseForDisabled(open, !next)) setOpen(false);
+    if (shouldSettleToNeutral(next, v)) {
+      v = 0;
+      commit("settle", false);
+    }
   }
 
   function onMenuKeydown(event: KeyboardEvent): void {
@@ -540,19 +543,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     anchorWipe();
   }
 
-  function destroy(): void {
-    window.removeEventListener("resize", onResize);
-    window.removeEventListener("scroll", onScroll);
-    document.removeEventListener("pointerdown", onDocumentPointerDown);
-    disabledObserver.disconnect();
-    stopWatchingDockCollapse();
-    clearHold();
-    clearWipe();
-    if (hideTimer !== null) clearTimeout(hideTimer);
-    menu.remove();
-    button.remove();
-  }
-
   return {
     button,
     menu,
@@ -562,7 +552,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     setInteractive,
     showCrossfade,
     reanchorWipe: anchorWipe,
-    destroy,
   };
 }
 
