@@ -97,6 +97,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   function applyNote(text: string | null | undefined): void {
     if (text) note.textContent = text;
     note.classList.toggle(NOTE_SHOWN_CLASS, Boolean(text));
+    note.setAttribute("aria-hidden", String(!text));
   }
 
   function place(): void {
