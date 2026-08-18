@@ -16,6 +16,8 @@ import { createLogger, setLoggingEnabled } from "@/shared/logger";
 import { extensionVersion } from "@/shared/version";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
+import { faderMarks } from "@/ui/fader-availability";
+import type { FaderAvailability } from "@/ui/fader-availability";
 import { describeInertFader } from "@/ui/fader-inert-tooltip";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
@@ -51,18 +53,13 @@ function injectStylesheet(): void {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-function markUnavailable(button: HTMLButtonElement, dim = false): void {
-  button.setAttribute("aria-disabled", "true");
-  button.style.opacity = dim ? "0.45" : "";
-  button.style.filter = dim ? "grayscale(70%)" : "";
-  button.style.cursor = "not-allowed";
-}
-
-function markAvailable(button: HTMLButtonElement): void {
-  button.removeAttribute("aria-disabled");
-  button.style.opacity = "";
-  button.style.filter = "";
-  button.style.cursor = "";
+function markFader(button: HTMLButtonElement, availability: FaderAvailability): void {
+  const marks = faderMarks(availability);
+  if (marks.ariaDisabled) button.setAttribute("aria-disabled", "true");
+  else button.removeAttribute("aria-disabled");
+  button.style.opacity = marks.opacity;
+  button.style.filter = marks.filter;
+  button.style.cursor = marks.cursor;
 }
 
 function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
@@ -71,16 +68,16 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
   switch (state.status) {
     case "waiting-for-capture":
     case "processing":
-      markAvailable(button);
+      markFader(button, "available");
       tooltip.setContent(describeBusy(state, armed));
       break;
     case "ready-to-engage":
     case "engaged":
-      markAvailable(button);
+      markFader(button, "available");
       tooltip.setContent({ label: "Click to remove vocals, hold to set the level", percent: null });
       break;
     case "failed":
-      markUnavailable(button, true);
+      markFader(button, "unavailable");
       tooltip.setContent({ label: `Sing-along unavailable: ${state.reason ?? "unknown error"}`, percent: null });
       break;
   }
@@ -137,7 +134,7 @@ function mountFader(placement: FaderPlacement): MountedFader {
       interactive = next;
       if (!next) {
         control.setBusy(false);
-        markAvailable(control.button);
+        markFader(control.button, "inert");
         tooltip?.setContent(describeInertFader(crossfadeSeconds));
       }
       control.setInteractive(next);
