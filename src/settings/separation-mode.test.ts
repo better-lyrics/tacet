@@ -28,7 +28,7 @@ describe("SEPARATION_MODE_OPTIONS", () => {
   it("gives every row a label and a note", () => {
     for (const option of SEPARATION_MODE_OPTIONS) {
       expect(option.label.length).toBeGreaterThan(0);
-      expect(option.note?.length ?? 0).toBeGreaterThan(0);
+      expect(option.note.length).toBeGreaterThan(0);
     }
   });
 });

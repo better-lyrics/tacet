@@ -31,7 +31,7 @@ import {
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
 import { describeSeparationVeto, separationVeto } from "@/orchestrator/separation-wanted";
-import type { SeparationVeto } from "@/orchestrator/separation-wanted";
+import type { SeparationRole, SeparationVeto } from "@/orchestrator/separation-wanted";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { NEUTRAL_MIX_LEVEL, faderArmed } from "@/pageworld/gain-law";
@@ -192,7 +192,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       const landing = decideCrossfadeLanding({
         kind: crossfadingIntoKind,
         status: state.status,
-        separating: separationVetoFor() === null,
+        separating: separationVetoFor("current") === null,
       });
       disarmCrossfade();
       resetStemAssembly();
@@ -254,7 +254,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function probeCacheFor(videoId: string): void {
     const current = videoId === state.videoId;
-    const veto = current ? separationVetoFor() : null;
+    const veto = current ? separationVetoFor("current") : null;
     if (veto) {
       log(`not checking the cache for ${videoId}, ${describeSeparationVeto(veto)}`);
       return;
@@ -518,7 +518,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (!doneReceived || !vocalsAssembler?.isComplete() || !instrumentalAssembler?.isComplete()) return;
     if (videoId !== state.videoId || state.status !== "processing") return;
 
-    const veto = separationVetoFor();
+    const veto = separationVetoFor("current");
     if (veto) {
       log(`not loading the stems of ${videoId} into the deck, ${describeSeparationVeto(veto)}`);
       resetStemAssembly();
@@ -664,16 +664,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Auto separate -------------------------------------------------------
 
-  function separationVetoFor(): SeparationVeto | null {
+  function separationVetoFor(role: SeparationRole): SeparationVeto | null {
     return separationVeto({
       mode: settings.separationMode,
       faderArmed: faderArmed(pendingMixLevel),
+      role,
     });
   }
 
   function maybeAcquireCurrent(videoId: string): void {
     if (videoId !== state.videoId) return;
-    const veto = separationVetoFor();
+    const veto = separationVetoFor("current");
     if (veto) {
       log(`not acquiring ${videoId}, ${describeSeparationVeto(veto)}`);
       return;
@@ -732,7 +733,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function maybeSeparateAhead(videoId: string): void {
     if (videoId !== prefetchVideoId) return;
-    const veto = separationVetoFor();
+    const veto = separationVetoFor("ahead");
     if (veto) {
       trackStatusStore.setActivity(videoId, "ready");
       log(`next track ${videoId} acquired, held for a crossfade but not separated: ${describeSeparationVeto(veto)}`);
@@ -749,7 +750,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function maybeAutoEngage(videoId: string): void {
-    if (separationVetoFor() !== null) return;
+    if (separationVetoFor("current") !== null) return;
     if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
 
     log(`auto-separating ${videoId}`);

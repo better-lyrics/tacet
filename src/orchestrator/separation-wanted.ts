@@ -4,14 +4,18 @@ import { type SeparationMode, separatesEveryTrack } from "@/settings/separation-
 
 type SeparationVeto = "sing-along-off" | "nothing-asked-for-it";
 
+type SeparationRole = "current" | "ahead";
+
 interface SeparationWantedInput {
   mode: SeparationMode;
   faderArmed: boolean;
+  role: SeparationRole;
 }
 
 function separationVeto(input: SeparationWantedInput): SeparationVeto | null {
   if (input.mode === "off") return "sing-along-off";
   if (separatesEveryTrack(input.mode)) return null;
+  if (input.role === "ahead") return "nothing-asked-for-it";
   return input.faderArmed ? null : "nothing-asked-for-it";
 }
 
@@ -20,4 +24,4 @@ function describeSeparationVeto(veto: SeparationVeto): string {
 }
 
 export { describeSeparationVeto, separationVeto };
-export type { SeparationVeto, SeparationWantedInput };
+export type { SeparationRole, SeparationVeto, SeparationWantedInput };

@@ -1,12 +1,16 @@
-import type { SelectOption } from "@/settings/select";
-
 // -- One separation mode, where there used to be two switches -------------------
 
 type SeparationMode = "off" | "on-demand" | "every-track";
 
+interface SeparationModeOption {
+  value: SeparationMode;
+  label: string;
+  note: string;
+}
+
 const SEPARATION_MODES: readonly SeparationMode[] = ["off", "on-demand", "every-track"];
 
-const SEPARATION_MODE_OPTIONS: readonly SelectOption<SeparationMode>[] = [
+const SEPARATION_MODE_OPTIONS: readonly SeparationModeOption[] = [
   { value: "off", label: "Off", note: "The button stays on the page but does nothing." },
   {
     value: "on-demand",
@@ -45,4 +49,4 @@ export {
   separationModeFromLegacy,
   settlesEachTrack,
 };
-export type { SeparationMode };
+export type { SeparationMode, SeparationModeOption };
