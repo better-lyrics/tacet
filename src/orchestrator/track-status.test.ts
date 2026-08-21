@@ -186,3 +186,80 @@ describe("setActivity", () => {
     });
   });
 });
+
+describe("subscribe", () => {
+  it("tells a listener that the rows changed", () => {
+    const store = createTrackStatusStore();
+    let calls = 0;
+    store.subscribe(() => {
+      calls += 1;
+    });
+    store.setTracks({ now: NOW, next: NEXT });
+    expect(calls).toBe(1);
+  });
+
+  it("tells a listener about every step the next track takes", () => {
+    const store = createTrackStatusStore();
+    store.setTracks({ now: NOW, next: NEXT });
+    const seen: (string | null)[] = [];
+    store.subscribe(() => seen.push(store.get().next?.activity ?? null));
+    store.setActivity(NEXT.videoId, "downloading", 0.2);
+    store.setActivity(NEXT.videoId, "downloading", 0.8);
+    store.setActivity(NEXT.videoId, "ready");
+    expect(seen).toEqual(["downloading", "downloading", "ready"]);
+  });
+
+  describe("edge cases", () => {
+    it("stops telling a listener that unsubscribed", () => {
+      const store = createTrackStatusStore();
+      let calls = 0;
+      const stop = store.subscribe(() => {
+        calls += 1;
+      });
+      store.setTracks({ now: NOW, next: NEXT });
+      stop();
+      store.setCached(NEXT.videoId, true);
+      expect(calls).toBe(1);
+    });
+
+    it("tells every listener", () => {
+      const store = createTrackStatusStore();
+      let first = 0;
+      let second = 0;
+      store.subscribe(() => {
+        first += 1;
+      });
+      store.subscribe(() => {
+        second += 1;
+      });
+      store.clear();
+      expect([first, second]).toEqual([1, 1]);
+    });
+  });
+
+  describe("invariants", () => {
+    it("says nothing about a track it does not hold", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      let calls = 0;
+      store.subscribe(() => {
+        calls += 1;
+      });
+      store.setActivity("unknown", "separating", 0.5);
+      store.setCached("unknown", true);
+      store.setArtwork("unknown", ART);
+      expect(calls).toBe(0);
+    });
+
+    it("has already changed by the time a listener reads it", () => {
+      const store = createTrackStatusStore();
+      store.setTracks({ now: NOW, next: NEXT });
+      let seen: number | null = null;
+      store.subscribe(() => {
+        seen = store.get().next?.fraction ?? null;
+      });
+      store.setActivity(NEXT.videoId, "downloading", 0.37);
+      expect(seen).toBe(0.37);
+    });
+  });
+});

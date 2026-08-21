@@ -13,13 +13,7 @@ interface DeckDeps {
 type DeckKind = "stems" | "mix";
 
 type DeckLoad =
-  | {
-      kind: "stems";
-      vocals: Float32Array<ArrayBuffer>[];
-      instrumental: Float32Array<ArrayBuffer>[];
-      sampleRate: number;
-      trackId: string | null;
-    }
+  | { kind: "stems"; vocals: AudioBuffer; instrumental: AudioBuffer; trackId: string | null }
   | { kind: "mix"; mix: AudioBuffer; trackId: string | null };
 
 interface DeckState {
@@ -38,12 +32,14 @@ interface DeckState {
   deckGain: number;
   positionSeconds: number;
   durationSeconds: number;
+  heldBytes: number;
 }
 
 interface Deck {
   load(request: DeckLoad): boolean;
   startAt(offsetSeconds: number, when?: number): void;
   stop(): void;
+  release(): boolean;
   stopAt(when: number): void;
   fadeOutAndStop(seconds?: number): void;
   fadeIn(seconds?: number): void;
@@ -57,6 +53,7 @@ interface Deck {
   envelope(): Float32Array;
   gainParam(): AudioParam;
   setGain(value: number, seconds?: number): void;
+  heldBuffers(): AudioBuffer[];
   describe(): DeckState;
   dispose(): void;
 }
@@ -151,31 +148,19 @@ function measureLoudness(instrumental: AudioBuffer, vocals: AudioBuffer | null):
   };
 }
 
-function createStemBuffer(
-  context: AudioContext,
-  channels: Float32Array<ArrayBuffer>[],
-  sampleRate: number
-): AudioBuffer {
-  if (channels.length === 0) {
-    throw new Error("deck: a stem needs at least one channel");
-  }
-  const buffer = context.createBuffer(channels.length, channels[0].length, sampleRate);
-  channels.forEach((channel, index) => buffer.copyToChannel(channel, index));
-  return buffer;
-}
-
 interface DeckBuffers {
   vocals: AudioBuffer | null;
   instrumental: AudioBuffer;
 }
 
-function buffersForLoad(context: AudioContext, request: DeckLoad): DeckBuffers | null {
+function buffersForLoad(request: DeckLoad): DeckBuffers {
   if (request.kind === "mix") return { vocals: null, instrumental: request.mix };
-  if (request.vocals.length === 0 || request.instrumental.length === 0) return null;
-  return {
-    vocals: createStemBuffer(context, request.vocals, request.sampleRate),
-    instrumental: createStemBuffer(context, request.instrumental, request.sampleRate),
-  };
+  return { vocals: request.vocals, instrumental: request.instrumental };
+}
+
+function heldBuffersOf(loaded: LoadedAudio | null): AudioBuffer[] {
+  if (loaded === null) return [];
+  return loaded.vocals === null ? [loaded.instrumental] : [loaded.vocals, loaded.instrumental];
 }
 
 function createDeck(deps: DeckDeps): Deck {
@@ -212,6 +197,13 @@ function createDeck(deps: DeckDeps): Deck {
     instrumentalSource?.disconnect();
     vocalsSource = null;
     instrumentalSource = null;
+  }
+
+  function release(): boolean {
+    if (instrumentalSource !== null) return false;
+    loaded = null;
+    finished = false;
+    return true;
   }
 
   function releaseWhenEnded(vocals: AudioBufferSourceNode | null, instrumental: AudioBufferSourceNode): void {
@@ -258,8 +250,7 @@ function createDeck(deps: DeckDeps): Deck {
 
   function load(request: DeckLoad): boolean {
     stop();
-    const buffers = buffersForLoad(context, request);
-    if (buffers === null) return false;
+    const buffers = buffersForLoad(request);
 
     finished = false;
     loaded = {
@@ -318,6 +309,11 @@ function createDeck(deps: DeckDeps): Deck {
       deckGain: deckGainNode.gain.value,
       positionSeconds: positionNow(),
       durationSeconds: loaded?.durationSeconds ?? 0,
+      heldBytes:
+        loaded === null
+          ? 0
+          : (loaded.vocals === null ? 0 : loaded.vocals.numberOfChannels * loaded.vocals.length * 4) +
+            loaded.instrumental.numberOfChannels * loaded.instrumental.length * 4,
     };
   }
 
@@ -333,6 +329,7 @@ function createDeck(deps: DeckDeps): Deck {
     load,
     startAt,
     stop,
+    release,
     stopAt,
     fadeOutAndStop,
     fadeIn: seconds => rampGainFromZero(deckGainNode.gain, context, seconds),
@@ -346,10 +343,11 @@ function createDeck(deps: DeckDeps): Deck {
     envelope: () => loaded?.envelope ?? new Float32Array(0),
     gainParam: () => deckGainNode.gain,
     setGain: (value, seconds) => rampGainTo(deckGainNode.gain, context, value, seconds),
+    heldBuffers: () => heldBuffersOf(loaded),
     describe,
     dispose,
   };
 }
 
-export { createDeck, createStemBuffer };
+export { createDeck };
 export type { Deck, DeckDeps, DeckKind, DeckLoad, DeckState };

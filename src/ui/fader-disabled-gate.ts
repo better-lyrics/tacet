@@ -1,9 +1,13 @@
-function isFaderInteractive(disabled: boolean): boolean {
-  return !disabled;
+function isFaderInteractive(markedDisabled: boolean, modeInteractive: boolean): boolean {
+  return !markedDisabled && modeInteractive;
 }
 
 function shouldCloseForDisabled(open: boolean, disabled: boolean): boolean {
   return open && disabled;
 }
 
-export { isFaderInteractive, shouldCloseForDisabled };
+function shouldSettleToNeutral(interactive: boolean, value: number): boolean {
+  return !interactive && value !== 0;
+}
+
+export { isFaderInteractive, shouldCloseForDisabled, shouldSettleToNeutral };

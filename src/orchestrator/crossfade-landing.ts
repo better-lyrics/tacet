@@ -8,12 +8,14 @@ type LandingKind = StagedKind;
 interface CrossfadeLandingInput {
   kind: LandingKind;
   status: KaraokeStatus;
+  separating: boolean;
 }
 
 type CrossfadeLanding = "keep-deck" | "keep-deck-and-reacquire" | "release";
 
 function decideCrossfadeLanding(input: CrossfadeLandingInput): CrossfadeLanding {
   if (input.kind === "mix") return "keep-deck-and-reacquire";
+  if (!input.separating) return "keep-deck";
   return input.status === "engaged" ? "keep-deck" : "release";
 }
 

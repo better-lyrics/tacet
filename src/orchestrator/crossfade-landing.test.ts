@@ -6,9 +6,10 @@ import type { KaraokeStatus } from "@/orchestrator/karaoke-state";
 const KINDS: LandingKind[] = ["stems", "mix"];
 const STATUSES: KaraokeStatus[] = ["waiting-for-capture", "ready-to-engage", "processing", "engaged", "failed"];
 const UNENGAGED: KaraokeStatus[] = STATUSES.filter(status => status !== "engaged");
+const SEPARATING: boolean[] = [true, false];
 
-function landing(kind: LandingKind, status: KaraokeStatus): CrossfadeLandingInput {
-  return { kind, status };
+function landing(kind: LandingKind, status: KaraokeStatus, separating = true): CrossfadeLandingInput {
+  return { kind, status, separating };
 }
 
 describe("decideCrossfadeLanding", () => {
@@ -59,15 +60,19 @@ describe("decideCrossfadeLanding", () => {
     it("only ever calls a stems landing finished", () => {
       for (const kind of KINDS) {
         for (const status of STATUSES) {
-          if (decideCrossfadeLanding(landing(kind, status)) !== "keep-deck") continue;
-          expect(kind).toBe("stems");
+          for (const separating of SEPARATING) {
+            if (decideCrossfadeLanding(landing(kind, status, separating)) !== "keep-deck") continue;
+            expect(kind).toBe("stems");
+          }
         }
       }
     });
 
     it("never leaves a mix landing unseparated, since the fader would claim a sing-along over it", () => {
       for (const status of STATUSES) {
-        expect(decideCrossfadeLanding(landing("mix", status))).not.toBe("keep-deck");
+        for (const separating of SEPARATING) {
+          expect(decideCrossfadeLanding(landing("mix", status, separating))).not.toBe("keep-deck");
+        }
       }
     });
 
@@ -77,6 +82,20 @@ describe("decideCrossfadeLanding", () => {
           if (decideCrossfadeLanding(landing(kind, status)) !== "keep-deck-and-reacquire") continue;
           expect(kind).toBe("mix");
         }
+      }
+    });
+
+    it("never asks for a stems landing to be reacquired while separation is off, since nothing would answer", () => {
+      for (const status of STATUSES) {
+        expect(decideCrossfadeLanding(landing("stems", status, false))).not.toBe("keep-deck-and-reacquire");
+      }
+    });
+
+    it("answers a mix landing the same way however the separation setting stands", () => {
+      for (const status of STATUSES) {
+        expect(decideCrossfadeLanding(landing("mix", status, false))).toBe(
+          decideCrossfadeLanding(landing("mix", status, true))
+        );
       }
     });
 
@@ -107,6 +126,26 @@ describe("decideCrossfadeLanding", () => {
 
     it("regression: a stems landing is unchanged", () => {
       expect(decideCrossfadeLanding(landing("stems", "engaged"))).toBe("keep-deck");
+    });
+
+    it("regression: with separation off a stems landing keeps its deck, since nothing will ever engage", () => {
+      for (const status of STATUSES) {
+        expect(decideCrossfadeLanding(landing("stems", status, false))).toBe("keep-deck");
+      }
+    });
+
+    it("regression: a mix landing with separation off is not reported as engaged stems", () => {
+      for (const status of STATUSES) {
+        expect(decideCrossfadeLanding(landing("mix", status, false))).toBe("keep-deck-and-reacquire");
+      }
+    });
+
+    it("regression: with separation off a landing is never released a second after the fade", () => {
+      for (const kind of KINDS) {
+        for (const status of STATUSES) {
+          expect(decideCrossfadeLanding(landing(kind, status, false))).not.toBe("release");
+        }
+      }
     });
   });
 });

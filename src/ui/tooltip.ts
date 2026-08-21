@@ -23,7 +23,6 @@ interface TooltipContent {
 interface Tooltip {
   setContent(content: TooltipContent | null): void;
   setSuppressed(suppressed: boolean): void;
-  destroy(): void;
 }
 
 function sameStep(a: TooltipContent | null, b: TooltipContent): boolean {
@@ -97,6 +96,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   function applyNote(text: string | null | undefined): void {
     if (text) note.textContent = text;
     note.classList.toggle(NOTE_SHOWN_CLASS, Boolean(text));
+    note.setAttribute("aria-hidden", String(!text));
   }
 
   function place(): void {
@@ -187,16 +187,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   trigger.addEventListener("focus", show);
   trigger.addEventListener("blur", hide);
 
-  function destroy(): void {
-    clearTimers();
-    trigger.removeEventListener("pointerenter", onEnter);
-    trigger.removeEventListener("pointerleave", onLeave);
-    trigger.removeEventListener("focus", show);
-    trigger.removeEventListener("blur", hide);
-    card.remove();
-  }
-
-  return { setContent, setSuppressed, destroy };
+  return { setContent, setSuppressed };
 }
 
 export { createTooltip, TOOLTIP_CLASS };

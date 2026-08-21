@@ -2,15 +2,27 @@ import { describe, expect, it } from "vitest";
 import { Staging } from "@/pageworld/staging";
 import type { MixBuffer } from "@/pageworld/staging";
 
-const stemsOf = (frames: number, sampleRate = 48000) => ({
-  vocals: [new Float32Array(frames), new Float32Array(frames)],
-  instrumental: [new Float32Array(frames), new Float32Array(frames)],
-  sampleRate,
+const framesOf = (frames: number, sampleRate: number, numberOfChannels = 2): MixBuffer => ({
+  duration: frames / sampleRate,
+  numberOfChannels,
+  length: frames,
 });
 
-const mixOf = (duration: number): MixBuffer => ({ duration });
+const stemsOf = (frames: number, sampleRate = 48000) => ({
+  vocals: framesOf(frames, sampleRate),
+  instrumental: framesOf(frames, sampleRate),
+});
+
+const mixOf = (duration: number, numberOfChannels = 2, sampleRate = 48000): MixBuffer => ({
+  duration,
+  numberOfChannels,
+  length: Math.round(duration * sampleRate),
+});
 
 const staging = () => new Staging<MixBuffer>();
+
+const bytesOf = (buffers: MixBuffer[]) =>
+  buffers.reduce((total, buffer) => total + buffer.numberOfChannels * buffer.length * 4, 0);
 
 describe("Staging", () => {
   it("holds nothing to begin with", () => {
@@ -49,6 +61,73 @@ describe("Staging", () => {
     expect(held.audio("next")).toBeNull();
     held.beginMix("next");
     expect(held.audio("next")).toBeNull();
+  });
+
+  describe("what it holds", () => {
+    it("holds no bytes with nothing staged", () => {
+      expect(staging().heldBytes()).toBe(0);
+    });
+
+    it("counts a staged mix by its channels and frames", () => {
+      const held = staging();
+      held.beginMix("next");
+      expect(held.heldBytes()).toBe(0);
+      held.takeMix("next", mixOf(10));
+      expect(held.heldBytes()).toBe(2 * 480_000 * 4);
+    });
+
+    it("counts staged stems across both stems", () => {
+      const held = staging();
+      held.offerStems("next");
+      expect(held.heldBytes()).toBe(0);
+      held.takeStems("next", stemsOf(480_000));
+      expect(held.heldBytes()).toBe(4 * 480_000 * 4);
+    });
+
+    it("holds no bytes again once it is cleared", () => {
+      const held = staging();
+      held.offerStems("next");
+      held.takeStems("next", stemsOf(4800));
+      held.clear();
+      expect(held.heldBytes()).toBe(0);
+    });
+
+    it("names no buffers with nothing staged", () => {
+      expect(staging().heldBuffers()).toEqual([]);
+    });
+
+    it("names the staged mix, by the same object it was handed", () => {
+      const held = staging();
+      held.beginMix("next");
+      expect(held.heldBuffers()).toEqual([]);
+
+      const mix = mixOf(10);
+      held.takeMix("next", mix);
+      const buffers = held.heldBuffers();
+      expect(buffers).toHaveLength(1);
+      expect(buffers[0]).toBe(mix);
+    });
+
+    it("names both staged stems, by the same objects it was handed", () => {
+      const held = staging();
+      held.offerStems("next");
+      expect(held.heldBuffers()).toEqual([]);
+
+      const stems = stemsOf(480_000);
+      held.takeStems("next", stems);
+      const buffers = held.heldBuffers();
+      expect(buffers).toHaveLength(2);
+      expect(buffers[0]).toBe(stems.vocals);
+      expect(buffers[1]).toBe(stems.instrumental);
+    });
+
+    it("names nothing again once it is cleared", () => {
+      const held = staging();
+      held.offerStems("next");
+      held.takeStems("next", stemsOf(4800));
+      held.clear();
+      expect(held.heldBuffers()).toEqual([]);
+    });
   });
 
   describe("edge cases", () => {
@@ -163,6 +242,17 @@ describe("Staging", () => {
       held.beginStemsDecode();
       expect(held.state).not.toBe("ready");
       expect(held.audio("a")).toBeNull();
+    });
+
+    it("counts in heldBytes exactly the buffers it names, for either kind", () => {
+      const held = staging();
+      held.offerStems("a");
+      held.takeStems("a", stemsOf(4800));
+      expect(held.heldBytes()).toBe(bytesOf(held.heldBuffers()));
+
+      held.beginMix("b");
+      held.takeMix("b", mixOf(5));
+      expect(held.heldBytes()).toBe(bytesOf(held.heldBuffers()));
     });
   });
 

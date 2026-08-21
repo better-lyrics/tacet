@@ -27,6 +27,7 @@ interface QueueTracks {
 
 interface TrackStatusStore {
   get(): QueueTracks;
+  subscribe(listener: () => void): () => void;
   setTracks(tracks: { now: TrackNames | null; next: TrackNames | null }): void;
   setArtwork(videoId: string, artworkUrl: string): void;
   setCached(videoId: string, cached: boolean): void;
@@ -58,18 +59,33 @@ function fillSlot(previous: QueueTracks, names: TrackNames | null): StatusTrack 
 
 function createTrackStatusStore(): TrackStatusStore {
   let current: QueueTracks = EMPTY;
+  const listeners = new Set<() => void>();
+
+  function notify(): void {
+    for (const listener of listeners) listener();
+  }
 
   function amend(videoId: string, change: Partial<StatusTrack>): void {
+    if (knownTrack(current, videoId) === null) return;
     const now = current.now?.videoId === videoId ? { ...current.now, ...change } : current.now;
     const next = current.next?.videoId === videoId ? { ...current.next, ...change } : current.next;
     current = { now, next };
+    notify();
   }
 
   return {
     get: () => current,
 
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+
     setTracks(tracks) {
       current = { now: fillSlot(current, tracks.now), next: fillSlot(current, tracks.next) };
+      notify();
     },
 
     setArtwork(videoId, artworkUrl) {
@@ -89,6 +105,7 @@ function createTrackStatusStore(): TrackStatusStore {
 
     clear() {
       current = EMPTY;
+      notify();
     },
   };
 }

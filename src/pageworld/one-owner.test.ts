@@ -92,3 +92,17 @@ describe("one owner for what is staged to fade into", () => {
     expect(filesMatching(/state:\s*"ready"/)).toEqual(["pageworld/staging.ts"]);
   });
 });
+
+describe("one owner for whether a track wants separating", () => {
+  it("only the separation-wanted rule reads the automatic separation setting", () => {
+    expect(filesMatching(/\bautoSeparateEnabled\b/)).toEqual([
+      "orchestrator/karaoke-pipeline.ts",
+      "orchestrator/separation-wanted.ts",
+      "settings/settings.ts",
+    ]);
+  });
+
+  it("only the gain law compares a mix level against neutral", () => {
+    expect(filesMatching(/[Mm]ixLevel\s*[!=]==\s*NEUTRAL_MIX_LEVEL/)).toEqual(["pageworld/gain-law.ts"]);
+  });
+});

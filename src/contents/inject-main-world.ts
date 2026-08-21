@@ -28,6 +28,7 @@ import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { currentPlayerSnapshot, playerCurrentTime, playerVideoElement } from "@/pageworld/player-state";
 import { Staging } from "@/pageworld/staging";
+import { toStemBuffers } from "@/pageworld/stem-buffers";
 import {
   type CrossfadeAbortedMessage,
   type CrossfadeStartedMessage,
@@ -79,9 +80,8 @@ interface LoadedStems {
   kind: "stems";
   videoId: string;
   durationSeconds: number;
-  vocals: Float32Array<ArrayBuffer>[];
-  instrumental: Float32Array<ArrayBuffer>[];
-  sampleRate: number;
+  vocals: AudioBuffer;
+  instrumental: AudioBuffer;
 }
 
 interface LoadedMix {
@@ -189,6 +189,30 @@ declare global {
 
 // -- Diagnostics --------------------------------------------------------------
 
+function bufferBytes(buffer: AudioBuffer): number {
+  return buffer.numberOfChannels * buffer.length * 4;
+}
+
+function trackBuffers(track: LoadedTrack | null): AudioBuffer[] {
+  if (track === null) return [];
+  if (track.kind === "mix") return [track.mix];
+  return [track.vocals, track.instrumental];
+}
+
+function trackBytes(track: LoadedTrack | null): number {
+  return trackBuffers(track).reduce((total, buffer) => total + bufferBytes(buffer), 0);
+}
+
+function uniqueHeldBytes(): number {
+  const unique = new Set<AudioBuffer>();
+  for (const track of [pendingTrack, engagedTrack, trackBeforeCrossfade]) {
+    for (const buffer of trackBuffers(track)) unique.add(buffer);
+  }
+  for (const buffer of staging.heldBuffers()) unique.add(buffer);
+  for (const buffer of cachedGraph?.heldBuffers() ?? []) unique.add(buffer);
+  return [...unique].reduce((total, buffer) => total + bufferBytes(buffer), 0);
+}
+
 window.blkTransitionProbe = () => {
   const state = cachedGraph?.describe() ?? null;
   const active = state ? state.decks[state.activeDeck] : null;
@@ -294,6 +318,14 @@ window.blkKaraokeProbe = () => {
     playerDurationSeconds: snapshot ? +snapshot.durationSeconds.toFixed(2) : null,
     audibleElementDecodedBytes: cachedElement ? decodedBytes(cachedElement) : 0,
     boundToPlayerElement: cachedElement !== null && cachedElement === element,
+    heldBytes: {
+      pendingTrack: trackBytes(pendingTrack),
+      engagedTrack: engagedTrack === pendingTrack ? 0 : trackBytes(engagedTrack),
+      trackBeforeCrossfade: trackBeforeCrossfade === pendingTrack ? 0 : trackBytes(trackBeforeCrossfade),
+      staging: staging.heldBytes(),
+      decks: cachedGraph?.describe().decks.map(deck => deck.heldBytes) ?? null,
+      total: uniqueHeldBytes(),
+    },
     graph: cachedGraph?.describe() ?? null,
   };
 };
@@ -323,17 +355,18 @@ window.blkCrossfadeSelfTest = async (fadeSeconds = 4) => {
   const sampleRate = 44100;
   const outgoingIsReal = graph.describe().stemsPlaying;
   if (!outgoingIsReal) {
-    graph.loadStems(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate, playerTrackId());
+    const held = toStemBuffers(selfTestStems(sampleRate, 220), selfTestStems(sampleRate, 220), sampleRate);
+    graph.loadStems(held.vocals, held.instrumental, playerTrackId());
     graph.setMixLevel(1);
     await new Promise(resolve => setTimeout(resolve, 400));
   }
 
   const before = graph.describe();
   if (!before.stemsPlaying) return { error: "no deck is playing, nothing to fade out of", state: before };
+  const incoming = toStemBuffers(selfTestStems(sampleRate, 330), selfTestStems(sampleRate, 330), sampleRate);
   const result = graph.crossfadeTo({
-    vocals: selfTestStems(sampleRate, 330),
-    instrumental: selfTestStems(sampleRate, 330),
-    sampleRate,
+    vocals: incoming.vocals,
+    instrumental: incoming.instrumental,
     durationSeconds: fadeSeconds,
     incomingOffsetSeconds: 0,
   });
@@ -538,7 +571,6 @@ function stagedTrackFor(videoId: string): LoadedTrack | null {
     durationSeconds: audio.durationSeconds,
     vocals: audio.stems.vocals,
     instrumental: audio.stems.instrumental,
-    sampleRate: audio.stems.sampleRate,
   };
 }
 
@@ -569,7 +601,6 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
       : {
           vocals: incoming.vocals,
           instrumental: incoming.instrumental,
-          sampleRate: incoming.sampleRate,
           durationSeconds: clamped.seconds,
           incomingOffsetSeconds: 0,
           startInSeconds,
@@ -632,6 +663,8 @@ function startCrossfade(graph: PlaybackGraph, startInSeconds: number, fadeSecond
     () => {
       if (generation !== transitionGeneration) return;
       trackBeforeCrossfade = null;
+      const released = graph.releaseIdleDeck();
+      if (released > 0) logger.log(`released ${released} idle deck(s) after the transition into ${videoId}`);
     },
     startsInMs + clamped.seconds * 1000 + TRANSITION_RELEASE_MS
   );
@@ -751,7 +784,7 @@ function discardGraph(): void {
 function applyTrack(graph: PlaybackGraph, track: LoadedTrack): void {
   graph.setMixLevel(pendingMixLevel);
   if (track.kind === "mix") graph.loadMix(track.mix, track.videoId);
-  else graph.loadStems(track.vocals, track.instrumental, track.sampleRate, track.videoId);
+  else graph.loadStems(track.vocals, track.instrumental, track.videoId);
   engagedTrack = track;
   awaitingReconfirmation = false;
   logger.log(`${track.kind} playing for videoId=${track.videoId}, mix level ${pendingMixLevel}`);
@@ -933,16 +966,16 @@ window.addEventListener("message", event => {
       logger.log(`stems for ${data.videoId} arrived mid transition into ${target}, dropping them`);
       return;
     }
-    const durationSeconds = (data.vocals[0]?.length ?? 0) / data.sampleRate;
+    const buffers = toStemBuffers(data.vocals, data.instrumental, data.sampleRate);
+    const durationSeconds = buffers.instrumental.duration;
     logger.log(
-      `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
+      `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${buffers.vocals.numberOfChannels}, duration=${durationSeconds.toFixed(1)}s`
     );
     pendingTrack = {
       kind: "stems",
       videoId: data.videoId,
-      vocals: data.vocals,
-      instrumental: data.instrumental,
-      sampleRate: data.sampleRate,
+      vocals: buffers.vocals,
+      instrumental: buffers.instrumental,
       durationSeconds,
     };
     reconcile();
@@ -979,11 +1012,7 @@ window.addEventListener("message", event => {
   }
 
   if (isStageDeckMessage(data)) {
-    const took = staging.takeStems(data.videoId, {
-      vocals: data.vocals,
-      instrumental: data.instrumental,
-      sampleRate: data.sampleRate,
-    });
+    const took = staging.takeStems(data.videoId, toStemBuffers(data.vocals, data.instrumental, data.sampleRate));
     if (!took) return;
     logger.log(`${data.videoId} decoded into the idle deck, ready to fade`);
     return;

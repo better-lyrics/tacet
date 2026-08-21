@@ -21,6 +21,10 @@ function gainsForMixLevel(mixLevel: number): StemGains {
   return { vocalsGain: clampMixLevel(mixLevel), instrumentalGain: INSTRUMENTAL_GAIN };
 }
 
+function faderArmed(mixLevel: number): boolean {
+  return mixLevel !== NEUTRAL_MIX_LEVEL;
+}
+
 function listenerGain(volume: number, muted: boolean): number {
   if (muted) return 0;
   if (!Number.isFinite(volume)) return 1;
@@ -34,6 +38,7 @@ export {
   INSTRUMENTAL_GAIN,
   MIX_GLIDE_SECONDS,
   clampMixLevel,
+  faderArmed,
   gainsForMixLevel,
   listenerGain,
 };
