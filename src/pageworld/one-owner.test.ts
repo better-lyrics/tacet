@@ -94,10 +94,17 @@ describe("one owner for what is staged to fade into", () => {
 });
 
 describe("one owner for whether a track wants separating", () => {
-  it("only the separation-wanted rule reads the automatic separation setting", () => {
-    expect(filesMatching(/\bautoSeparateEnabled\b/)).toEqual([
+  it("the mode reaches the veto and the pipeline switch, and nothing else reads it", () => {
+    expect(filesMatching(/\bseparationMode\b/)).toEqual([
+      "contents/fader-control.ts",
       "orchestrator/karaoke-pipeline.ts",
-      "orchestrator/separation-wanted.ts",
+      "settings/settings.ts",
+    ]);
+  });
+
+  it("the two booleans the mode replaced survive only in the migration that reads them", () => {
+    expect(filesMatching(/\b(singAlongEnabled|autoSeparateEnabled)\b/)).toEqual([
+      "settings/separation-mode.ts",
       "settings/settings.ts",
     ]);
   });

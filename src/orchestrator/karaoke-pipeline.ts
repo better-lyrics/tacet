@@ -666,8 +666,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function separationVetoFor(): SeparationVeto | null {
     return separationVeto({
-      singAlongEnabled: settings.singAlongEnabled,
-      autoSeparateEnabled: settings.autoSeparateEnabled,
+      mode: settings.separationMode,
       faderArmed: faderArmed(pendingMixLevel),
     });
   }

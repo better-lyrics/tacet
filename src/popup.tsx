@@ -21,6 +21,7 @@ import {
 } from "@/settings/popup-tabs";
 import { describeNowArtist } from "@/orchestrator/delivery";
 import { createSelect } from "@/settings/select";
+import { SEPARATION_MODE_OPTIONS, type SeparationMode } from "@/settings/separation-mode";
 import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
 import {
   CACHE_BUDGET_PRESETS_BYTES,
@@ -281,6 +282,21 @@ function createModelVariantRow(
     onChange,
     labelId
   );
+
+  row.append(text, select.element);
+  return { row, setValue: select.setValue };
+}
+
+// -- Separation mode row -------------------------------------------------------
+
+function createSeparationModeRow(
+  initial: SeparationMode,
+  onChange: (next: SeparationMode) => void
+): { row: HTMLElement; setValue(value: SeparationMode): void } {
+  const row = createElement("div", "blk-row");
+  const { text, labelId } = createTextRow("Sing-along", "Separate the vocals so you can fade them down.");
+
+  const select = createSelect<SeparationMode>(SEPARATION_MODE_OPTIONS, initial, onChange, labelId);
 
   row.append(text, select.element);
   return { row, setValue: select.setValue };
@@ -935,31 +951,13 @@ async function main(): Promise<void> {
     return DEFAULT_SETTINGS;
   });
 
-  const singAlongToggle = createToggle(
-    "Sing-along",
-    "Separate the vocals so you can fade them down. Takes effect from the next track.",
-    settings.singAlongEnabled,
-    next => {
-      saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
-        console.error(`${LOG_PREFIX} failed to save the sing-along setting`, error);
-        showStatus("Could not save that change.");
-        singAlongToggle.setChecked(!next);
-      });
-    }
-  );
-
-  const autoSeparateToggle = createToggle(
-    "Start separating automatically",
-    "Begin separation as soon as a track is captured, instead of waiting for a tap.",
-    settings.autoSeparateEnabled,
-    next => {
-      saveSettingsFrom(chrome.storage.sync, { autoSeparateEnabled: next }).catch(error => {
-        console.error(`${LOG_PREFIX} failed to save the auto-separate setting`, error);
-        showStatus("Could not save that change.");
-        autoSeparateToggle.setChecked(!next);
-      });
-    }
-  );
+  const separationModeRow = createSeparationModeRow(settings.separationMode, next => {
+    saveSettingsFrom(chrome.storage.sync, { separationMode: next }).catch(error => {
+      console.error(`${LOG_PREFIX} failed to save the sing-along setting`, error);
+      showStatus("Could not save that change.");
+      separationModeRow.setValue(settings.separationMode);
+    });
+  });
 
   const debugLoggingToggle = createToggle(
     "Console logging",
@@ -1023,11 +1021,11 @@ async function main(): Promise<void> {
 
   const generalPanel = createElement("div", "blk-panel");
   generalPanel.setAttribute("role", "tabpanel");
-  generalPanel.append(singAlongToggle.row, crossfadeRow.row, faderPlacementRow.row, debugLoggingToggle.row);
+  generalPanel.append(separationModeRow.row, crossfadeRow.row, faderPlacementRow.row, debugLoggingToggle.row);
 
   const separationPanel = createElement("div", "blk-panel");
   separationPanel.setAttribute("role", "tabpanel");
-  separationPanel.append(autoSeparateToggle.row, modelVariantRow.row);
+  separationPanel.append(modelVariantRow.row);
 
   const sourcesPanel = createSourcesPanel(settings.sources, next => {
     saveSettingsFrom(chrome.storage.sync, { sources: next }).catch(error => {

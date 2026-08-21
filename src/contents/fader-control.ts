@@ -168,7 +168,8 @@ function applySettings(settings: Settings): void {
   crossfadeSeconds = settings.crossfadeSeconds;
   postCrossfadeSeconds(settings.crossfadeSeconds);
 
-  const wantPipeline = settings.singAlongEnabled || settings.crossfadeSeconds > 0;
+  const separationOn = settings.separationMode !== "off";
+  const wantPipeline = separationOn || settings.crossfadeSeconds > 0;
   if (wantPipeline && pipeline === null) {
     pipeline = createKaraokePipeline({
       settings,
@@ -188,13 +189,13 @@ function applySettings(settings: Settings): void {
 
   pipeline?.setSettings(settings);
 
-  if (singAlongOn !== settings.singAlongEnabled) {
-    singAlongOn = settings.singAlongEnabled;
+  if (singAlongOn !== separationOn) {
+    singAlongOn = separationOn;
     logger.log(singAlongOn ? "sing-along on" : "sing-along off");
   }
 
   if (fader === null) fader = mountFader(settings.faderPlacement);
-  fader.setInteractive(settings.singAlongEnabled);
+  fader.setInteractive(separationOn);
   fader.setPlacement(settings.faderPlacement);
 }
 

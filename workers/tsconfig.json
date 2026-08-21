@@ -41,6 +41,7 @@
     "../src/orchestrator/region-accumulator.ts",
     "../src/relay/base64.ts",
     "../src/relay/chunk-transfer.ts",
+    "../src/settings/separation-mode.ts",
     "../src/settings/settings.ts"
   ],
   "exclude": ["./*.test.ts"]

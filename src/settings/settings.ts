@@ -2,6 +2,7 @@ import { SOURCE_IDS, sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourcePreference } from "@/acquisition/sources";
 import { DEFAULT_MODEL_VARIANT, type ModelVariant, isModelVariant } from "@/cache/model-url";
 import { DEFAULT_BUDGET_BYTES } from "@/cache/stem-store";
+import { type SeparationMode, isSeparationMode, separationModeFromLegacy } from "@/settings/separation-mode";
 
 // -- Storage key --------------------------------------------------------------
 
@@ -38,8 +39,7 @@ function isValidCrossfadeSeconds(value: unknown): value is number {
 // -- Settings shape -------------------------------------------------------------
 
 interface Settings {
-  singAlongEnabled: boolean;
-  autoSeparateEnabled: boolean;
+  separationMode: SeparationMode;
   cacheBudgetBytes: number;
   modelVariant: ModelVariant;
   faderPlacement: FaderPlacement;
@@ -49,8 +49,7 @@ interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  singAlongEnabled: true,
-  autoSeparateEnabled: true,
+  separationMode: "on-demand",
   cacheBudgetBytes: DEFAULT_BUDGET_BYTES,
   modelVariant: DEFAULT_MODEL_VARIANT,
   faderPlacement: "dock",
@@ -70,16 +69,25 @@ function isValidCacheBudgetBytes(value: unknown): value is number {
   );
 }
 
+function legacyBooleanOrOn(value: unknown): boolean {
+  return typeof value === "boolean" ? value : true;
+}
+
+function resolveSeparationMode(record: Record<string, unknown>): SeparationMode {
+  if (isSeparationMode(record.separationMode)) return record.separationMode;
+  const hasLegacy = typeof record.singAlongEnabled === "boolean" || typeof record.autoSeparateEnabled === "boolean";
+  if (!hasLegacy) return DEFAULT_SETTINGS.separationMode;
+  return separationModeFromLegacy(
+    legacyBooleanOrOn(record.singAlongEnabled),
+    legacyBooleanOrOn(record.autoSeparateEnabled)
+  );
+}
+
 function sanitizeSettings(raw: unknown): Settings {
   const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
 
   return {
-    singAlongEnabled:
-      typeof record.singAlongEnabled === "boolean" ? record.singAlongEnabled : DEFAULT_SETTINGS.singAlongEnabled,
-    autoSeparateEnabled:
-      typeof record.autoSeparateEnabled === "boolean"
-        ? record.autoSeparateEnabled
-        : DEFAULT_SETTINGS.autoSeparateEnabled,
+    separationMode: resolveSeparationMode(record),
     cacheBudgetBytes: isValidCacheBudgetBytes(record.cacheBudgetBytes)
       ? record.cacheBudgetBytes
       : DEFAULT_SETTINGS.cacheBudgetBytes,

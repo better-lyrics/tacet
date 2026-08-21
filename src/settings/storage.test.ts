@@ -28,15 +28,13 @@ describe("loadSettingsFrom", () => {
   it("returns a previously saved value", async () => {
     const storage = createFakeStorageArea({
       [SETTINGS_STORAGE_KEY]: {
-        singAlongEnabled: true,
-        autoSeparateEnabled: false,
+        separationMode: "on-demand",
         cacheBudgetBytes: 500 * 1024 * 1024,
         modelVariant: "fp16",
       },
     });
     expect(await loadSettingsFrom(storage)).toEqual({
-      singAlongEnabled: true,
-      autoSeparateEnabled: false,
+      separationMode: "on-demand",
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: "fp16",
       faderPlacement: DEFAULT_SETTINGS.faderPlacement,
@@ -55,19 +53,18 @@ describe("loadSettingsFrom", () => {
 describe("saveSettingsFrom", () => {
   it("writes a full settings object round-trippable by loadSettingsFrom", async () => {
     const storage = createFakeStorageArea();
-    const saved = await saveSettingsFrom(storage, { singAlongEnabled: true });
-    expect(saved.singAlongEnabled).toBe(true);
+    const saved = await saveSettingsFrom(storage, { separationMode: "every-track" });
+    expect(saved.separationMode).toBe("every-track");
     expect(await loadSettingsFrom(storage)).toEqual(saved);
   });
 
   it("merges a partial update with the existing settings rather than clobbering them", async () => {
     const storage = createFakeStorageArea();
-    await saveSettingsFrom(storage, { singAlongEnabled: true, cacheBudgetBytes: 500 * 1024 * 1024 });
-    const second = await saveSettingsFrom(storage, { autoSeparateEnabled: false });
+    await saveSettingsFrom(storage, { separationMode: "every-track", cacheBudgetBytes: 500 * 1024 * 1024 });
+    const second = await saveSettingsFrom(storage, { separationMode: "off" });
 
     expect(second).toEqual({
-      singAlongEnabled: true,
-      autoSeparateEnabled: false,
+      separationMode: "off",
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: DEFAULT_SETTINGS.modelVariant,
       faderPlacement: DEFAULT_SETTINGS.faderPlacement,
@@ -91,9 +88,9 @@ describe("saveSettingsFrom", () => {
 
   it("an empty partial update is a no-op beyond re-sanitizing", async () => {
     const storage = createFakeStorageArea();
-    await saveSettingsFrom(storage, { singAlongEnabled: true });
+    await saveSettingsFrom(storage, { separationMode: "off" });
     const second = await saveSettingsFrom(storage, {});
-    expect(second.singAlongEnabled).toBe(true);
+    expect(second.separationMode).toBe("off");
   });
 });
 
@@ -109,7 +106,7 @@ describe("invariants", () => {
 
   it("saving does not touch unrelated keys already in storage", async () => {
     const storage = createFakeStorageArea({ "unrelated-key": "leave me alone" });
-    await saveSettingsFrom(storage, { singAlongEnabled: true });
+    await saveSettingsFrom(storage, { separationMode: "every-track" });
     expect(await storage.get("unrelated-key")).toEqual({ "unrelated-key": "leave me alone" });
   });
 });

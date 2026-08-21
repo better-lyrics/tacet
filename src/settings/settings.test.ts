@@ -17,12 +17,8 @@ import { describe, expect, it } from "vitest";
 // -- defaults -----------------------------------------------------------------
 
 describe("DEFAULT_SETTINGS", () => {
-  it("sing-along starts enabled", () => {
-    expect(DEFAULT_SETTINGS.singAlongEnabled).toBe(true);
-  });
-
-  it("auto separate starts enabled", () => {
-    expect(DEFAULT_SETTINGS.autoSeparateEnabled).toBe(true);
+  it("a fresh install separates only what the listener asks for", () => {
+    expect(DEFAULT_SETTINGS.separationMode).toBe("on-demand");
   });
 
   it("the cache budget default matches the stem store's own default", () => {
@@ -123,8 +119,7 @@ describe("sanitizeSettings", () => {
 
   it("passes through a fully valid object unchanged", () => {
     const valid = {
-      singAlongEnabled: true,
-      autoSeparateEnabled: false,
+      separationMode: "on-demand" as const,
       cacheBudgetBytes: 500 * 1024 * 1024,
       modelVariant: "fp16" as const,
       faderPlacement: "bar" as const,
@@ -140,8 +135,8 @@ describe("sanitizeSettings", () => {
   });
 
   it("fills in a missing field with its default", () => {
-    const partial = { singAlongEnabled: true };
-    expect(sanitizeSettings(partial)).toEqual({ ...DEFAULT_SETTINGS, singAlongEnabled: true });
+    const partial = { separationMode: "every-track" };
+    expect(sanitizeSettings(partial)).toEqual({ ...DEFAULT_SETTINGS, separationMode: "every-track" });
   });
 
   it("keeps a known model variant", () => {
@@ -167,7 +162,7 @@ describe("sanitizeSettings", () => {
   });
 
   it("falls back to the default for a wrong-typed boolean field", () => {
-    const corrupt = { singAlongEnabled: "yes", autoSeparateEnabled: 1 };
+    const corrupt = { debugLoggingEnabled: "yes" };
     expect(sanitizeSettings(corrupt)).toEqual(DEFAULT_SETTINGS);
   });
 
@@ -186,6 +181,56 @@ describe("sanitizeSettings", () => {
 
   it("ignores an array input", () => {
     expect(sanitizeSettings([1, 2, 3])).toEqual(DEFAULT_SETTINGS);
+  });
+
+  describe("separation mode", () => {
+    it("keeps every mode it is handed", () => {
+      for (const mode of ["off", "on-demand", "every-track"]) {
+        expect(sanitizeSettings({ separationMode: mode }).separationMode).toBe(mode);
+      }
+    });
+
+    it("falls back to the default for an unknown string", () => {
+      for (const value of ["on", "", null, 1, {}]) {
+        expect(sanitizeSettings({ separationMode: value }).separationMode).toBe(DEFAULT_SETTINGS.separationMode);
+      }
+    });
+
+    it("falls back to the default when nothing at all is stored", () => {
+      expect(sanitizeSettings({}).separationMode).toBe("on-demand");
+    });
+
+    it("migrates sing-along off to off, whatever auto separate said", () => {
+      expect(sanitizeSettings({ singAlongEnabled: false, autoSeparateEnabled: true }).separationMode).toBe("off");
+      expect(sanitizeSettings({ singAlongEnabled: false, autoSeparateEnabled: false }).separationMode).toBe("off");
+    });
+
+    it("migrates auto separate off to on demand", () => {
+      expect(sanitizeSettings({ singAlongEnabled: true, autoSeparateEnabled: false }).separationMode).toBe("on-demand");
+    });
+
+    it("migrates both on to every track", () => {
+      expect(sanitizeSettings({ singAlongEnabled: true, autoSeparateEnabled: true }).separationMode).toBe(
+        "every-track"
+      );
+    });
+
+    it("reads a missing half of the legacy pair as on, so sing-along off alone still lands on off", () => {
+      expect(sanitizeSettings({ singAlongEnabled: false }).separationMode).toBe("off");
+      expect(sanitizeSettings({ autoSeparateEnabled: false }).separationMode).toBe("on-demand");
+      expect(sanitizeSettings({ singAlongEnabled: true }).separationMode).toBe("every-track");
+    });
+
+    it("prefers a stored mode over a legacy pair that disagrees with it", () => {
+      const both = { separationMode: "off", singAlongEnabled: true, autoSeparateEnabled: true };
+      expect(sanitizeSettings(both).separationMode).toBe("off");
+    });
+
+    it("ignores a legacy pair that is not boolean at all", () => {
+      expect(sanitizeSettings({ singAlongEnabled: "yes", autoSeparateEnabled: 1 }).separationMode).toBe(
+        DEFAULT_SETTINGS.separationMode
+      );
+    });
   });
 
   describe("crossfade length", () => {

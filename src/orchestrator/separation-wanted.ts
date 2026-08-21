@@ -1,16 +1,18 @@
+import { type SeparationMode, separatesEveryTrack } from "@/settings/separation-mode";
+
 // -- Does anything want this track separated? ---------------------------------
 
 type SeparationVeto = "sing-along-off" | "nothing-asked-for-it";
 
 interface SeparationWantedInput {
-  singAlongEnabled: boolean;
-  autoSeparateEnabled: boolean;
+  mode: SeparationMode;
   faderArmed: boolean;
 }
 
 function separationVeto(input: SeparationWantedInput): SeparationVeto | null {
-  if (!input.singAlongEnabled) return "sing-along-off";
-  return input.autoSeparateEnabled || input.faderArmed ? null : "nothing-asked-for-it";
+  if (input.mode === "off") return "sing-along-off";
+  if (separatesEveryTrack(input.mode)) return null;
+  return input.faderArmed ? null : "nothing-asked-for-it";
 }
 
 function describeSeparationVeto(veto: SeparationVeto): string {
