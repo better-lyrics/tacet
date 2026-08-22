@@ -24,6 +24,12 @@ const SEPARATION_MODE_OPTIONS: readonly SeparationModeOption[] = [
   },
 ];
 
+function separationModeNote(mode: SeparationMode): string {
+  const found = SEPARATION_MODE_OPTIONS.find(option => option.value === mode);
+  if (!found) throw new Error(`no option is registered for the ${mode} mode`);
+  return found.note;
+}
+
 function isSeparationMode(value: unknown): value is SeparationMode {
   return typeof value === "string" && SEPARATION_MODES.includes(value as SeparationMode);
 }
@@ -54,6 +60,7 @@ export {
   SEPARATION_MODE_OPTIONS,
   isSeparationMode,
   separationIsOff,
+  separationModeNote,
   separatesEveryTrack,
   separationModeFromLegacy,
   settlesEachTrack,

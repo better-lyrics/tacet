@@ -1,11 +1,11 @@
 import "./popup.css";
 import tacetIconUrl from "data-base64:../assets/brand/logo.png";
-import Sortable from "sortablejs";
 import { sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourcePreference, SourceSpeed, SourceSpeedRank } from "@/acquisition/sources";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { sizedArtworkUrl } from "@/capture/artwork-url";
 import { describeAhead, isAheadActivity } from "@/orchestrator/ahead-status";
+import { describeNowArtist } from "@/orchestrator/delivery";
 import { separationFill, separationText } from "@/orchestrator/separation-status";
 import { deadPanelReason } from "@/settings/dead-panels";
 import { formatBytes } from "@/settings/format-bytes";
@@ -20,10 +20,8 @@ import {
   selectTab,
   toggleAbout,
 } from "@/settings/popup-tabs";
-import { describeNowArtist } from "@/orchestrator/delivery";
 import { createSelect } from "@/settings/select";
-import { SEPARATION_MODE_OPTIONS, type SeparationMode } from "@/settings/separation-mode";
-import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
+import { SEPARATION_MODE_OPTIONS, type SeparationMode, separationModeNote } from "@/settings/separation-mode";
 import {
   CACHE_BUDGET_PRESETS_BYTES,
   CROSSFADE_PRESETS_SECONDS,
@@ -33,8 +31,10 @@ import {
   type Settings,
   sanitizeSettings,
 } from "@/settings/settings";
+import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
 import { extensionVersion } from "@/shared/version";
+import Sortable from "sortablejs";
 import {
   type ClearModelCacheCommand,
   type ClearStemCacheCommand,
@@ -328,12 +328,27 @@ function createSeparationModeRow(
   onChange: (next: SeparationMode) => void
 ): { row: HTMLElement; setValue(value: SeparationMode): void } {
   const row = createElement("div", "blk-row");
-  const { text, labelId } = createTextRow("Sing-along", "Separate the vocals so you can fade them down.");
+  const { text, hint, labelId } = createTextRow("Sing-along", separationModeNote(initial));
 
-  const select = createSelect<SeparationMode>(SEPARATION_MODE_OPTIONS, initial, onChange, labelId);
+  const options = SEPARATION_MODE_OPTIONS.map(option => ({ value: option.value, label: option.label }));
+  const select = createSelect<SeparationMode>(
+    options,
+    initial,
+    next => {
+      hint.textContent = separationModeNote(next);
+      onChange(next);
+    },
+    labelId
+  );
 
   row.append(text, select.element);
-  return { row, setValue: select.setValue };
+  return {
+    row,
+    setValue(value) {
+      hint.textContent = separationModeNote(value);
+      select.setValue(value);
+    },
+  };
 }
 
 // -- Fader placement row -------------------------------------------------------
