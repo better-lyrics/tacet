@@ -121,7 +121,7 @@ function mountFader(placement: FaderPlacement): MountedFader {
 
   function render(): void {
     if (!tooltip) return;
-    const face = faderFace({ mode: separationMode, armed });
+    const face = faderFace({ mode: separationMode, armed, status: latest?.status ?? null });
     if (face === "inert") {
       renderInertFader(control, tooltip);
       return;

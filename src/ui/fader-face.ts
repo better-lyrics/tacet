@@ -1,3 +1,4 @@
+import type { KaraokeStatus } from "@/orchestrator/karaoke-state";
 import { separationVeto } from "@/orchestrator/separation-wanted";
 import type { SeparationMode } from "@/settings/separation-mode";
 import type { TooltipContent } from "@/ui/tooltip";
@@ -11,12 +12,17 @@ type FaderFace = "inert" | "asking" | "karaoke-state";
 interface FaderFaceInput {
   mode: SeparationMode;
   armed: boolean;
+  status: KaraokeStatus | null;
+}
+
+function nothingDoneYet(status: KaraokeStatus | null): boolean {
+  return status === null || status === "waiting-for-capture";
 }
 
 function faderFace(input: FaderFaceInput): FaderFace {
   const veto = separationVeto({ mode: input.mode, faderArmed: input.armed, role: "current" });
   if (veto === "sing-along-off") return "inert";
-  if (veto === "nothing-asked-for-it") return "asking";
+  if (veto === "nothing-asked-for-it" && nothingDoneYet(input.status)) return "asking";
   return "karaoke-state";
 }
 
