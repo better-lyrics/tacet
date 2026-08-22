@@ -17,7 +17,11 @@ const SEPARATION_MODE_OPTIONS: readonly SeparationModeOption[] = [
     label: "Only when I ask",
     note: "Tap the button to separate the track you are on. Others are left alone.",
   },
-  { value: "every-track", label: "Every track", note: "Separated ahead of time, so the button works instantly." },
+  {
+    value: "every-track",
+    label: "Every track",
+    note: "Separated without being asked, so the button is ready when you are.",
+  },
 ];
 
 function isSeparationMode(value: unknown): value is SeparationMode {
@@ -33,6 +37,10 @@ function separationModeFromLegacy(singAlongEnabled: boolean, autoSeparateEnabled
 
 // -- What the mode says about the fader and the pipeline ------------------------
 
+function separationIsOff(mode: SeparationMode): boolean {
+  return mode === "off";
+}
+
 function settlesEachTrack(mode: SeparationMode): boolean {
   return mode === "on-demand";
 }
@@ -45,6 +53,7 @@ export {
   SEPARATION_MODES,
   SEPARATION_MODE_OPTIONS,
   isSeparationMode,
+  separationIsOff,
   separatesEveryTrack,
   separationModeFromLegacy,
   settlesEachTrack,

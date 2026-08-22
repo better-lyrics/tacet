@@ -9,7 +9,7 @@ import { describeSeparation } from "@/orchestrator/separation-status";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { faderArmed } from "@/pageworld/gain-law";
 import type { SetCrossfadeMessage, SetLoggingMessage } from "@/pageworld/protocol";
-import type { SeparationMode } from "@/settings/separation-mode";
+import { type SeparationMode, separationIsOff } from "@/settings/separation-mode";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
@@ -186,7 +186,7 @@ function applySettings(settings: Settings): void {
   crossfadeSeconds = settings.crossfadeSeconds;
   postCrossfadeSeconds(settings.crossfadeSeconds);
 
-  const separationOn = separationMode !== "off";
+  const separationOn = !separationIsOff(separationMode);
   const wantPipeline = separationOn || settings.crossfadeSeconds > 0;
   if (wantPipeline && pipeline === null) {
     pipeline = createKaraokePipeline({

@@ -18,7 +18,7 @@ function sourceFiles(): string[] {
         walk(path);
         continue;
       }
-      if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) found.push(path);
+      if ((entry.endsWith(".ts") || entry.endsWith(".tsx")) && !entry.endsWith(".test.ts")) found.push(path);
     }
   };
   walk(ROOT);
@@ -94,12 +94,17 @@ describe("one owner for what is staged to fade into", () => {
 });
 
 describe("one owner for whether a track wants separating", () => {
-  it("the mode reaches the veto and the pipeline switch, and nothing else reads it", () => {
+  it("only the settings, the popup that writes them and the two consumers read the mode", () => {
     expect(filesMatching(/\bseparationMode\b/)).toEqual([
       "contents/fader-control.ts",
       "orchestrator/karaoke-pipeline.ts",
+      "popup.tsx",
       "settings/settings.ts",
     ]);
+  });
+
+  it("only the mode's own module compares it against off", () => {
+    expect(filesMatching(/[Mm]ode\s*[!=]==\s*"off"/)).toEqual(["settings/separation-mode.ts"]);
   });
 
   it("the two booleans the mode replaced survive only in the migration that reads them", () => {

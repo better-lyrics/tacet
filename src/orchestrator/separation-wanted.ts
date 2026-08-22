@@ -1,4 +1,4 @@
-import { type SeparationMode, separatesEveryTrack } from "@/settings/separation-mode";
+import { type SeparationMode, separatesEveryTrack, separationIsOff } from "@/settings/separation-mode";
 
 // -- Does anything want this track separated? ---------------------------------
 
@@ -13,7 +13,7 @@ interface SeparationWantedInput {
 }
 
 function separationVeto(input: SeparationWantedInput): SeparationVeto | null {
-  if (input.mode === "off") return "sing-along-off";
+  if (separationIsOff(input.mode)) return "sing-along-off";
   if (separatesEveryTrack(input.mode)) return null;
   if (input.role === "ahead") return "nothing-asked-for-it";
   return input.faderArmed ? null : "nothing-asked-for-it";

@@ -3,6 +3,7 @@ import {
   SEPARATION_MODE_OPTIONS,
   isSeparationMode,
   separatesEveryTrack,
+  separationIsOff,
   separationModeFromLegacy,
   settlesEachTrack,
 } from "@/settings/separation-mode";
@@ -61,6 +62,14 @@ describe("settlesEachTrack", () => {
 
   it("does not ask the inert mode to settle on a track change", () => {
     expect(settlesEachTrack("off")).toBe(false);
+  });
+});
+
+describe("separationIsOff", () => {
+  it("is only true for the mode that separates nothing", () => {
+    expect(separationIsOff("off")).toBe(true);
+    expect(separationIsOff("on-demand")).toBe(false);
+    expect(separationIsOff("every-track")).toBe(false);
   });
 });
 
