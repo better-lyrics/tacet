@@ -983,7 +983,7 @@ async function main(): Promise<void> {
 
   const separationModeRow = createSeparationModeRow(settings.separationMode, next => {
     saveSettingsFrom(chrome.storage.sync, { separationMode: next }).catch(error => {
-      console.error(`${LOG_PREFIX} failed to save the sing-along setting`, error);
+      console.error(`${LOG_PREFIX} failed to save the separation mode`, error);
       showStatus("Could not save that change.");
       separationModeRow.setValue(settings.separationMode);
     });

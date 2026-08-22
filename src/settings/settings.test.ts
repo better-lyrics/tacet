@@ -231,6 +231,11 @@ describe("sanitizeSettings", () => {
         DEFAULT_SETTINGS.separationMode
       );
     });
+
+    it("falls back to the legacy pair when the stored mode is not one we know", () => {
+      expect(sanitizeSettings({ separationMode: "on", singAlongEnabled: false }).separationMode).toBe("off");
+      expect(sanitizeSettings({ separationMode: "on", autoSeparateEnabled: false }).separationMode).toBe("on-demand");
+    });
   });
 
   describe("crossfade length", () => {
