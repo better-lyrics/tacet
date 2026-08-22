@@ -533,6 +533,11 @@ function mintShadowUrlFor(videoId: string): void {
 
 const aheadPullsInFlight = new Set<string>();
 
+// Measured: a refused pull answers 400, and that response carries no
+// access-control header, so the page sees an opaque TypeError while the
+// extension origin reads the status. The request itself is never blocked.
+const PAGE_PULL_OPAQUE_REASON = "the pull failed, and this page cannot read why";
+
 function urlDurationSeconds(url: string): number {
   const minted = readMintedUrl(url);
   if (!minted || !Number.isFinite(minted.durationSeconds) || minted.durationSeconds <= 0) return Number.NaN;
@@ -582,7 +587,7 @@ function pullAheadTrack(videoId: string, url: string): void {
     .catch(error => {
       aheadPullsInFlight.delete(videoId);
       logError(`pulling videoId=${videoId} in this page threw`, error);
-      announceAcquisitionResult(videoId, "shadow-url", null, "the pull crashed");
+      announceAcquisitionResult(videoId, "shadow-url", null, PAGE_PULL_OPAQUE_REASON);
     });
 }
 
