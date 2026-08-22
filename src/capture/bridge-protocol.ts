@@ -116,6 +116,13 @@ export interface SliceCapturedMessage {
 export interface RequestShadowUrlMessage {
   type: "blk-request-shadow-url";
   videoId: string;
+  ahead?: boolean;
+}
+
+export interface AcquireAheadMessage {
+  type: "blk-acquire-ahead";
+  videoId: string;
+  url: string;
 }
 
 export interface ListeningToMessage {
@@ -146,6 +153,17 @@ export function isRequestShadowUrlMessage(data: unknown): data is RequestShadowU
     data !== null &&
     (data as { type?: unknown }).type === "blk-request-shadow-url" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isAcquireAheadMessage(data: unknown): data is AcquireAheadMessage {
+  if (typeof data !== "object" || data === null) return false;
+  const url: unknown = (data as { url?: unknown }).url;
+  return (
+    (data as { type?: unknown }).type === "blk-acquire-ahead" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof url === "string" &&
+    url.length > 0
   );
 }
 

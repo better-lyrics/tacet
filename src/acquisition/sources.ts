@@ -4,6 +4,8 @@ type SourceId = "shadow-url" | "hidden-player" | "player-capture";
 
 type SourceReach = "playing-track" | "any-track";
 
+type SourceStart = "on-request" | "already-running";
+
 type SourceSpeedRank = 1 | 2 | 3 | 4;
 
 interface SourceSpeed {
@@ -16,6 +18,7 @@ interface SourceDefinition {
   label: string;
   hint: string;
   reach: SourceReach;
+  start: SourceStart;
   speed: SourceSpeed;
 }
 
@@ -27,6 +30,7 @@ const SOURCES: readonly SourceDefinition[] = [
     label: "Shadow player",
     hint: "Gets a link from this page, then downloads it. Any track.",
     reach: "any-track",
+    start: "on-request",
     speed: { rank: 4, hint: "A few seconds a track" },
   },
   {
@@ -34,6 +38,7 @@ const SOURCES: readonly SourceDefinition[] = [
     label: "Hidden player",
     hint: "Loads the track in a background player. Any track.",
     reach: "any-track",
+    start: "on-request",
     speed: { rank: 3, hint: "About ten seconds a track" },
   },
   {
@@ -41,6 +46,7 @@ const SOURCES: readonly SourceDefinition[] = [
     label: "Player capture",
     hint: "Copies whatever you play as it streams. Current track only.",
     reach: "playing-track",
+    start: "already-running",
     speed: { rank: 1, hint: "As slow as the track is long" },
   },
 ];
@@ -59,6 +65,10 @@ function sourceById(id: SourceId): SourceDefinition {
 
 function reaches(id: SourceId, playingTrack: boolean): boolean {
   return playingTrack || sourceById(id).reach === "any-track";
+}
+
+function needsStarting(id: SourceId): boolean {
+  return sourceById(id).start === "on-request";
 }
 
 // -- What the listener asked for, which is one value ------------------------------
@@ -113,5 +123,24 @@ function nextSource(input: LadderInput): SourceId | null {
   return null;
 }
 
-export { SOURCES, SOURCE_IDS, enabledOrder, isSourceId, nextSource, reaches, sanitizeSourcePreferences, sourceById };
-export type { LadderInput, SourceId, SourceDefinition, SourcePreference, SourceReach, SourceSpeed, SourceSpeedRank };
+export {
+  SOURCES,
+  SOURCE_IDS,
+  enabledOrder,
+  isSourceId,
+  needsStarting,
+  nextSource,
+  reaches,
+  sanitizeSourcePreferences,
+  sourceById,
+};
+export type {
+  LadderInput,
+  SourceId,
+  SourceDefinition,
+  SourcePreference,
+  SourceReach,
+  SourceSpeed,
+  SourceSpeedRank,
+  SourceStart,
+};

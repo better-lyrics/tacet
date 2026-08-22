@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SOURCE_IDS } from "@/acquisition/sources";
 import {
+  isAcquireAheadMessage,
   isAcquisitionResultMessage,
   isCaptureReadyMessage,
   isCaptureStandDownMessage,
@@ -12,9 +13,11 @@ import {
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
+  isRequestShadowUrlMessage,
   isSliceCapturedMessage,
 } from "@/capture/bridge-protocol";
 import type {
+  AcquireAheadMessage,
   CaptureReadyMessage,
   CaptureStandDownMessage,
   PartialCaptureMessage,
@@ -308,6 +311,90 @@ describe("blk-partial-capture", () => {
       const ready: CaptureReadyMessage = { type: "blk-capture-ready", videoId: partial.videoId };
       expect(isPartialCaptureMessage(ready)).toBe(false);
     });
+  });
+});
+
+describe("blk-acquire-ahead", () => {
+  const acquire = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "blk-acquire-ahead",
+    videoId: "9E3jQcUkXdQ",
+    url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
+    ...overrides,
+  });
+
+  it("accepts the command that sends a minted url back into the page to be pulled", () => {
+    expect(isAcquireAheadMessage(acquire())).toBe(true);
+  });
+
+  it("survives the structured clone a postMessage puts it through", () => {
+    const message: AcquireAheadMessage = {
+      type: "blk-acquire-ahead",
+      videoId: "9E3jQcUkXdQ",
+      url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
+    };
+    expect(isAcquireAheadMessage(structuredClone(message))).toBe(true);
+  });
+
+  describe("edge cases", () => {
+    it("refuses a command missing anything it promises", () => {
+      for (const missing of ["type", "videoId", "url"]) {
+        const partial = acquire();
+        delete partial[missing];
+        expect(isAcquireAheadMessage(partial)).toBe(false);
+      }
+    });
+
+    it("refuses an empty or null url, since there is nothing to pull", () => {
+      expect(isAcquireAheadMessage(acquire({ url: "" }))).toBe(false);
+      expect(isAcquireAheadMessage(acquire({ url: null }))).toBe(false);
+    });
+
+    it("refuses nonsense rather than throwing", () => {
+      for (const nonsense of [null, undefined, 7, "text", []]) expect(isAcquireAheadMessage(nonsense)).toBe(false);
+    });
+  });
+
+  describe("invariants", () => {
+    it("is never mistaken for the result that carried the url in", () => {
+      const result = {
+        type: "blk-acquisition-result",
+        videoId: "9E3jQcUkXdQ",
+        source: "shadow-url",
+        url: "https://rr3.googlevideo.com/videoplayback?itag=251&clen=1",
+        reason: "the shadow player minted a url",
+      };
+      expect(isAcquireAheadMessage(result)).toBe(false);
+      expect(isAcquisitionResultMessage(acquire())).toBe(false);
+    });
+
+    it("matches no other guard, so a page-world listener can dispatch on the first hit", () => {
+      const others = [
+        isRequestCapturedAudioMessage,
+        isCapturedAudioMessage,
+        isCapturedAudioUnavailableMessage,
+        isCaptureReadyMessage,
+        isRequestPrefetchMessage,
+        isRequestNextPrefetchMessage,
+        isRequestPrefetchedAudioMessage,
+        isRequestShadowUrlMessage,
+        isCaptureStandDownMessage,
+        isSliceCapturedMessage,
+      ];
+      for (const guard of others) expect(guard(acquire())).toBe(false);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: the ahead shadow url is pulled in the page, so the command never reaches the offscreen document", () => {
+      expect(acquire().type).not.toBe("blk-acquire-track");
+    });
+  });
+});
+
+describe("blk-request-shadow-url", () => {
+  it("carries whether the request is for the track ahead, so the accumulator is not relabelled", () => {
+    expect(isRequestShadowUrlMessage({ type: "blk-request-shadow-url", videoId: "abc123", ahead: true })).toBe(true);
+    expect(isRequestShadowUrlMessage({ type: "blk-request-shadow-url", videoId: "abc123" })).toBe(true);
   });
 });
 

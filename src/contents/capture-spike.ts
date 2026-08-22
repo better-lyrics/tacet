@@ -14,6 +14,7 @@ import type {
   TrackArtworkMessage,
 } from "@/capture/bridge-protocol";
 import {
+  isAcquireAheadMessage,
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
   isRequestNextPrefetchMessage,
@@ -23,6 +24,8 @@ import {
   isListeningToMessage,
   isRequestShadowUrlMessage,
 } from "@/capture/bridge-protocol";
+import { acquireFromMintedUrl } from "@/acquisition/acquire";
+import { readMintedUrl } from "@/acquisition/minted-url";
 import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
 import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
@@ -491,8 +494,17 @@ let shadowInFlightVideoId: string | null = null;
 let shadowBudget = freshBudget();
 
 function mintShadowUrlFor(videoId: string): void {
+  if (shadowInFlightVideoId === videoId) {
+    log(`already minting a shadow url for ${videoId}, waiting on the mint already running`);
+    return;
+  }
   if (shadowInFlightVideoId !== null) {
-    log(`already minting a shadow url for ${shadowInFlightVideoId}, ignoring the request for ${videoId}`);
+    announceAcquisitionResult(
+      videoId,
+      "shadow-url",
+      null,
+      `a shadow player is already minting for ${shadowInFlightVideoId}`
+    );
     return;
   }
   const verdict = mayMint(shadowBudget, Date.now());
@@ -514,6 +526,63 @@ function mintShadowUrlFor(videoId: string): void {
       shadowBudget = recordMintOutcome(shadowBudget, false, Date.now());
       logError(`minting a shadow url for videoId=${videoId} threw`, error);
       announceAcquisitionResult(videoId, "shadow-url", null, "the shadow player crashed");
+    });
+}
+
+// -- Pulling the next track's bytes without leaving this page ------------------
+
+const aheadPullsInFlight = new Set<string>();
+
+function urlDurationSeconds(url: string): number {
+  const minted = readMintedUrl(url);
+  if (!minted || !Number.isFinite(minted.durationSeconds) || minted.durationSeconds <= 0) return Number.NaN;
+  return minted.durationSeconds;
+}
+
+function pullAheadTrack(videoId: string, url: string): void {
+  if (aheadPullsInFlight.has(videoId)) {
+    log(`already pulling videoId=${videoId} in this page, ignoring the second request`);
+    return;
+  }
+  if (prefetchedByVideoId.has(videoId)) {
+    log(`videoId=${videoId} is already held in this page, no pull needed`);
+    announceCaptureReady(videoId);
+    return;
+  }
+
+  aheadPullsInFlight.add(videoId);
+  const startedAt = performance.now();
+  acquireFromMintedUrl({ url })
+    .then(result => {
+      aheadPullsInFlight.delete(videoId);
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (!result.ok) {
+        log(`pulling videoId=${videoId} in this page failed after ${elapsedMs}ms: ${result.reason}`);
+        announceAcquisitionResult(videoId, "shadow-url", null, result.reason);
+        return;
+      }
+
+      const durationSeconds = urlDurationSeconds(url);
+      if (!Number.isFinite(durationSeconds)) {
+        log(`the url for videoId=${videoId} states no duration, holding the whole pull as the track anyway`);
+      }
+      holdPrefetched(videoId, {
+        mimeType: result.mimeType,
+        bytes: result.bytes,
+        complete: true,
+        coveredSeconds: durationSeconds,
+        trackSeconds: durationSeconds,
+      });
+      prefetchStateByVideoId.set(videoId, "done");
+      log(
+        `pulled videoId=${videoId} in this page, ${result.bytes.byteLength} bytes over ${result.requests} request(s) in ${elapsedMs}ms`
+      );
+      announceCaptureReady(videoId);
+    })
+    .catch(error => {
+      aheadPullsInFlight.delete(videoId);
+      logError(`pulling videoId=${videoId} in this page threw`, error);
+      announceAcquisitionResult(videoId, "shadow-url", null, "the pull crashed");
     });
 }
 
@@ -643,9 +712,10 @@ window.addEventListener("message", event => {
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
   if (isListeningToMessage(data) && runsOrchestration) noteListenedTrack(data.videoId);
   if (isRequestShadowUrlMessage(data) && runsOrchestration) {
-    noteListenedTrack(data.videoId);
+    if (data.ahead !== true) noteListenedTrack(data.videoId);
     mintShadowUrlFor(data.videoId);
   }
+  if (isAcquireAheadMessage(data) && runsOrchestration) pullAheadTrack(data.videoId, data.url);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) noteListenedTrack(data.videoId);
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
@@ -719,6 +789,7 @@ window.blkCaptureProbe = () => {
     capturedBytes: videoId ? prefetchedByVideoId.get(videoId)?.bytes.byteLength ?? 0 : 0,
     inFlightVideoId: slicedPrefetchVideoId,
     inFlightIsAhead: slicedPrefetchIsAhead,
+    pullingAhead: [...aheadPullsInFlight],
     workerFrames: Array.from(document.querySelectorAll<HTMLIFrameElement>(`iframe[id^="${FRAME_ID_PREFIX}"]`)).map(
       frame => frame.id
     ),

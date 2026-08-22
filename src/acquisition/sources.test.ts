@@ -3,6 +3,7 @@ import {
   SOURCES,
   SOURCE_IDS,
   isSourceId,
+  needsStarting,
   nextSource,
   reaches,
   enabledOrder,
@@ -69,6 +70,29 @@ describe("reaches", () => {
   });
 });
 
+describe("needsStarting", () => {
+  it("says the two fetching sources have to be asked", () => {
+    expect(needsStarting("shadow-url")).toBe(true);
+    expect(needsStarting("hidden-player")).toBe(true);
+  });
+
+  it("says player capture needs no asking, because it is always running", () => {
+    expect(needsStarting("player-capture")).toBe(false);
+  });
+
+  describe("invariants", () => {
+    it("agrees with the registry for every source", () => {
+      for (const source of SOURCES) expect(needsStarting(source.id)).toBe(source.start === "on-request");
+    });
+
+    it("a source that only reaches the playing track is the listener's own playback, so it is already running", () => {
+      for (const source of SOURCES) {
+        if (source.reach === "playing-track") expect(source.start).toBe("already-running");
+      }
+    });
+  });
+});
+
 describe("nextSource", () => {
   it("takes the first source in the listener's order", () => {
     expect(nextSource({ order: DEFAULT_ORDER, playingTrack: true, tried: [] })).toBe("shadow-url");
@@ -85,6 +109,34 @@ describe("nextSource", () => {
     const order: SourceId[] = ["hidden-player", "player-capture", "shadow-url"];
     expect(nextSource({ order, playingTrack: true, tried: [] })).toBe("hidden-player");
     expect(nextSource({ order, playingTrack: true, tried: ["hidden-player"] })).toBe("player-capture");
+  });
+
+  describe("the ahead track, which nobody is playing yet", () => {
+    it("skips player capture and starts at the top of the listener's order", () => {
+      expect(nextSource({ order: DEFAULT_ORDER, playingTrack: false, tried: [] })).toBe("shadow-url");
+    });
+
+    it("offers the hidden player once the shadow player is spent", () => {
+      expect(nextSource({ order: DEFAULT_ORDER, playingTrack: false, tried: ["shadow-url"] })).toBe("hidden-player");
+    });
+
+    it("honours an order the listener rearranged", () => {
+      const order: SourceId[] = ["hidden-player", "player-capture", "shadow-url"];
+      expect(nextSource({ order, playingTrack: false, tried: [] })).toBe("hidden-player");
+      expect(nextSource({ order, playingTrack: false, tried: ["hidden-player"] })).toBe("shadow-url");
+    });
+
+    it("answers with nothing once every source that can reach it is spent", () => {
+      expect(nextSource({ order: DEFAULT_ORDER, playingTrack: false, tried: ["shadow-url", "hidden-player"] })).toBe(
+        null
+      );
+    });
+
+    it("regression: with the hidden player off, a crossfade still reaches the shadow player", () => {
+      const order: SourceId[] = ["shadow-url", "player-capture"];
+      expect(nextSource({ order, playingTrack: false, tried: [] })).toBe("shadow-url");
+      expect(nextSource({ order, playingTrack: false, tried: ["shadow-url"] })).toBeNull();
+    });
   });
 
   describe("edge cases", () => {
