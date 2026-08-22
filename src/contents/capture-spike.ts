@@ -535,7 +535,9 @@ const aheadPullsInFlight = new Set<string>();
 
 // Measured: a refused pull answers 400, and that response carries no
 // access-control header, so the page sees an opaque TypeError while the
-// extension origin reads the status. The request itself is never blocked.
+// extension origin reads the status. The request itself is never blocked, and
+// the ladder is built to take over, so this is a routine outcome rather than an
+// error the listener should see in their console.
 const PAGE_PULL_OPAQUE_REASON = "the pull failed, and this page cannot read why";
 
 function urlDurationSeconds(url: string): number {
@@ -584,9 +586,10 @@ function pullAheadTrack(videoId: string, url: string): void {
       );
       announceCaptureReady(videoId);
     })
-    .catch(error => {
+    .catch((error: unknown) => {
       aheadPullsInFlight.delete(videoId);
-      logError(`pulling videoId=${videoId} in this page threw`, error);
+      const detail = error instanceof Error ? error.message : String(error);
+      log(`pulling videoId=${videoId} in this page did not complete: ${detail}`);
       announceAcquisitionResult(videoId, "shadow-url", null, PAGE_PULL_OPAQUE_REASON);
     });
 }
