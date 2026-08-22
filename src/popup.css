@@ -150,11 +150,16 @@ body {
   cursor: pointer;
   transition:
     background-color 160ms var(--blk-ease),
-    color 160ms var(--blk-ease);
+    color 160ms var(--blk-ease),
+    opacity 160ms var(--blk-ease);
 }
 
 .blk-tab:hover {
   color: var(--blk-text);
+}
+
+.blk-tab--inactive {
+  opacity: 0.4;
 }
 
 .blk-tab[aria-selected="true"] {
@@ -202,6 +207,24 @@ body {
   to {
     opacity: 1;
   }
+}
+
+.blk-panel__body {
+  transition: opacity 160ms var(--blk-ease);
+}
+
+.blk-panel--inactive .blk-panel__body {
+  opacity: 0.4;
+}
+
+.blk-panel__reason {
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border-radius: var(--blk-r-control);
+  background: var(--blk-l1);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--blk-text-1);
 }
 
 /* -- Rows -------------------------------------------------------------------- */
