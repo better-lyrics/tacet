@@ -1,5 +1,10 @@
 import { shouldShowActivePill } from "@/ui/armed-affordance";
-import { isFaderInteractive, shouldCloseForDisabled, shouldSettleToNeutral } from "@/ui/fader-disabled-gate";
+import {
+  hasSomethingToSettle,
+  isFaderInteractive,
+  shouldCloseForDisabled,
+  shouldSettleToNeutral,
+} from "@/ui/fader-disabled-gate";
 import {
   dockCouplingCardClosed,
   dockCouplingCardOpened,
@@ -53,6 +58,7 @@ interface FaderControl {
   setHost(next: FaderHost): void;
   setBusy(busy: boolean): void;
   setInteractive(next: boolean): void;
+  settleToNeutral(): void;
   showCrossfade(durationSeconds: number): void;
   reanchorWipe(): void;
 }
@@ -430,16 +436,19 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   });
   disabledObserver.observe(button, { attributes: true, attributeFilter: ["aria-disabled"] });
 
+  function settleToNeutral(): void {
+    if (!hasSomethingToSettle(v)) return;
+    v = 0;
+    commit("settle", false);
+  }
+
   function setInteractive(next: boolean): void {
     if (interactive === next) return;
     interactive = next;
     if (next) button.removeAttribute("aria-disabled");
     else button.setAttribute("aria-disabled", "true");
     if (shouldCloseForDisabled(open, !next)) setOpen(false);
-    if (shouldSettleToNeutral(next, v)) {
-      v = 0;
-      commit("settle", false);
-    }
+    if (shouldSettleToNeutral(next, v)) settleToNeutral();
   }
 
   function onMenuKeydown(event: KeyboardEvent): void {
@@ -550,6 +559,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     setHost,
     setBusy,
     setInteractive,
+    settleToNeutral,
     showCrossfade,
     reanchorWipe: anchorWipe,
   };

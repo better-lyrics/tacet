@@ -112,4 +112,12 @@ describe("one owner for whether a track wants separating", () => {
   it("only the gain law compares a mix level against neutral", () => {
     expect(filesMatching(/[Mm]ixLevel\s*[!=]==\s*NEUTRAL_MIX_LEVEL/)).toEqual(["pageworld/gain-law.ts"]);
   });
+
+  it("the veto is the only thing the fader's face and the pipeline ask", () => {
+    expect(filesMatching(/\bseparationVeto\b/)).toEqual([
+      "orchestrator/karaoke-pipeline.ts",
+      "orchestrator/separation-wanted.ts",
+      "ui/fader-face.ts",
+    ]);
+  });
 });

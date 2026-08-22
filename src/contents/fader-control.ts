@@ -9,6 +9,7 @@ import { describeSeparation } from "@/orchestrator/separation-status";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { faderArmed } from "@/pageworld/gain-law";
 import type { SetCrossfadeMessage, SetLoggingMessage } from "@/pageworld/protocol";
+import type { SeparationMode } from "@/settings/separation-mode";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { FaderPlacement, Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
@@ -18,7 +19,9 @@ import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { faderMarks } from "@/ui/fader-availability";
 import type { FaderAvailability } from "@/ui/fader-availability";
+import { describeAskingFader, faderFace } from "@/ui/fader-face";
 import { describeInertFader } from "@/ui/fader-inert-tooltip";
+import { settlesForTrackChange } from "@/ui/fader-track-settle";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
@@ -89,12 +92,21 @@ function renderInertFader(control: FaderControl, tooltip: Tooltip): void {
   tooltip.setContent(describeInertFader(crossfadeSeconds, trackStatusStore.get().next));
 }
 
+function renderAskingFader(control: FaderControl, tooltip: Tooltip): void {
+  control.setBusy(false);
+  markFader(control.button, "available");
+  tooltip.setContent(describeAskingFader());
+}
+
 // -- Master switch ---------------------------------------------------------
 
 let latest: KaraokeState | null = null;
 let faderRender: (() => void) | null = null;
+let faderSettle: (() => void) | null = null;
 let faderCrossfade: ((durationSeconds: number) => void) | null = null;
 let crossfadeSeconds = 0;
+let separationMode: SeparationMode = "off";
+let seenVideoId: string | null = null;
 
 interface MountedFader {
   setPlacement(next: FaderPlacement): void;
@@ -105,15 +117,20 @@ function mountFader(placement: FaderPlacement): MountedFader {
   injectStylesheet();
 
   let armed = false;
-  let interactive = true;
   let tooltip: Tooltip | undefined;
 
   function render(): void {
-    if (!interactive) {
-      if (tooltip) renderInertFader(control, tooltip);
+    if (!tooltip) return;
+    const face = faderFace({ mode: separationMode, armed });
+    if (face === "inert") {
+      renderInertFader(control, tooltip);
       return;
     }
-    if (latest && tooltip) renderKaraokeState(control, tooltip, latest, armed);
+    if (face === "asking") {
+      renderAskingFader(control, tooltip);
+      return;
+    }
+    if (latest) renderKaraokeState(control, tooltip, latest, armed);
   }
 
   const control = createFaderControl({
@@ -134,6 +151,7 @@ function mountFader(placement: FaderPlacement): MountedFader {
   );
 
   faderRender = render;
+  faderSettle = control.settleToNeutral;
   faderCrossfade = control.showCrossfade;
   trackStatusStore.subscribe(render);
   render();
@@ -141,7 +159,6 @@ function mountFader(placement: FaderPlacement): MountedFader {
   return {
     setPlacement: mount.setPlacement,
     setInteractive(next) {
-      interactive = next;
       control.setInteractive(next);
       render();
     },
@@ -165,16 +182,24 @@ function postCrossfadeSeconds(seconds: number): void {
 
 function applySettings(settings: Settings): void {
   applyLogging(settings.debugLoggingEnabled);
+  separationMode = settings.separationMode;
   crossfadeSeconds = settings.crossfadeSeconds;
   postCrossfadeSeconds(settings.crossfadeSeconds);
 
-  const separationOn = settings.separationMode !== "off";
+  const separationOn = separationMode !== "off";
   const wantPipeline = separationOn || settings.crossfadeSeconds > 0;
   if (wantPipeline && pipeline === null) {
     pipeline = createKaraokePipeline({
       settings,
       onStateChange: state => {
+        const settle = settlesForTrackChange({
+          mode: separationMode,
+          previousVideoId: seenVideoId,
+          videoId: state.videoId,
+        });
+        seenVideoId = state.videoId;
         latest = state;
+        if (settle) faderSettle?.();
         faderRender?.();
       },
       onCrossfadeStarted: durationSeconds => faderCrossfade?.(durationSeconds),
@@ -184,6 +209,7 @@ function applySettings(settings: Settings): void {
     pipeline.destroy();
     pipeline = null;
     latest = null;
+    seenVideoId = null;
     logger.log("pipeline off");
   }
 

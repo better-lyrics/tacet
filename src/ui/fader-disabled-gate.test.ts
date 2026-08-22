@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isFaderInteractive, shouldCloseForDisabled, shouldSettleToNeutral } from "@/ui/fader-disabled-gate";
+import {
+  hasSomethingToSettle,
+  isFaderInteractive,
+  shouldCloseForDisabled,
+  shouldSettleToNeutral,
+} from "@/ui/fader-disabled-gate";
 
 describe("isFaderInteractive", () => {
   it("is interactive when not disabled", () => {
@@ -48,6 +53,34 @@ describe("shouldCloseForDisabled", () => {
 
     it("does nothing when neither open nor disabled", () => {
       expect(shouldCloseForDisabled(false, false)).toBe(false);
+    });
+  });
+});
+
+describe("hasSomethingToSettle", () => {
+  it("has work to do while the fader asks for the vocals to come down", () => {
+    expect(hasSomethingToSettle(-1)).toBe(true);
+  });
+
+  it("has nothing to do at neutral", () => {
+    expect(hasSomethingToSettle(0)).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("treats negative zero as neutral, since it is the same level", () => {
+      expect(hasSomethingToSettle(-0)).toBe(false);
+    });
+
+    it("counts a partially pulled fader", () => {
+      expect(hasSomethingToSettle(-0.4)).toBe(true);
+    });
+  });
+
+  describe("invariants", () => {
+    it("is what every reason to settle agrees on", () => {
+      for (const value of [-1, -0.4, 0, -0]) {
+        expect(shouldSettleToNeutral(false, value)).toBe(hasSomethingToSettle(value));
+      }
     });
   });
 });

@@ -6,8 +6,12 @@ function shouldCloseForDisabled(open: boolean, disabled: boolean): boolean {
   return open && disabled;
 }
 
-function shouldSettleToNeutral(interactive: boolean, value: number): boolean {
-  return !interactive && value !== 0;
+function hasSomethingToSettle(value: number): boolean {
+  return value !== 0;
 }
 
-export { isFaderInteractive, shouldCloseForDisabled, shouldSettleToNeutral };
+function shouldSettleToNeutral(interactive: boolean, value: number): boolean {
+  return !interactive && hasSomethingToSettle(value);
+}
+
+export { hasSomethingToSettle, isFaderInteractive, shouldCloseForDisabled, shouldSettleToNeutral };
