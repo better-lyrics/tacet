@@ -136,6 +136,20 @@ describe("one owner for what this track's separation is doing right now", () => 
   });
 });
 
+describe("one owner for which rung is fetching a track", () => {
+  it("nothing reads the last tried rung off a climb by hand", () => {
+    expect(filesMatching(/tried\[[\w.]*tried\.length\s*-\s*1\]/)).toEqual(["acquisition/climb.ts"]);
+  });
+
+  it("only the pipeline asks, and only through the climb's own two answers", () => {
+    expect(filesMatching(/\b(fetchingSource|inFlightSource)\b/)).toEqual([
+      "acquisition/climb.ts",
+      "orchestrator/delivery.ts",
+      "orchestrator/karaoke-pipeline.ts",
+    ]);
+  });
+});
+
 describe("one owner for whether a rung must be started", () => {
   it("only the ladder and the two surfaces that name a source ask the registry", () => {
     expect(filesMatching(/\bneedsStarting\b/)).toEqual([

@@ -48,7 +48,11 @@ export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
   ahead?: boolean;
-  fresh?: boolean;
+}
+
+export interface DiscardCaptureMessage {
+  type: "blk-discard-capture";
+  videoId: string;
 }
 
 export interface RequestNextPrefetchMessage {
@@ -247,6 +251,15 @@ export function isRequestPrefetchMessage(data: unknown): data is RequestPrefetch
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-request-prefetch" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isDiscardCaptureMessage(data: unknown): data is DiscardCaptureMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-discard-capture" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }

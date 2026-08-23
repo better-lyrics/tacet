@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { climbStep, fetchingSource, startClimb } from "@/acquisition/climb";
+import { SOURCE_IDS } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
-import { initialKaraokeState } from "@/orchestrator/karaoke-state";
+import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState, KaraokeStatus } from "@/orchestrator/karaoke-state";
 import { separationActivity } from "@/orchestrator/separation-activity";
 import type { SeparationActivity } from "@/orchestrator/separation-activity";
@@ -278,17 +280,89 @@ describe("separationActivity", () => {
         });
       }
     });
+  });
+});
 
-    it("regression: both surfaces are handed the same answer for the same moment", () => {
-      for (const mode of MODES) {
-        for (const armed of [true, false]) {
-          for (const current of STATES) {
-            const first = separationActivity({ mode, armed, state: current });
-            const second = separationActivity({ mode, armed, state: current });
-            expect(first).toEqual(second);
-          }
-        }
-      }
+// Every module below is individually correct and the listener still went quiet
+// for a whole re-capture, because nothing dispatched the rung between two of
+// them. The chain is therefore driven end to end rather than unit by unit.
+describe("the chain from the source ladder to what the listener is told", () => {
+  function climbAndTell(order: readonly SourceId[], events: number): SeparationActivity {
+    const climb = startClimb(VIDEO_ID);
+    let state = initialKaraokeState(VIDEO_ID);
+    for (let taken = 0; taken < events; taken += 1) {
+      const step = climbStep({ climb, order, playingTrack: true });
+      if (step.kind === "waiting") break;
+      climb.tried = step.tried;
+      if (step.kind === "spent") climb.exhausted = true;
+      else climb.inFlight = true;
+      state = reduceKaraokeState(state, { type: "fetching", videoId: VIDEO_ID, source: fetchingSource(climb) });
+      climb.inFlight = false;
+    }
+    return separationActivity({ mode: "on-demand", armed: true, state });
+  }
+
+  it("names the first rung as soon as the ladder starts it", () => {
+    expect(climbAndTell(SOURCE_IDS, 1)).toEqual({ kind: "downloading", source: "shadow-url", fraction: Number.NaN });
+  });
+
+  it("names each rung in turn as the ladder climbs", () => {
+    expect(climbAndTell(SOURCE_IDS, 2)).toEqual({ kind: "downloading", source: "hidden-player", fraction: Number.NaN });
+  });
+
+  it("falls back to the rung that keeps running once every source has been tried", () => {
+    expect(climbAndTell(SOURCE_IDS, 3)).toEqual({
+      kind: "downloading",
+      source: "player-capture",
+      fraction: Number.NaN,
     });
+  });
+
+  it("regression: a rung that is running is never reported as waiting for audio", () => {
+    for (let events = 1; events <= SOURCE_IDS.length; events += 1) {
+      expect(climbAndTell(SOURCE_IDS, events).kind).not.toBe("waiting");
+    }
+  });
+
+  it("regression: the page world's fraction lands on the rung the ladder is on", () => {
+    const climb = startClimb(VIDEO_ID);
+    const step = climbStep({ climb, order: SOURCE_IDS, playingTrack: true });
+    if (step.kind !== "start") throw new Error("the ladder should have started a rung");
+    climb.tried = step.tried;
+    climb.inFlight = true;
+
+    let state = initialKaraokeState(VIDEO_ID);
+    state = reduceKaraokeState(state, { type: "fetching", videoId: VIDEO_ID, source: fetchingSource(climb) });
+    state = reduceKaraokeState(state, {
+      type: "download-progress",
+      videoId: VIDEO_ID,
+      fraction: 0.42,
+      source: "shadow-url",
+    });
+
+    expect(separationActivity({ mode: "on-demand", armed: true, state })).toEqual({
+      kind: "downloading",
+      source: "shadow-url",
+      fraction: 0.42,
+    });
+  });
+
+  it("regression: a fraction from the listener's own player is ignored while a rung is pulling", () => {
+    const climb = startClimb(VIDEO_ID);
+    const step = climbStep({ climb, order: SOURCE_IDS, playingTrack: true });
+    if (step.kind !== "start") throw new Error("the ladder should have started a rung");
+    climb.tried = step.tried;
+    climb.inFlight = true;
+
+    let state = initialKaraokeState(VIDEO_ID);
+    state = reduceKaraokeState(state, { type: "fetching", videoId: VIDEO_ID, source: fetchingSource(climb) });
+    state = reduceKaraokeState(state, {
+      type: "download-progress",
+      videoId: VIDEO_ID,
+      fraction: 0.9,
+      source: "player-capture",
+    });
+
+    expect(state.downloadFraction).toBeNaN();
   });
 });

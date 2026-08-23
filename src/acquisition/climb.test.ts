@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { climbStep, fetchingSource, startClimb } from "@/acquisition/climb";
+import { climbStep, fetchingSource, inFlightSource, startClimb } from "@/acquisition/climb";
 import type { Climb } from "@/acquisition/climb";
 import { SOURCE_IDS } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
@@ -223,6 +223,51 @@ describe("fetchingSource", () => {
         exhausted: false,
       };
       expect(fetchingSource(climb)).toBe("shadow-url");
+    });
+  });
+});
+
+describe("inFlightSource", () => {
+  it("names the rung that was started and has not answered", () => {
+    const climb: Climb = { videoId: "abc123", tried: ["shadow-url"], inFlight: true, exhausted: false };
+    expect(inFlightSource(climb)).toBe("shadow-url");
+  });
+
+  describe("edge cases", () => {
+    it("answers null when there is no climb at all", () => {
+      expect(inFlightSource(null)).toBeNull();
+    });
+
+    it("answers null for a fresh climb that has tried nothing", () => {
+      expect(inFlightSource(startClimb("abc123"))).toBeNull();
+    });
+  });
+
+  describe("invariants", () => {
+    it("answers null whenever nothing is in flight, however far the ladder has climbed", () => {
+      const climbs: Climb[] = [
+        { videoId: "abc123", tried: ["shadow-url"], inFlight: false, exhausted: false },
+        { videoId: "abc123", tried: [...DEFAULT_ORDER], inFlight: false, exhausted: true },
+      ];
+      for (const climb of climbs) expect(inFlightSource(climb)).toBeNull();
+    });
+
+    it("agrees with the fetching source whenever a rung is in flight", () => {
+      const climb: Climb = {
+        videoId: "abc123",
+        tried: ["shadow-url", "hidden-player"],
+        inFlight: true,
+        exhausted: false,
+      };
+      expect(inFlightSource(climb)).toBe(fetchingSource(climb));
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a spent ladder is not blamed on the rung that goes on running by itself", () => {
+      const climb: Climb = { videoId: "abc123", tried: [...DEFAULT_ORDER], inFlight: false, exhausted: true };
+      expect(fetchingSource(climb)).toBe("player-capture");
+      expect(inFlightSource(climb)).toBeNull();
     });
   });
 });

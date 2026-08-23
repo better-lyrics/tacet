@@ -16,6 +16,7 @@ import type {
 import {
   isAcquireAheadMessage,
   isCaptureStandDownMessage,
+  isDiscardCaptureMessage,
   isRequestCapturedAudioMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
@@ -413,15 +414,16 @@ function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void 
   }, delay);
 }
 
-function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}): void {
-  if (fresh) {
-    log(`discarding the capture held for videoId=${videoId} and acquiring it again`);
-    prefetchedByVideoId.delete(videoId);
-    prefetchStateByVideoId.delete(videoId);
-    prefetchAttemptsByVideoId.delete(videoId);
-    stoodDownVideoIds.delete(videoId);
-    announcedKeys.clear();
-  }
+function discardCaptureFor(videoId: string): void {
+  log(`discarding the capture held for videoId=${videoId}`);
+  prefetchedByVideoId.delete(videoId);
+  prefetchStateByVideoId.delete(videoId);
+  prefetchAttemptsByVideoId.delete(videoId);
+  stoodDownVideoIds.delete(videoId);
+  announcedKeys.clear();
+}
+
+function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
   if (prefetchStateByVideoId.get(videoId) === "done" && prefetchedByVideoId.has(videoId)) {
     if (!stoodDownVideoIds.has(videoId)) announceCaptureReady(videoId);
     return;
@@ -737,9 +739,10 @@ window.addEventListener("message", event => {
     mintShadowUrlFor(data.videoId);
   }
   if (isAcquireAheadMessage(data) && runsOrchestration) pullAheadTrack(data.videoId, data.url);
+  if (isDiscardCaptureMessage(data) && runsOrchestration) discardCaptureFor(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) noteListenedTrack(data.videoId);
-    startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
+    startPrefetchFor(data.videoId, { ahead: data.ahead === true });
   }
 
   if (isRequestNextPrefetchMessage(data) && runsOrchestration) {

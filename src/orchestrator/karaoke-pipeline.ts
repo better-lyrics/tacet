@@ -1,6 +1,6 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
-import { climbStep, fetchingSource, startClimb } from "@/acquisition/climb";
+import { climbStep, fetchingSource, inFlightSource, startClimb } from "@/acquisition/climb";
 import type { Climb } from "@/acquisition/climb";
 import { enabledOrder, sanitizeSourcePreferences, sourceById } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
@@ -11,6 +11,7 @@ import { deliveredBy } from "@/orchestrator/delivery";
 import {
   type AcquireAheadMessage,
   type CaptureStandDownMessage,
+  type DiscardCaptureMessage,
   type ListeningToMessage,
   type RequestCapturedAudioMessage,
   type RequestShadowUrlMessage,
@@ -173,6 +174,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | LoadStemsMessage
       | StopStemsMessage
       | CaptureStandDownMessage
+      | DiscardCaptureMessage
       | ListeningToMessage
       | RequestPrefetchMessage
       | RequestShadowUrlMessage
@@ -303,7 +305,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       .catch(error => logError("failed to send a forget-track command", error))
       .finally(() => {
         if (videoId !== state.videoId) return;
-        postToPageWorld({ type: "blk-request-prefetch", videoId, fresh: true });
+        postToPageWorld({ type: "blk-discard-capture", videoId });
+        climb = startClimb(videoId);
+        maybeAcquireCurrent(videoId);
       });
   }
 
@@ -598,7 +602,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isAcquireFailedMessage(message)) {
       if (message.videoId !== state.videoId) return;
       dispatch({ type: "reacquire", videoId: message.videoId });
-      const spent = climb?.videoId === message.videoId ? climb.tried[climb.tried.length - 1] : null;
+      const spent = inFlightSource(climbFor(message.videoId));
       if (spent) onSourceSpent(message.videoId, spent, message.reason);
       return;
     }
@@ -735,7 +739,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
-    delivery = { videoId, source: deliveredBy({ inFlightSource: fetchingSource(climbFor(videoId)), announcedSource }) };
+    delivery = { videoId, source: deliveredBy({ inFlightSource: inFlightSource(climbFor(videoId)), announcedSource }) };
   }
 
   function startSource(videoId: string, source: SourceId, ahead: boolean): void {
