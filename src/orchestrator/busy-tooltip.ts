@@ -1,12 +1,16 @@
 import { describeDownload } from "@/orchestrator/download-tooltip";
-import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import type { SeparationActivity, SeparationWork } from "@/orchestrator/separation-activity";
 import { ARMED_LABEL } from "@/ui/armed-affordance";
 import type { TooltipContent } from "@/ui/tooltip";
 
 // -- Busy tooltip --------------------------------------------------------------
 
-function describeStage(state: KaraokeState): TooltipContent {
-  switch (state.stage) {
+const ASKING_LABEL = "Click to separate this track";
+const WAITING_LABEL = "Waiting for the audio…";
+const ENGAGE_LABEL = "Click to remove vocals, hold to set the level";
+
+function describeStage(work: SeparationWork): TooltipContent {
+  switch (work.stage) {
     case "checking-cache":
       return { label: "Checking for cached vocals…", percent: null };
     case "decoding":
@@ -16,7 +20,7 @@ function describeStage(state: KaraokeState): TooltipContent {
     case "loading-model":
       return { label: "Loading the separation model…", percent: null };
     case "separating":
-      return { label: "Separating vocals…", percent: state.total > 0 ? state.processed / state.total : null };
+      return { label: "Separating vocals…", percent: work.total > 0 ? work.processed / work.total : null };
     case "encoding":
       return { label: "Finishing up…", percent: null };
     default:
@@ -24,12 +28,30 @@ function describeStage(state: KaraokeState): TooltipContent {
   }
 }
 
-function describeBusy(state: KaraokeState, armed: boolean): TooltipContent {
-  const stage =
-    state.status === "waiting-for-capture" && state.downloadSource !== null
-      ? describeDownload(state.downloadFraction, state.downloadSource)
-      : describeStage(state);
-  return { ...stage, note: armed ? ARMED_LABEL : null };
+function activityIsBusy(activity: SeparationActivity): boolean {
+  return activity.kind === "waiting" || activity.kind === "downloading" || activity.kind === "working";
 }
 
-export { describeBusy, describeStage };
+function describeActivity(activity: SeparationActivity, armed: boolean): TooltipContent | null {
+  const note = armed ? ARMED_LABEL : null;
+
+  switch (activity.kind) {
+    case "off":
+      return null;
+    case "asking":
+      return { label: ASKING_LABEL, percent: null };
+    case "waiting":
+      return { label: WAITING_LABEL, percent: null, note };
+    case "downloading":
+      return { ...describeDownload(activity.fraction, activity.source), note };
+    case "working":
+      return { ...describeStage(activity), note };
+    case "ready-to-engage":
+    case "engaged":
+      return { label: ENGAGE_LABEL, percent: null };
+    case "failed":
+      return { label: `Sing-along unavailable: ${activity.reason ?? "unknown error"}`, percent: null };
+  }
+}
+
+export { ASKING_LABEL, ENGAGE_LABEL, WAITING_LABEL, activityIsBusy, describeActivity, describeStage };

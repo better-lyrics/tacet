@@ -1,4 +1,5 @@
-import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { needsStarting } from "@/acquisition/sources";
+import type { SeparationActivity, SeparationWork } from "@/orchestrator/separation-activity";
 
 // -- The pipeline, said in three words -----------------------------------------
 interface SeparationStatus {
@@ -20,39 +21,40 @@ function clampFraction(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-function segmentFraction(state: KaraokeState): number {
-  return state.total > 0 ? clampFraction(state.processed / state.total) : 0;
+function segmentFraction(work: SeparationWork): number {
+  return work.total > 0 ? clampFraction(work.processed / work.total) : 0;
 }
 
-function describeProcessing(state: KaraokeState): SeparationStatus {
-  const fill = segmentFraction(state);
-  if (state.stage === "separating") {
-    return { label: "Separating", percent: state.total > 0 ? fill : null, fill };
+function describeProcessing(work: SeparationWork): SeparationStatus {
+  const fill = segmentFraction(work);
+  if (work.stage === "separating") {
+    return { label: "Separating", percent: work.total > 0 ? fill : null, fill };
   }
-  return { label: state.stage === null ? "Preparing" : STAGE_LABELS[state.stage] ?? "Preparing", percent: null, fill };
+  return { label: work.stage === null ? "Preparing" : STAGE_LABELS[work.stage] ?? "Preparing", percent: null, fill };
 }
 
-function describeSeparation(state: KaraokeState | null): SeparationStatus | null {
-  if (state === null) return null;
-
-  switch (state.status) {
+function describeSeparation(activity: SeparationActivity): SeparationStatus | null {
+  switch (activity.kind) {
+    case "off":
+      return null;
+    case "asking":
+      return { label: "Tap to separate", percent: null, fill: 0 };
+    case "waiting":
+      return { label: "Waiting for audio", percent: null, fill: 0 };
+    case "downloading":
+      return {
+        label: needsStarting(activity.source) ? "Downloading track" : "Buffering",
+        percent: Number.isFinite(activity.fraction) ? clampFraction(activity.fraction) : null,
+        fill: 0,
+      };
+    case "working":
+      return describeProcessing(activity);
+    case "ready-to-engage":
+      return { label: "Tap to separate", percent: null, fill: 0 };
     case "engaged":
       return { label: "Ready", percent: null, fill: 1 };
     case "failed":
       return { label: "Unavailable", percent: null, fill: 0 };
-    case "ready-to-engage":
-      return { label: "Tap to separate", percent: null, fill: 0 };
-    case "processing":
-      return describeProcessing(state);
-    case "waiting-for-capture":
-      if (state.downloadSource === null) return { label: "Waiting for audio", percent: null, fill: 0 };
-      return {
-        label: state.downloadSource === "hidden-player" ? "Downloading track" : "Buffering",
-        percent: Number.isFinite(state.downloadFraction) ? clampFraction(state.downloadFraction) : null,
-        fill: 0,
-      };
-    default:
-      return null;
   }
 }
 

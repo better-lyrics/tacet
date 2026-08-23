@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { SourceId } from "@/acquisition/sources";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 
@@ -16,16 +17,15 @@ describe("initialKaraokeState", () => {
     });
   });
 
-  it("regression: names no download source until one reports", () => {
+  it("regression: names no download source until the ladder says which rung is fetching", () => {
     expect(initialKaraokeState("video-1").downloadSource).toBeNull();
 
-    const reporting = reduceKaraokeState(initialKaraokeState("video-1"), {
-      type: "download-progress",
+    const fetching = reduceKaraokeState(initialKaraokeState("video-1"), {
+      type: "fetching",
       videoId: "video-1",
-      fraction: 0.4,
       source: "hidden-player",
     });
-    expect(reporting.downloadSource).toBe("hidden-player");
+    expect(fetching.downloadSource).toBe("hidden-player");
   });
 });
 
@@ -39,7 +39,7 @@ describe("track-changed", () => {
       total: 10,
       reason: null,
       downloadFraction: 0,
-      downloadSource: "listener-playback",
+      downloadSource: "player-capture",
     };
     expect(reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" })).toEqual(
       initialKaraokeState("video-2")
@@ -55,7 +55,7 @@ describe("track-changed", () => {
       total: 0,
       reason: "boom",
       downloadFraction: 0,
-      downloadSource: "listener-playback",
+      downloadSource: "player-capture",
     };
     expect(reduceKaraokeState(failed, { type: "track-changed", videoId: "video-2" })).toEqual(
       initialKaraokeState("video-2")
@@ -256,12 +256,63 @@ describe("stage and progress", () => {
   });
 });
 
+function fetchingState(source: SourceId): KaraokeState {
+  return reduceKaraokeState(initialKaraokeState("video-1"), { type: "fetching", videoId: "video-1", source });
+}
+
+describe("fetching", () => {
+  it("names the rung the ladder is on", () => {
+    expect(fetchingState("shadow-url").downloadSource).toBe("shadow-url");
+  });
+
+  it("is ignored for a videoId that is not the current track", () => {
+    const state = initialKaraokeState("video-1");
+    expect(reduceKaraokeState(state, { type: "fetching", videoId: "video-2", source: "shadow-url" })).toBe(state);
+  });
+
+  describe("edge cases", () => {
+    it("clears the fraction when the ladder moves to another rung", () => {
+      const reporting = reduceKaraokeState(fetchingState("shadow-url"), {
+        type: "download-progress",
+        videoId: "video-1",
+        fraction: 0.42,
+        source: "shadow-url",
+      });
+      const moved = reduceKaraokeState(reporting, {
+        type: "fetching",
+        videoId: "video-1",
+        source: "hidden-player",
+      });
+      expect(moved.downloadSource).toBe("hidden-player");
+      expect(moved.downloadFraction).toBeNaN();
+    });
+
+    it("clears the source when nothing is fetching any more", () => {
+      const cleared = reduceKaraokeState(fetchingState("shadow-url"), {
+        type: "fetching",
+        videoId: "video-1",
+        source: null,
+      });
+      expect(cleared.downloadSource).toBeNull();
+      expect(cleared.downloadFraction).toBeNaN();
+    });
+  });
+
+  describe("invariants", () => {
+    it("leaves the state referentially identical while the rung has not changed", () => {
+      const fetching = fetchingState("shadow-url");
+      expect(reduceKaraokeState(fetching, { type: "fetching", videoId: "video-1", source: "shadow-url" })).toBe(
+        fetching
+      );
+    });
+  });
+});
+
 describe("download-progress", () => {
   it("records the buffered fraction while waiting for capture", () => {
-    const state = initialKaraokeState("video-1");
-    const next = reduceKaraokeState(state, {
+    const next = reduceKaraokeState(fetchingState("player-capture"), {
       type: "download-progress",
-      source: "listener-playback",
+      source: "player-capture",
       videoId: "video-1",
       fraction: 0.42,
     });
@@ -269,14 +320,24 @@ describe("download-progress", () => {
     expect(next.status).toBe("waiting-for-capture");
   });
 
+  it("records the fraction of a rung the page world pulls in this tab", () => {
+    const next = reduceKaraokeState(fetchingState("shadow-url"), {
+      type: "download-progress",
+      source: "shadow-url",
+      videoId: "video-1",
+      fraction: 0.31,
+    });
+    expect(next.downloadFraction).toBe(0.31);
+  });
+
   it("is ignored once past waiting-for-capture", () => {
-    const ready = reduceKaraokeState(initialKaraokeState("video-1"), {
+    const ready = reduceKaraokeState(fetchingState("player-capture"), {
       type: "capture-ready",
       videoId: "video-1",
     });
     const next = reduceKaraokeState(ready, {
       type: "download-progress",
-      source: "listener-playback",
+      source: "player-capture",
       videoId: "video-1",
       fraction: 0.9,
     });
@@ -284,14 +345,27 @@ describe("download-progress", () => {
   });
 
   it("is ignored for a stale videoId from a previous track", () => {
-    const state = initialKaraokeState("video-1");
+    const state = fetchingState("player-capture");
     const next = reduceKaraokeState(state, {
       type: "download-progress",
-      source: "listener-playback",
+      source: "player-capture",
       videoId: "video-0",
       fraction: 0.5,
     });
     expect(next).toBe(state);
+  });
+
+  describe("regressions", () => {
+    it("regression: a fraction for a rung that is not running is ignored", () => {
+      const next = reduceKaraokeState(fetchingState("shadow-url"), {
+        type: "download-progress",
+        source: "player-capture",
+        videoId: "video-1",
+        fraction: 0.07,
+      });
+      expect(next.downloadFraction).toBeNaN();
+      expect(next.downloadSource).toBe("shadow-url");
+    });
   });
 });
 
@@ -359,7 +433,7 @@ describe("crossfaded", () => {
     total: 7,
     reason: null,
     downloadFraction: 0,
-    downloadSource: "listener-playback",
+    downloadSource: "player-capture",
   };
 
   it("lands on the new track already engaged, since its stems are in the deck", () => {
@@ -425,7 +499,7 @@ describe("invariants", () => {
       total: 7,
       reason: null,
       downloadFraction: 0,
-      downloadSource: "listener-playback",
+      downloadSource: "player-capture",
     };
     const next = reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" });
     expect(next.processed).toBe(0);

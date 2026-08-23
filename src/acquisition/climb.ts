@@ -45,5 +45,14 @@ function climbStep(input: ClimbInput): ClimbStep {
   }
 }
 
-export { climbStep, startClimb };
+// -- Which rung is fetching the bytes right now ----------------------------------
+
+function fetchingSource(climb: Climb | null): SourceId | null {
+  if (climb === null) return null;
+  if (climb.inFlight) return climb.tried[climb.tried.length - 1] ?? null;
+  const running = climb.tried.filter(id => !needsStarting(id));
+  return running[running.length - 1] ?? null;
+}
+
+export { climbStep, fetchingSource, startClimb };
 export type { Climb, ClimbInput, ClimbStep };

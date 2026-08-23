@@ -1,16 +1,17 @@
+import { needsStarting } from "@/acquisition/sources";
+import type { SourceId } from "@/acquisition/sources";
 import type { TooltipContent } from "@/ui/tooltip";
 
-type DownloadSource = "hidden-player" | "listener-playback";
+// -- What a source says about itself while it fetches --------------------------
 
-const HIDDEN_PLAYER_LABEL = "Downloading the track…";
-const LISTENER_PLAYBACK_LABEL = "Buffering with the player…";
+const FETCHED_LABEL = "Downloading the track…";
+const BUFFERED_LABEL = "Buffering with the player…";
 
-function describeDownload(bufferedFraction: number, source: DownloadSource = "listener-playback"): TooltipContent {
+function describeDownload(bufferedFraction: number, source: SourceId): TooltipContent {
   return {
-    label: source === "hidden-player" ? HIDDEN_PLAYER_LABEL : LISTENER_PLAYBACK_LABEL,
+    label: needsStarting(source) ? FETCHED_LABEL : BUFFERED_LABEL,
     percent: Number.isFinite(bufferedFraction) ? Math.min(1, Math.max(0, bufferedFraction)) : null,
   };
 }
 
-export { describeDownload, HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL };
-export type { DownloadSource };
+export { describeDownload, BUFFERED_LABEL, FETCHED_LABEL };

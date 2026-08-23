@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { climbStep, startClimb } from "@/acquisition/climb";
+import { climbStep, fetchingSource, startClimb } from "@/acquisition/climb";
 import type { Climb } from "@/acquisition/climb";
 import { SOURCE_IDS } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
@@ -162,6 +162,67 @@ describe("climbStep", () => {
       walk(climb, DEFAULT_ORDER, true);
       expect(climb.exhausted).toBe(true);
       expect(climbStep({ climb, order: DEFAULT_ORDER, playingTrack: true })).toEqual({ kind: "waiting" });
+    });
+  });
+});
+
+describe("fetchingSource", () => {
+  it("names the rung a climb is waiting on", () => {
+    const climb: Climb = { videoId: "abc123", tried: ["shadow-url"], inFlight: true, exhausted: false };
+    expect(fetchingSource(climb)).toBe("shadow-url");
+  });
+
+  it("names player capture once the ladder is spent, because it goes on running", () => {
+    const climb: Climb = { videoId: "abc123", tried: [...DEFAULT_ORDER], inFlight: false, exhausted: true };
+    expect(fetchingSource(climb)).toBe("player-capture");
+  });
+
+  describe("edge cases", () => {
+    it("answers null when there is no climb at all", () => {
+      expect(fetchingSource(null)).toBeNull();
+    });
+
+    it("answers null for a fresh climb that has tried nothing", () => {
+      expect(fetchingSource(startClimb("abc123"))).toBeNull();
+    });
+
+    it("answers null once a rung that had to be started is no longer in flight", () => {
+      const climb: Climb = { videoId: "abc123", tried: ["shadow-url"], inFlight: false, exhausted: false };
+      expect(fetchingSource(climb)).toBeNull();
+    });
+
+    it("answers null for the ahead track's spent ladder, which never reaches player capture", () => {
+      const climb = startClimb("abc123");
+      walk(climb, DEFAULT_ORDER, false);
+      expect(fetchingSource(climb)).toBeNull();
+    });
+  });
+
+  describe("invariants", () => {
+    it("never names a rung the climb has not tried", () => {
+      const climbs: Climb[] = [
+        startClimb("abc123"),
+        { videoId: "abc123", tried: ["player-capture"], inFlight: false, exhausted: false },
+        { videoId: "abc123", tried: ["shadow-url", "hidden-player"], inFlight: true, exhausted: false },
+        { videoId: "abc123", tried: [...DEFAULT_ORDER], inFlight: false, exhausted: true },
+      ];
+      for (const climb of climbs) {
+        const source = fetchingSource(climb);
+        if (source === null) continue;
+        expect(climb.tried).toContain(source);
+      }
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a climb that passed player capture over names the rung it is pulling with", () => {
+      const climb: Climb = {
+        videoId: "abc123",
+        tried: ["player-capture", "shadow-url"],
+        inFlight: true,
+        exhausted: false,
+      };
+      expect(fetchingSource(climb)).toBe("shadow-url");
     });
   });
 });

@@ -118,11 +118,31 @@ describe("one owner for whether a track wants separating", () => {
     expect(filesMatching(/[Mm]ixLevel\s*[!=]==\s*NEUTRAL_MIX_LEVEL/)).toEqual(["pageworld/gain-law.ts"]);
   });
 
-  it("the veto is the only thing the fader's face and the pipeline ask", () => {
+  it("the veto is the only thing the activity owner and the pipeline ask", () => {
     expect(filesMatching(/\bseparationVeto\b/)).toEqual([
       "orchestrator/karaoke-pipeline.ts",
+      "orchestrator/separation-activity.ts",
       "orchestrator/separation-wanted.ts",
-      "ui/fader-face.ts",
+    ]);
+  });
+});
+
+describe("one owner for what this track's separation is doing right now", () => {
+  it("only the fader wiring asks the activity owner, and both surfaces read the answer it hands them", () => {
+    expect(filesMatching(/\bseparationActivity\b/)).toEqual([
+      "contents/fader-control.ts",
+      "orchestrator/separation-activity.ts",
+    ]);
+  });
+});
+
+describe("one owner for whether a rung must be started", () => {
+  it("only the ladder and the two surfaces that name a source ask the registry", () => {
+    expect(filesMatching(/\bneedsStarting\b/)).toEqual([
+      "acquisition/climb.ts",
+      "acquisition/sources.ts",
+      "orchestrator/download-tooltip.ts",
+      "orchestrator/separation-status.ts",
     ]);
   });
 });

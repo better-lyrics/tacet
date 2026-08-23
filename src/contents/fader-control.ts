@@ -1,10 +1,12 @@
 import faderCss from "data-text:../ui/fader.css";
 import { type RequestQueueTracksMessage, isQueueTracksMessage, isTrackArtworkMessage } from "@/capture/bridge-protocol";
-import { describeBusy } from "@/orchestrator/busy-tooltip";
+import { activityIsBusy, describeActivity } from "@/orchestrator/busy-tooltip";
 import { describeDelivery } from "@/orchestrator/delivery";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { separationActivity } from "@/orchestrator/separation-activity";
+import type { SeparationActivity } from "@/orchestrator/separation-activity";
 import { describeSeparation } from "@/orchestrator/separation-status";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { faderArmed } from "@/pageworld/gain-law";
@@ -19,7 +21,6 @@ import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { faderMarks } from "@/ui/fader-availability";
 import type { FaderAvailability } from "@/ui/fader-availability";
-import { describeAskingFader, faderFace } from "@/ui/fader-face";
 import { describeInertFader } from "@/ui/fader-inert-tooltip";
 import { settlesForTrackChange } from "@/ui/fader-track-settle";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
@@ -65,48 +66,26 @@ function markFader(button: HTMLButtonElement, availability: FaderAvailability): 
   button.style.cursor = marks.cursor;
 }
 
-function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
-  const button = control.button;
-  control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
-  switch (state.status) {
-    case "waiting-for-capture":
-    case "processing":
-      markFader(button, "available");
-      tooltip.setContent(describeBusy(state, armed));
-      break;
-    case "ready-to-engage":
-    case "engaged":
-      markFader(button, "available");
-      tooltip.setContent({ label: "Click to remove vocals, hold to set the level", percent: null });
-      break;
-    case "failed":
-      markFader(button, "unavailable");
-      tooltip.setContent({ label: `Sing-along unavailable: ${state.reason ?? "unknown error"}`, percent: null });
-      break;
-  }
-}
-
 function renderInertFader(control: FaderControl, tooltip: Tooltip): void {
   control.setBusy(false);
   markFader(control.button, "inert");
   tooltip.setContent(describeInertFader(crossfadeSeconds, trackStatusStore.get().next));
 }
 
-function renderAskingFader(control: FaderControl, tooltip: Tooltip): void {
-  control.setBusy(false);
-  markFader(control.button, "available");
-  tooltip.setContent(describeAskingFader());
-}
-
 // -- Master switch ---------------------------------------------------------
 
 let latest: KaraokeState | null = null;
+let armed = false;
 let faderRender: (() => void) | null = null;
 let faderSettle: (() => void) | null = null;
 let faderCrossfade: ((durationSeconds: number) => void) | null = null;
 let crossfadeSeconds = 0;
 let separationMode: SeparationMode = "off";
 let seenVideoId: string | null = null;
+
+function currentActivity(): SeparationActivity {
+  return separationActivity({ mode: separationMode, armed, state: latest });
+}
 
 interface MountedFader {
   setPlacement(next: FaderPlacement): void;
@@ -116,21 +95,19 @@ interface MountedFader {
 function mountFader(placement: FaderPlacement): MountedFader {
   injectStylesheet();
 
-  let armed = false;
   let tooltip: Tooltip | undefined;
 
   function render(): void {
     if (!tooltip) return;
-    const face = faderFace({ mode: separationMode, armed, status: latest?.status ?? null });
-    if (face === "inert") {
+    const activity = currentActivity();
+    if (activity.kind === "off") {
       renderInertFader(control, tooltip);
       return;
     }
-    if (face === "asking") {
-      renderAskingFader(control, tooltip);
-      return;
-    }
-    if (latest) renderKaraokeState(control, tooltip, latest, armed);
+    control.setBusy(activityIsBusy(activity));
+    markFader(control.button, activity.kind === "failed" ? "unavailable" : "available");
+    const content = describeActivity(activity, armed);
+    if (content) tooltip.setContent(content);
   }
 
   const control = createFaderControl({
@@ -269,7 +246,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       type: "blk-track-status",
       now: tracks.now,
       next: tracks.next,
-      separation: describeSeparation(latest),
+      separation: describeSeparation(currentActivity()),
       deliveredBy: describeDelivery(nowVideoId ? pipeline?.deliveredSource(nowVideoId) ?? null : null),
     } satisfies TrackStatusMessage);
     requestQueueTracks();

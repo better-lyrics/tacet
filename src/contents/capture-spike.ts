@@ -48,7 +48,6 @@ import { runSliceCapture } from "@/capture/slice-runner";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
-import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { isSetLoggingMessage } from "@/pageworld/protocol";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 import { readClockDuration } from "@/pageworld/track-duration";
@@ -236,13 +235,24 @@ function announceAheadDownloadProgress(): void {
   window.postMessage(message, window.location.origin);
 }
 
+function announcePullDownloadProgress(videoId: string, receivedBytes: number, expectedBytes: number): void {
+  if (!Number.isFinite(expectedBytes) || expectedBytes <= 0) return;
+  const message: DownloadProgressMessage = {
+    type: "blk-download-progress",
+    videoId,
+    fraction: receivedBytes / expectedBytes,
+    source: "shadow-url",
+  };
+  window.postMessage(message, window.location.origin);
+}
+
 function announceDownloadProgress(element: HTMLVideoElement): void {
   announceAheadDownloadProgress();
   const videoId = listenedVideoId();
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
   if (prefetchStateByVideoId.get(videoId) === "done") return;
   const prefetching = hiddenPlayerOwns(videoId);
-  const source: DownloadSource = prefetching ? "hidden-player" : "listener-playback";
+  const source: SourceId = prefetching ? "hidden-player" : "player-capture";
   const against = trackDurationSeconds(element) ?? readClockDuration(document);
   const fraction = prefetching ? hiddenPlayerProgress() : computeBufferedFraction(bufferedEndSeconds(element), against);
   const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction, source };
@@ -559,7 +569,10 @@ function pullAheadTrack(videoId: string, url: string): void {
 
   aheadPullsInFlight.add(videoId);
   const startedAt = performance.now();
-  acquireFromMintedUrl({ url })
+  acquireFromMintedUrl({
+    url,
+    onProgress: (receivedBytes, expectedBytes) => announcePullDownloadProgress(videoId, receivedBytes, expectedBytes),
+  })
     .then(result => {
       aheadPullsInFlight.delete(videoId);
       const elapsedMs = Math.round(performance.now() - startedAt);

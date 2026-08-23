@@ -2,7 +2,6 @@
 
 import { isSourceId } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
-import type { DownloadSource } from "@/orchestrator/download-tooltip";
 
 export interface RequestCapturedAudioMessage {
   type: "blk-request-captured-audio";
@@ -99,7 +98,7 @@ export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
   fraction: number;
-  source: DownloadSource;
+  source: SourceId;
 }
 
 export interface SliceCapturedMessage {
@@ -335,7 +334,6 @@ export function isDownloadProgressMessage(data: unknown): data is DownloadProgre
     (data as { type?: unknown }).type === "blk-download-progress" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     typeof (data as { fraction?: unknown }).fraction === "number" &&
-    ((data as { source?: unknown }).source === "hidden-player" ||
-      (data as { source?: unknown }).source === "listener-playback")
+    isSourceId((data as { source?: unknown }).source)
   );
 }

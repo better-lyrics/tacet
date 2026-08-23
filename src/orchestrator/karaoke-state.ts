@@ -1,4 +1,4 @@
-import type { DownloadSource } from "@/orchestrator/download-tooltip";
+import type { SourceId } from "@/acquisition/sources";
 
 type KaraokeStatus = "waiting-for-capture" | "ready-to-engage" | "processing" | "engaged" | "failed";
 
@@ -10,7 +10,7 @@ interface KaraokeState {
   total: number;
   reason: string | null;
   downloadFraction: number;
-  downloadSource: DownloadSource | null;
+  downloadSource: SourceId | null;
 }
 
 type KaraokeEvent =
@@ -23,7 +23,8 @@ type KaraokeEvent =
   | { type: "engage"; videoId: string }
   | { type: "stage"; videoId: string; stage: string }
   | { type: "progress"; videoId: string; processed: number; total: number }
-  | { type: "download-progress"; videoId: string; fraction: number; source: DownloadSource }
+  | { type: "fetching"; videoId: string; source: SourceId | null }
+  | { type: "download-progress"; videoId: string; fraction: number; source: SourceId }
   | { type: "stems-loaded"; videoId: string }
   | { type: "failed"; videoId: string; reason: string };
 
@@ -77,9 +78,14 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
     case "progress":
       return state.status === "processing" ? { ...state, processed: event.processed, total: event.total } : state;
 
+    case "fetching":
+      return event.source === state.downloadSource
+        ? state
+        : { ...state, downloadSource: event.source, downloadFraction: Number.NaN };
+
     case "download-progress":
-      return state.status === "waiting-for-capture"
-        ? { ...state, downloadFraction: event.fraction, downloadSource: event.source }
+      return state.status === "waiting-for-capture" && event.source === state.downloadSource
+        ? { ...state, downloadFraction: event.fraction }
         : state;
 
     case "stems-loaded":

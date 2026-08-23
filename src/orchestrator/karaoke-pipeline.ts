@@ -1,6 +1,6 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
-import { climbStep, startClimb } from "@/acquisition/climb";
+import { climbStep, fetchingSource, startClimb } from "@/acquisition/climb";
 import type { Climb } from "@/acquisition/climb";
 import { enabledOrder, sanitizeSourcePreferences, sourceById } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
@@ -721,10 +721,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (step.kind === "spent") {
       walk.exhausted = true;
       log(`every source has been tried for ${walk.videoId}`);
-      return;
+    } else {
+      walk.inFlight = true;
+      startSource(walk.videoId, step.source, ahead);
     }
-    walk.inFlight = true;
-    startSource(walk.videoId, step.source, ahead);
+    dispatch({ type: "fetching", videoId: walk.videoId, source: fetchingSource(walk) });
   }
 
   function climbFor(videoId: string): Climb | null {
@@ -734,9 +735,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
-    const inFlightSource =
-      climb?.videoId === videoId && climb.inFlight ? climb.tried[climb.tried.length - 1] ?? null : null;
-    delivery = { videoId, source: deliveredBy({ inFlightSource, announcedSource }) };
+    delivery = { videoId, source: deliveredBy({ inFlightSource: fetchingSource(climbFor(videoId)), announcedSource }) };
   }
 
   function startSource(videoId: string, source: SourceId, ahead: boolean): void {
