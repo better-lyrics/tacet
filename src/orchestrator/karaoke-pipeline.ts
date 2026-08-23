@@ -7,7 +7,7 @@ import type { SourceId } from "@/acquisition/sources";
 import { AheadStaging } from "@/orchestrator/ahead-staging";
 import { wantsAheadTrack } from "@/orchestrator/ahead-wanted";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
-import { deliveredBy } from "@/orchestrator/delivery";
+import { DeliveryLog } from "@/orchestrator/delivery";
 import {
   type AcquireAheadMessage,
   type CaptureStandDownMessage,
@@ -121,7 +121,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let observedTrack: PlayerState | null = null;
   let climb: Climb | null = null;
   let aheadClimb: Climb | null = null;
-  let delivery: { videoId: string; source: SourceId } | null = null;
+  const deliveries = new DeliveryLog();
   const reacquiredVideoIds = new Set<string>();
 
   options.onStateChange(state);
@@ -397,6 +397,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     if (isCaptureReadyMessage(data)) {
       if (data.videoId === prefetchVideoId) {
+        recordDelivery(data.videoId, null);
         maybeSeparateAhead(data.videoId);
         return;
       }
@@ -420,6 +421,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       }
       if (aheadClimb?.videoId === data.videoId && isStagingTarget(data.videoId)) {
         log(`${data.source} answered for the next track ${data.videoId}, pulling it into this page`);
+        recordDelivery(data.videoId, data.source);
         const acquire: AcquireAheadMessage = { type: "blk-acquire-ahead", videoId: data.videoId, url: data.url };
         postToPageWorld(acquire);
       }
@@ -739,7 +741,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
-    delivery = { videoId, source: deliveredBy({ inFlightSource: inFlightSource(climbFor(videoId)), announcedSource }) };
+    deliveries.note(videoId, { inFlightSource: inFlightSource(climbFor(videoId)), announcedSource });
   }
 
   function startSource(videoId: string, source: SourceId, ahead: boolean): void {
@@ -818,6 +820,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function destroy(): void {
     clearCacheProbeTimer();
     disarmCrossfade();
+    deliveries.clear();
     document.removeEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
@@ -834,7 +837,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function deliveredSource(videoId: string): SourceId | null {
-    return delivery?.videoId === videoId ? delivery.source : null;
+    return deliveries.sourceOf(videoId);
   }
 
   return { engage, setSettings, deliveredSource, destroy };
